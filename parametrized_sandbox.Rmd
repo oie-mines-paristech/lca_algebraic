@@ -1,0 +1,70 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+# %load_ext autoreload
+# %autoreload 2
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import brightway2 as bw
+
+# Custom utils defined for inter-acv
+from utils import *
+```
+
+```{python}
+# Set project 
+bw.projects.set_current('B_Publication')
+initDb()
+```
+
+```{python}
+# Select impacts
+impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m) ]
+```
+
+```{python}
+us_elec = getActivity('market group for electricity, medium voltage', 'US')
+glo_elec = getActivity('market group for electricity, medium voltage', 'GLO')
+```
+
+```{python}
+foo = newActivity("foo", "kg", exchanges={us_elec:1, glo_elec:"alpha"})
+print_act(foo)
+```
+
+```{python}
+bar = newActivity("bar", "kg")
+```
+
+```{python}
+elect_switch_param = newParamDef('elect_switch_param', ParamType.ENUM, "us", values=["us", "glo"], description="Switch on electricty mix")
+alpha = newParamDef('alpha', ParamType.NUMBER, 0.5, description="alpha")
+```
+
+```{python}
+elec_switch_activity = newSwitchActivity(elect_switch_param, dict(us=us_elec, glo=glo_elec))
+print_act(elec_switch_activity)
+```
+
+```{python}
+computeLCA(elec_switch_activity, impacts, amount=1, elect_switch_param="us")
+
+```
+
+```{python}
+
+```
