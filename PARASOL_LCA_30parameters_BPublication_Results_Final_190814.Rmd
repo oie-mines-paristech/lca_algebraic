@@ -43,6 +43,7 @@ bw.databases
 ```
 
 ```{python}
+# Ecoinvent Db is loaded once and saved locally
 fpei34 =  r'./ecoinvent 3.4_cutoff_ecoSpold02/datasets'
 if 'ecoinvent 3.4 cut off' in bw.databases:
     print("Database has already been imported")
@@ -440,6 +441,10 @@ print_data2(roof_system_adjusted)
 ```{python}
 ground_system_adjusted = [act for act in eidb if 'photovoltaic mounting system production, for 570kWp open ground module adjusted' in act['name']][0]
 print_data2(ground_system_adjusted)
+```
+
+```{python}
+
 ```
 
 ```{python}

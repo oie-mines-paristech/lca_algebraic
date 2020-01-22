@@ -17,52 +17,91 @@ jupyter:
 # %load_ext autoreload
 # %autoreload 2
 import pandas as pd
+import time
 import matplotlib.pyplot as plt
 import numpy as np
 import brightway2 as bw
 
 # Custom utils defined for inter-acv
 from utils import *
+from expression import *
 ```
 
 ```{python}
-# Set project 
+# Reset project & DB
 bw.projects.set_current('B_Publication')
-initDb()
+resetDb()
+resetParams()
+```
+
+```{python}
+alpha = newParamDef(
+    'alpha', 
+    ParamType.NUMBER, 
+    default=0.5, 
+    description="alpha")
+
+beta = newParamDef(
+    'beta', 
+    ParamType.NUMBER, 
+    default=0.5, 
+    description="beta")
+
+# Define parameters of the model
+elect_switch_param = newParamDef(
+    'elect_switch_param', 
+    ParamType.ENUM, 
+    values=["us", "glo"], 
+    default="us", 
+    description="Switch on electricty mix")
 ```
 
 ```{python}
 # Select impacts
-impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m) ]
+impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
 ```
 
 ```{python}
-us_elec = getActivity('market group for electricity, medium voltage', 'US')
-glo_elec = getActivity('market group for electricity, medium voltage', 'GLO')
+occup = findBio('Occupation, industrial area')
+heat = findBio('Heat, waste', categories=['air'])
+heat.__dict__
 ```
 
 ```{python}
-foo = newActivity("foo", "kg", exchanges={us_elec:1, glo_elec:"alpha"})
-print_act(foo)
+# Create new, parametrized activity
+
+activity1 = newActivity(
+    name="act1", unit="kg", 
+    exchanges= {
+        occup:3, 
+        heat: alpha})
+
+activity2 = newActivity(
+    name="act2", unit="kg", 
+    exchanges= {
+        activity1: beta * 5 + alpha, # Nested activity with parametrized amount
+        heat:7}) # Constant exhange
 ```
 
 ```{python}
-bar = newActivity("bar", "kg")
+print_act(activity1)
 ```
 
 ```{python}
-elect_switch_param = newParamDef('elect_switch_param', ParamType.ENUM, "us", values=["us", "glo"], description="Switch on electricty mix")
-alpha = newParamDef('alpha', ParamType.NUMBER, 0.5, description="alpha")
+print_act(activity2)
 ```
 
 ```{python}
-elec_switch_activity = newSwitchActivity(elect_switch_param, dict(us=us_elec, glo=glo_elec))
+elec_switch_activity = switch(
+    elect_switch_param, dict(
+        us=us_elec, 
+        glo=glo_elec))
+
 print_act(elec_switch_activity)
 ```
 
 ```{python}
-computeLCA(elec_switch_activity, impacts, amount=1, elect_switch_param="us")
-
+computeLCA(activity2, impacts, alpha=4, beta=0.8)
 ```
 
 ```{python}
