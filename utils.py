@@ -1,15 +1,24 @@
 #
 # This file defines several utility functions above brightway2 to be used by notebooks
 #
-import brightway2 as bw
-from bw2data.backends.peewee import Activity
-from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
-from typing import Dict, Union, List
-from bw2calc.lca import LCA
-import pandas as pd
+import re
 import sys
-from sympy import Symbol, Basic
+from collections import defaultdict
+from typing import Dict, Union, List
+
+import brightway2 as bw
 import numpy as np
+import pandas as pd
+from IPython.display import display
+from bw2calc.lca import LCA
+from bw2data.backends.peewee import Activity, ActivityDataset
+from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
+from sympy import Symbol, Basic, simplify, symbols
+from sympy.parsing.sympy_parser import parse_expr
+from slugify import slugify
+from sympy.utilities.lambdify import lambdify
+from collections import OrderedDict
+
 
 # Constants
 ECOINVENT_DB_NAME='ecoinvent 3.4 cut off'
@@ -28,16 +37,31 @@ def print_act(act):
     df = pd.DataFrame(index = ['amount /formula','unit','type'])
     for (i,exc) in enumerate(act.exchanges()):
         df[str(bw.get_activity(exc.input.key))] = [exc['formula'] if 'formula' in exc else exc.amount, exc.unit,exc['type']]
-    return df.T
+    display(df.T)
 
 # Create or cleanup DB
 def resetDb(db_name=ACV_DB_NAME):
     if db_name in bw.databases :
-        print("Db %s was here. Deleting it" % db_name)
+        eprint("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
     db = bw.Database(ACV_DB_NAME)
     db.write(dict())
 
+def importDb(dbname, path) :
+    if dbname in bw.databases:
+        eprint("Database '%s' has already been imported " % dbname)
+    else:
+        ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
+        ei34.apply_strategies()
+        ei34.statistics()
+        ei34.write_database()
+
+dbs = dict()
+def getDb(dbname)  -> bw.Database :
+    '''Pool of Database instances '''
+    if not dbname in dbs :
+        dbs[dbname] = bw.Database(dbname)
+    return dbs[dbname]
 
 def resetParams(db_name=ACV_DB_NAME) :
     ''' Reset project and activity parameters '''
@@ -48,15 +72,54 @@ def resetParams(db_name=ACV_DB_NAME) :
     DatabaseParameter.delete().execute()
     Group.delete().execute()
 
+# Index of activities per name, for fast search dict[db_name][activity_word] => list of activitites
+db_index = dict()
 
-def findActivity(name, location=None, categories=None, category=None, db_name=ECOINVENT_DB_NAME) :
+def split_words(name) :
+
+    clean = re.sub('[^0-9a-zA-Z]+', ' ', name)
+    clean = re.sub(' +', ' ', clean)
+    clean = clean.lower()
+
+    return clean.split(' ')
+
+
+def build_index(db) :
+    res = defaultdict(list)
+    for act in db :
+        words = split_words(act['name'])
+        for word in words :
+            res[word].append(act)
+    return res
+
+def get_indexed_db(db_name) :
+    if not db_name in db_index :
+        db_index[db_name] = build_index(getDb(db_name))
+    return db_index[db_name]
+
+def find_candidates(db_name, name) :
+    '''Return the shortest list of candidates among all the words in name'''
+    res = []
+    index = get_indexed_db(db_name)
+    words = split_words(name)
+    for word in words :
+        candidates = index[word]
+        if len(res) == 0 or ( 0 < len(candidates) < len(res)) :
+            res = candidates
+    return res
+
+def getActByCode(db_name, code) :
+    return getDb(db_name).get(code)
+
+def findActivity(name, location=None, categories=None, category=None, db_name=None) :
     '''
-        Find single activity by name
+        Find single activity by name.
+        Uses index for fast fetching
 
         :param name: Part of the name to search for
         :param location: [optional] 'GLO' or other
         :param category: if provided, activity should have at least this category
-        :param categories: if provided, activities should be exactly this
+        :param categories: if provided, activity should have this exact list of categories
     '''
     def act_filter(act) :
         if not name in act['name'] :
@@ -68,18 +131,25 @@ def findActivity(name, location=None, categories=None, category=None, db_name=EC
         if categories and not tuple(categories) == act['categories'] :
             return False
         return True
-    db = bw.Database(db_name)
-    acts = list(filter(act_filter, db))
+
+    # Find candidates via index
+    candidates = find_candidates(db_name, name)
+
+    # Exact match
+    acts = list(filter(act_filter, candidates))
     if len(acts) == 0 :
         raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name, location))
     if len(acts) > 1 :
         raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (db_name, name, location, str(acts)))
     return acts[0]
 
-def findBiosphere(name, location=None, **kwargs):
+def findBioAct(name, location=None, **kwargs):
     ''' Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) '''
     return findActivity(name, location, db_name=BIOSPHERE3_DB_NAME, **kwargs)
 
+def findTechAct(name, location=None, **kwargs):
+    ''' Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) '''
+    return findActivity(name, location, db_name=ECOINVENT_DB_NAME, **kwargs)
 
 # Type of parameters
 class ParamType :
@@ -87,9 +157,7 @@ class ParamType :
     BOOL = "bool"
     NUMBER = "number"
 
-
 class ParamDef(Symbol) :
-
     '''
     Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
@@ -148,7 +216,7 @@ class EnumParam(ParamDef) :
 
 
 
-# Creates a param and register it into global registry and as brightway parameter
+# Creates a param and register it into a global registry and as a brightway parameter
 def newParamDef(name, type, **kwargs) :
     global param_registry
 
@@ -157,6 +225,7 @@ def newParamDef(name, type, **kwargs) :
     else :
         param = ParamDef(name, type=type, **kwargs)
 
+    # Put it in local registry (in memory)
     if name in param_registry:
         raise Exception("Param %s already defined" % name)
     param_registry[name] = param
@@ -175,7 +244,7 @@ def newActivity(
         exchanges : Dict[Activity, Union[float, str]] = dict(),
         db_name=ACV_DB_NAME, **argv) :
 
-    db = bw.Database(db_name)
+    db = getDb(db_name)
 
     # Already present : delete it ?
     for act in db :
@@ -252,8 +321,6 @@ def multi_params_lca(methods, func_unit, nb_iter, update_params) :
     for iParam in range(0, nb_iter):
         update_params(iParam)
 
-        print(lca.tech_params)
-
         lca.redo_lci(func_unit)
         lca.rebuild_biosphere_matrix()
         lca.rebuild_technosphere_matrix()
@@ -266,10 +333,17 @@ def multi_params_lca(methods, func_unit, nb_iter, update_params) :
     return results
 
 
-def computeLCA(activity, methods, amount=1, **params) :
+def multiLCA(activities, methods) :
+    ''' Simple wrapper around brightway API'''
+    bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
+    lca = bw.MultiLCA('process')
+    cols = [act['code'] for act_amount in activities for act, amount in act_amount.items()]
+    return pd.DataFrame(lca.results.T, index=methods, columns=cols)
+
+def multiLCAWithParams(activity, methods, amount=1, **params) :
 
     '''
-        Compute LCA for a single activity and a set of methods, after settings the parameters and updateing exchange amounts
+        Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
     '''
 
     # Update parameters in brigthway
@@ -283,8 +357,148 @@ def computeLCA(activity, methods, amount=1, **params) :
         # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
         bw.parameters.recalculate()
 
-    bw.calculation_setups['process'] = {'inv': [{activity: amount}], 'ia': methods}
-    lca = bw.MultiLCA('process')
-    df = pd.DataFrame(index=methods)
-    df[0] = lca.results.T
-    return df
+    #undef_params = param_registry.keys() - params.keys()
+    #if undef_params :
+    #    raise Exception("Some model parameters are not set : %s" % undef_params)
+
+    return multiLCA([{activity: amount}], methods)
+
+
+def multiLCAWithParamsAlgebric(activity, methods, amount=1, **params) :
+
+    '''
+        Compute LCA by expressing the foregrounf model as symbolic expression of background
+        activities and parameters. Then, compute 'static' inventory of the referenced background activities.
+        This enables a very fast recomputation of LCA with different parameters, usefull for stochastic evaluation of parametrized models
+    '''
+
+    expr, actBySymbolName = actToExpression(activity)
+
+    # Create dummy reference to biosphere
+    # We cannot run LCA to biosphere
+    # We create technosphere activity mappaing exactly to 1 biosphere item
+    actBySymbolNameNoBio = OrderedDict()
+    for name, act in actBySymbolName.items() :
+        if act[0] == BIOSPHERE3_DB_NAME :
+            act = getOrCreateDummyBiosphereActCopy(act[1])
+        else :
+            act = getActByCode(*act)
+        actBySymbolNameNoBio[name] = act
+
+    # List of activities, ordered
+    acts = actBySymbolNameNoBio.values()
+
+    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
+    actsWithAmount = [{act:1} for act in acts]
+
+    # Compute LCA for all background activities and methods
+    lca =  multiLCA(actsWithAmount, methods)
+
+    # For each method, compute an algebric expression with activities replaced by their values
+    lambdas = []
+    for imethod, method in enumerate(methods) :
+
+        # Replace activities by their value for this method
+        sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(actBySymbolNameNoBio.keys())]
+        method_expr = expr.subs(sub)
+
+        # Tranform Sympy expression to lambda function to fast evaluation
+        lambd = lambdify(params.keys(), method_expr, 'numpy')
+        lambdas.append(lambd)
+
+    # Expand parameters as list of parameters
+    param_length = 1
+
+    for key, val in params.items() :
+        if isinstance(val, list) :
+            if param_length == 1 :
+                param_length = len(val)
+            elif param_length != len(val) :
+                raise Exception("Parameters should be a single value or a list of same number of values")
+
+    # Expand params and transform lists to np.array for vector computation
+    for key in params.keys() :
+        val = params[key]
+        if not isinstance(val, list) :
+            val = list([val] * param_length)
+        params[key] = np.array(val)
+
+    res = np.zeros((len(methods), param_length))
+
+    for imethod, lambd in enumerate(lambdas) :
+        # Compute result on whole vertors at a time : lambdas use numpy for vetor computation
+        res[imethod, :] = lambd(**params)
+
+    return pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
+
+
+
+def getOrCreateDummyBiosphereActCopy(code) :
+    '''
+        We cannot reference directly biosphere in the model, since LCA can only be applied to products
+        We create a dummy activity in our DB, with same code, and single exchange of '1'
+    '''
+    try:
+        return getDb(ACV_DB_NAME).get(code)
+    except:
+        bioAct = getDb(BIOSPHERE3_DB_NAME).get(code)
+        res = newActivity(bioAct['name'] + 'copy', bioAct['unit'], exchanges={bioAct:1})
+        return res
+
+def actToExpression(act : Activity):
+    '''
+        Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
+        :return (sympy_expr, dict of symbol => activity)
+    '''
+
+    act_symbols = dict() # Dict of  act = > symbol
+
+    def act_to_symbol(db_name, code) :
+        act = getDb(db_name).get(code)
+        name = act['name']
+        base_slug = slugify(name, separator='_')
+
+        slug = base_slug
+        i=0
+        while slug in act_symbols.values():
+            slug =  f"{base_slug}{i}"
+
+        return symbols(slug)
+
+    def rec_func(act:Activity) :
+
+        res = 0
+
+        for exch in act.exchanges() :
+
+            if 'formula' in exch :
+                amount = parse_expr(exch['formula'], param_registry)
+            else :
+                amount = exch['amount']
+
+            db_name, act_key = exch['input']
+
+            # Background DB => reference it as a symbol
+            if db_name != ACV_DB_NAME :
+                if not (db_name, act_key) in act_symbols :
+                    act_symbols[(db_name, act_key)] = act_to_symbol(db_name, act_key)
+                act_expr = act_symbols[(db_name, act_key)]
+
+            # Our model : recursively transform it to a symbolic expression
+            else :
+                if db_name == act['database'] and act_key == act['code']:
+                    raise Exception("Recursive exchange : %s" % (act.__dict__))
+
+                sub_act = getDb(db_name).get(act_key)
+                act_expr = rec_func(sub_act)
+
+            res += amount * act_expr
+
+        return simplify(res)
+
+    expr =  rec_func(act)
+
+    return (expr, reverse_dict(act_symbols))
+
+def reverse_dict(dic) :
+    return {v: k for k, v in dic.items()}

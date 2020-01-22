@@ -13,6 +13,10 @@ jupyter:
     name: python3
 ---
 
+# Imports
+
+Besides external libraries, we import several function from the local file : `utils.py`
+
 ```{python}
 # %load_ext autoreload
 # %autoreload 2
@@ -27,27 +31,43 @@ from utils import *
 from expression import *
 ```
 
+# Init brightway2 and databases
+
 ```{python}
-# Reset project & DB
+# Setup bw2
 bw.projects.set_current('B_Publication')
-resetDb()
+bw.bw2setup()
+
+# Import Ecoinvent DB (if not already done)
+# Update the PATH to suit your installation
+importDb(ECOINVENT_DB_NAME, './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
+
+# We use a separate DB for defining our model, reset it beforehand
+resetDb(ACV_DB_NAME)
+
+# Parameters are stored at project level : reset them
 resetParams()
 ```
 
+# Define parameters
+
+We define the parameters of the model.
+
 ```{python}
+# Example 'float' parameter
 alpha = newParamDef(
     'alpha', 
     ParamType.NUMBER, 
     default=0.5, 
-    description="alpha")
+    description="hello world")
 
 beta = newParamDef(
     'beta', 
     ParamType.NUMBER, 
     default=0.5, 
-    description="beta")
+    description="foo bar")
 
-# Define parameters of the model
+# Example 'enum' parameter, acting like a switch between several possibilities
 elect_switch_param = newParamDef(
     'elect_switch_param', 
     ParamType.ENUM, 
@@ -56,39 +76,45 @@ elect_switch_param = newParamDef(
     description="Switch on electricty mix")
 ```
 
-```{python}
-# Select impacts
-impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
-```
+# Get references to background activities and product
+
+`utils` provide two functions for easy and fast search of activities in reference databases : 
+* **findBioAct** : Search activity in **biosphere3** db
+* **findTechAct** : Search activity in **ecoinvent** db
+
 
 ```{python}
-occup = findBio('Occupation, industrial area')
-heat = findBio('Heat, waste', categories=['air'])
-heat.__dict__
+# Biosphere activities
+occup = findBioAct('Occupation, industrial area')
+heat = findBioAct('Heat, waste', categories=['air'])
+
+# Technosphere activities
+alu = findTechAct("aluminium alloy production", "RER")
 ```
+
+# Define the model
 
 ```{python}
 # Create new, parametrized activity
-
 activity1 = newActivity(
-    name="act1", unit="kg", 
-    exchanges= {
-        occup:3, 
-        heat: alpha})
+    name="act1", unit="kg", # Any extra named arg will be added as activity attribute
+    exchanges= { # We define exhanges as a dict of 'activity : amount'
+        occup:3 + alpha, # Amount can be a fixed value 
+        heat: alpha}) # Amount can be a Sympy expression (any arithmetic expression of Parameters)
 
 activity2 = newActivity(
     name="act2", unit="kg", 
     exchanges= {
-        activity1: beta * 5 + alpha, # Nested activity with parametrized amount
-        heat:7}) # Constant exhange
+        activity1: beta * 5 + alpha, # Reference the activity we just created
+        heat: 7 - alpha,
+        alu:0.4 / alpha }) 
 ```
 
 ```{python}
-print_act(activity1)
-```
-
-```{python}
+print_act(activity1) 
 print_act(activity2)
+          
+# Note that symbolic expressions have not been evaluated at this stage
 ```
 
 ```{python}
@@ -100,8 +126,57 @@ elec_switch_activity = switch(
 print_act(elec_switch_activity)
 ```
 
+# Select the impacts to consider
+
 ```{python}
-computeLCA(activity2, impacts, alpha=4, beta=0.8)
+# List of impacts to consider
+impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
+```
+
+# Compute LCA
+
+We provide two methods to compute LCA : 
+* **multiLCAWithParams** : it uses brightway2 parametric capabilities
+* **multiLCAWithParamsAlgebric** : This implementation allows list of sample values as parameter values. 
+It computes an algebric expression of the model and compute LCA once for the background activities. Then it evaluates each impact with numpy compilation of the expression, provided by Sympy : It enables to compute whole list of sample values at once. It is extremely fast (more than 1 million time faster than using brightway2 parameters) : 
+
+```{python}
+# Uses brightway2 parameters
+multiLCAWithParams(
+    activity2, # The model 
+    impacts, # Impacts
+    
+    # Parameters of the model
+    alpha=1, 
+    beta=2)
+```
+
+```{python}
+# Compute with algebric implementation : the values should be the same
+multiLCAWithParamsAlgebric(
+    activity2, # The model 
+    impacts, # Impacts
+    
+    # Parameters of the model
+    alpha=1, 
+    beta=2)
+```
+
+```{python}
+# Here is what the symbolic model looks like 
+expr, _ = actToExpression(activity2)
+expr
+```
+
+```{python}
+# Fast computation for millions of separate samples
+multiLCAWithParamsAlgebric(
+    activity2, # The model 
+    impacts, # Impacts
+    
+    # Parameters of the model
+    alpha=list(range(1, 1000000)), 
+    beta=list(range(1, 1000000)))
 ```
 
 ```{python}
