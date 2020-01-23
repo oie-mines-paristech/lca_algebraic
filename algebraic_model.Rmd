@@ -53,30 +53,35 @@ resetParams()
 
 We define the parameters of the model.
 
+The numeric parametes are instances of sympy' 'Symbol' . Thus, any python arithmetic expression composed of parameters will not result into direct evaluation, but the creation of a symbolic formula that can be manipulated later.
+
 ```{python}
 # Example 'float' parameter
-alpha = newParamDef(
-    'alpha', 
+a = newParamDef(
+    'a', 
     ParamType.NUMBER, 
     default=0.5, 
     description="hello world")
 
-beta = newParamDef(
-    'beta', 
+b = newParamDef(
+    'b', 
     ParamType.NUMBER, 
     default=0.5, 
     description="foo bar")
 
 # Example 'enum' parameter, acting like a switch between several possibilities
-elect_switch_param = newParamDef(
-    'elect_switch_param', 
+# Enum parameters are not Symbol themselves
+# They are a facility to represent many parameters at once '<paramName>_<enumValue>' 
+# and should be used with the 'switch' method 
+elec_switch_param = newParamDef(
+    'elec_switch_param', 
     ParamType.ENUM, 
-    values=["us", "glo"], 
+    values=["us", "eu"], 
     default="us", 
     description="Switch on electricty mix")
 ```
 
-# Get references to background activities and product
+# Get references to background activities and products
 
 `utils` provide two functions for easy and fast search of activities in reference databases : 
 * **findBioAct** : Search activity in **biosphere3** db
@@ -85,45 +90,51 @@ elect_switch_param = newParamDef(
 
 ```{python}
 # Biosphere activities
-occup = findBioAct('Occupation, industrial area')
+ground_occupuation = findBioAct('Occupation, industrial area')
 heat = findBioAct('Heat, waste', categories=['air'])
 
 # Technosphere activities
 alu = findTechAct("aluminium alloy production", "RER")
+
+# Elec 
+eu_elec = findTechAct("market group for electricity, medium voltage", 'ENTSO-E')
+us_elec = findTechAct("market group for electricity, medium voltage", 'US')
 ```
 
 # Define the model
 
+The model is defined as a nested combination of reference activities and amount. 
+Amounts are defined either as constant float values or algebric formulas implying the parameters defined above.
+
 ```{python}
 # Create new, parametrized activity
+
+# You can create a virtual "switch" activity combining an enum param and several other activities 
+elec_switch = switch(elec_switch_param, {
+    "us" : us_elec,
+    "eu" : eu_elec})
+
+# Create a new activity
 activity1 = newActivity(
     name="act1", unit="kg", # Any extra named arg will be added as activity attribute
     exchanges= { # We define exhanges as a dict of 'activity : amount'
-        occup:3 + alpha, # Amount can be a fixed value 
-        heat: alpha}) # Amount can be a Sympy expression (any arithmetic expression of Parameters)
+        ground_occupuation:3 + a, # Amount can be a fixed value 
+        heat: b + 0.2,
+        elec_switch:4}) # Amount can be a Sympy expression (any arithmetic expression of Parameters)
 
-activity2 = newActivity(
-    name="act2", unit="kg", 
-    exchanges= {
-        activity1: beta * 5 + alpha, # Reference the activity we just created
-        heat: 7 - alpha,
-        alu:0.4 / alpha }) 
+# The final model is just the root activity referencing the others
+model = newActivity("model", "kg", {
+        activity1 : b * 5 + a + 1, # Reference the activity we just created
+        heat: 3,
+        alu:0.4 * a}) 
 ```
 
 ```{python}
+# Print_act displays activities as "pandas" tables
 print_act(activity1) 
-print_act(activity2)
+print_act(model)
           
 # Note that symbolic expressions have not been evaluated at this stage
-```
-
-```{python}
-elec_switch_activity = switch(
-    elect_switch_param, dict(
-        us=us_elec, 
-        glo=glo_elec))
-
-print_act(elec_switch_activity)
 ```
 
 # Select the impacts to consider
@@ -136,47 +147,47 @@ impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in s
 # Compute LCA
 
 We provide two methods to compute LCA : 
-* **multiLCAWithParams** : it uses brightway2 parametric capabilities
-* **multiLCAWithParamsAlgebric** : This implementation allows list of sample values as parameter values. 
-It computes an algebric expression of the model and compute LCA once for the background activities. Then it evaluates each impact with numpy compilation of the expression, provided by Sympy : It enables to compute whole list of sample values at once. It is extremely fast (more than 1 million time faster than using brightway2 parameters) : 
+* **multiLCA** : It uses brightway2 parametric capabilities. It is much slower and kept for comparing results.
+* **multiLCAAlgebric** : It computes an algebric expression of the model and computes LCA once for all the background activities. Then it express each impact as a function of the parameter. This expression is compiled into 'numpy' native code, for fast computation on vectors of samples. This version is 1 million time faster.
 
 ```{python}
 # Uses brightway2 parameters
-multiLCAWithParams(
-    activity2, # The model 
-    impacts, # Impacts
-    
+multiLCA(us_elec, impacts, 
+                   
     # Parameters of the model
-    alpha=1, 
-    beta=2)
+    a=1, 
+    b=2, 
+    elec_switch_param="us")
 ```
 
 ```{python}
 # Compute with algebric implementation : the values should be the same
-multiLCAWithParamsAlgebric(
-    activity2, # The model 
+multiLCAAlgebric(
+    elec_switch, # The model 
     impacts, # Impacts
     
     # Parameters of the model
-    alpha=1, 
-    beta=2)
+    a=1, 
+    b=2,
+    elec_switch_param="us")
 ```
 
 ```{python}
 # Here is what the symbolic model looks like 
-expr, _ = actToExpression(activity2)
+expr, _ = actToExpression(model)
 expr
 ```
 
 ```{python}
 # Fast computation for millions of separate samples
 multiLCAWithParamsAlgebric(
-    activity2, # The model 
+    model, # The model 
     impacts, # Impacts
     
     # Parameters of the model
-    alpha=list(range(1, 1000000)), 
-    beta=list(range(1, 1000000)))
+    alpha=list(range(1, 100000)), # LIst should be the same size for each param
+    beta=list(range(1, 100000)),
+    elec_switch_param="eu")
 ```
 
 ```{python}

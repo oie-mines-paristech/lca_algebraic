@@ -20,10 +20,13 @@ from sympy.utilities.lambdify import lambdify
 from collections import OrderedDict
 
 
-# Constants
+# -- Constants
+
+# DB names
 ECOINVENT_DB_NAME='ecoinvent 3.4 cut off'
 BIOSPHERE3_DB_NAME='biosphere3'
 ACV_DB_NAME='incer-acv'
+
 DEFAULT_PARAM_GROUP="acv"
 
 # Global
@@ -176,13 +179,11 @@ class ParamDef(Symbol) :
         self.default = default
         self.description = description
 
-    # Transform to bw2 params (several params for enum type, one for others)
-    def toBwParams(self, value=None):
+    # Expand parameter (usefull for enum param)
+    def expandParams(self, value=None) -> Dict[str, float] :
         if value == None:
             value = self.default
-        return [dict(
-            name=self.name,
-            amount=value)]
+        return {self.name : value}
 
     def __repr__(self):
         return self.name
@@ -197,13 +198,8 @@ class EnumParam(ParamDef) :
 
         self.values = values
 
-    def toBwParams(self, value=None):
-        res = []
-        for enum_val in self.values:
-            res.append(dict(
-                name="%s_%s" % (self.name, enum_val),
-                amount=1.0 if enum_val == value else 0.0))
-        return res
+    def expandParams(self, value=None):
+        return {"%s_%s" % (self.name, enum_val) : 1.0 if enum_val == value else 0.0 for enum_val in self.values}
 
     def symbol(self, enumValue):
         '''
@@ -231,7 +227,8 @@ def newParamDef(name, type, **kwargs) :
     param_registry[name] = param
 
     # Save in brightway2 project
-    bw.parameters.new_project_parameters(param.toBwParams())
+    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
+    bw.parameters.new_project_parameters(bwParams)
 
     return param
 
@@ -333,76 +330,103 @@ def multi_params_lca(methods, func_unit, nb_iter, update_params) :
     return results
 
 
-def multiLCA(activities, methods) :
+def _multiLCA(activities, methods) :
     ''' Simple wrapper around brightway API'''
     bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
     lca = bw.MultiLCA('process')
     cols = [act['code'] for act_amount in activities for act, amount in act_amount.items()]
-    return pd.DataFrame(lca.results.T, index=methods, columns=cols)
+    return pd.DataFrame(lca.results.T, index=[method[2] for method in methods], columns=cols)
 
-def multiLCAWithParams(activity, methods, amount=1, **params) :
+def listOfDictToDictOflist(LD) :
+    return {k: [dic[k] for dic in LD] for k in LD[0]}
+
+def completeParams(params) :
+    '''Check parameters and expand enum params'''
+
+    undef_params = param_registry.keys() - params.keys()
+    if undef_params :
+        raise Exception("Some model parameters are not set : %s" % undef_params)
+
+    res = dict()
+    for key, val in params.items():
+        param = param_registry[key]
+
+        if isinstance(val, list) :
+            newvals = [param.expandParams(val) for val in val]
+            res.update(listOfDictToDictOflist(newvals))
+        else :
+            res.update(param.expandParams(val))
+    return res
+
+
+def multiLCA(model, methods, **params) :
 
     '''
         Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
     '''
 
-    # Update parameters in brigthway
-    if params:
-        bw_params = []
-        for key, val in params.items():
-            param = param_registry[key]
-            bw_params.extend(param.toBwParams(val))
+    # Check and expand params
+    params = completeParams(params)
 
-        bw.parameters.new_project_parameters(bw_params)
-        # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
-        bw.parameters.recalculate()
+    # Update brightway parameters
+    bwParams = [dict(name=key, amount=value) for key, value in params.items()]
+    bw.parameters.new_project_parameters(bwParams)
 
-    #undef_params = param_registry.keys() - params.keys()
-    #if undef_params :
-    #    raise Exception("Some model parameters are not set : %s" % undef_params)
+    # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
+    bw.parameters.recalculate()
 
-    return multiLCA([{activity: amount}], methods)
+    return _multiLCA([{model: 1}], methods).transpose()
 
 
-def multiLCAWithParamsAlgebric(activity, methods, amount=1, **params) :
 
+
+def multiLCAAlgebric(model, methods, **params) :
     '''
-        Compute LCA by expressing the foregrounf model as symbolic expression of background
-        activities and parameters. Then, compute 'static' inventory of the referenced background activities.
-        This enables a very fast recomputation of LCA with different parameters, usefull for stochastic evaluation of parametrized models
+    Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    Then, compute 'static' inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized models
+    :param: params You should provide named values of all the parameters declared in the model.
+            Values can be single value or list of samples, all of the same size
     '''
 
-    expr, actBySymbolName = actToExpression(activity)
+    # Check and expand params
+    params = completeParams(params)
+
+    expr, actBySymbolName = actToExpression(model)
+
+    # display(expr)
 
     # Create dummy reference to biosphere
-    # We cannot run LCA to biosphere
-    # We create technosphere activity mappaing exactly to 1 biosphere item
-    actBySymbolNameNoBio = OrderedDict()
+    # We cannot run LCA to biosphere activities
+    # We create a technosphere activity mapping exactly to 1 biosphere item
+    pureTechActBySymbol = OrderedDict()
     for name, act in actBySymbolName.items() :
         if act[0] == BIOSPHERE3_DB_NAME :
             act = getOrCreateDummyBiosphereActCopy(act[1])
         else :
             act = getActByCode(*act)
-        actBySymbolNameNoBio[name] = act
+        pureTechActBySymbol[name] = act
 
     # List of activities, ordered
-    acts = actBySymbolNameNoBio.values()
+    acts = pureTechActBySymbol.values()
 
     # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
     actsWithAmount = [{act:1} for act in acts]
 
     # Compute LCA for all background activities and methods
-    lca =  multiLCA(actsWithAmount, methods)
+    lca = _multiLCA(actsWithAmount, methods)
+
+    # display(lca)
 
     # For each method, compute an algebric expression with activities replaced by their values
     lambdas = []
     for imethod, method in enumerate(methods) :
 
         # Replace activities by their value for this method
-        sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(actBySymbolNameNoBio.keys())]
+        sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(pureTechActBySymbol.keys())]
         method_expr = expr.subs(sub)
 
-        # Tranform Sympy expression to lambda function to fast evaluation
+        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
         lambd = lambdify(params.keys(), method_expr, 'numpy')
         lambdas.append(lambd)
 
@@ -425,8 +449,9 @@ def multiLCAWithParamsAlgebric(activity, methods, amount=1, **params) :
 
     res = np.zeros((len(methods), param_length))
 
+
     for imethod, lambd in enumerate(lambdas) :
-        # Compute result on whole vertors at a time : lambdas use numpy for vetor computation
+        # Compute result on whole vertors of parameter samples at a time : lambdas use numpy for vector computation
         res[imethod, :] = lambd(**params)
 
     return pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
@@ -459,9 +484,10 @@ def actToExpression(act : Activity):
         base_slug = slugify(name, separator='_')
 
         slug = base_slug
-        i=0
-        while slug in act_symbols.values():
-            slug =  f"{base_slug}{i}"
+        i=1
+        while symbols(slug) in act_symbols.values():
+            slug = f"{base_slug}{i}"
+            i += 1
 
         return symbols(slug)
 
