@@ -180,13 +180,13 @@ expr
 
 ```{python}
 # Fast computation for millions of separate samples
-multiLCAWithParamsAlgebric(
+multiLCAAlgebric(
     model, # The model 
     impacts, # Impacts
     
     # Parameters of the model
-    alpha=list(range(1, 100000)), # LIst should be the same size for each param
-    beta=list(range(1, 100000)),
+    a=list(range(1, 100000)), # LIst should be the same size for each param
+    b=list(range(1, 100000)),
     elec_switch_param="eu")
 ```
 
