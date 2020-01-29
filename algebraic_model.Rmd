@@ -118,9 +118,9 @@ elec_switch = switch(elec_switch_param, {
 activity1 = newActivity(
     name="act1", unit="kg", # Any extra named arg will be added as activity attribute
     exchanges= { # We define exhanges as a dict of 'activity : amount'
-        ground_occupuation:3 + a, # Amount can be a fixed value 
-        heat: b + 0.2,
-        elec_switch:4}) # Amount can be a Sympy expression (any arithmetic expression of Parameters)
+        ground_occupuation:3, # Amount can be a fixed value 
+        heat: b + 0.2,  # Amount can be a Sympy expression (any arithmetic expression of Parameters)
+        elec_switch:4})
 
 # The final model is just the root activity referencing the others
 model = newActivity("model", "kg", {

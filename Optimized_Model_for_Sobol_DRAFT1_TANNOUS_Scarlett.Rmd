@@ -198,7 +198,7 @@ def ensure_aluminium_adjusted():
         if exc['name'] == 'aluminium, cast alloy':
             aluminium_amount = exc.amount
     
-    if len(alu_adjusted) == 0:
+    if len(adju) == 0:
         alu = [act for act in eidb if 'aluminium alloy production, AlMg3' in act['name']and 'RER' in act['location']][0]
         alu_adjusted = alu.copy()
         alu_adjusted['name'] = 'aluminium alloy production, AlMg3 adjusted'

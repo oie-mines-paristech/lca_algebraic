@@ -1,0 +1,240 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.3.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+# Imports
+
+Besides external libraries, we import several function from the local file : `utils.py`
+
+```{python}
+# %load_ext autoreload
+# %autoreload 2
+import pandas as pd
+import time
+import matplotlib.pyplot as plt
+import numpy as np
+import brightway2 as bw
+
+# Custom utils defined for inter-acv
+from utils import *
+from expression import *
+```
+
+# Init brightway2 and databases
+
+```{python}
+# Setup bw2
+bw.projects.set_current('B_Publication')
+bw.bw2setup()
+
+# Import Ecoinvent DB (if not already done)
+# Update the PATH to suit your installation
+#resetDb(ECOINVENT_DB_NAME)
+importDb(ECOINVENT_DB_NAME, './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
+
+# We use a separate DB for defining our model, reset it beforehand
+resetDb(ACV_DB_NAME)
+
+# Parameters are stored at project level : reset them
+resetParams()
+```
+
+#  Parameters of the model
+
+We define the parameters of the model.
+
+The numeric parametes are instances of sympy' 'Symbol' . Thus, any python arithmetic expression composed of parameters will not result into direct evaluation, but the creation of a symbolic formula that can be manipulated later.
+
+
+# Select the impacts to consider
+
+```{python}
+# List of impacts to consider
+impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
+```
+
+# Electricity mix
+
+
+```{python}
+# Switch parameter for electricity mix
+elec_switch_param = newParamDef(
+    'elec_switch_param', 
+    ParamType.ENUM, 
+    values=["us", "eu", "row", "cn", "fr" ], 
+    default=None, 
+    description="Switch on electricty mix")
+```
+
+```{python}
+ELEC_NAME = 'market for electricity, medium voltage'
+ELEC_GROUP_NAME = 'market group for electricity, medium voltage'
+elec_us = findTechAct(ELEC_GROUP_NAME, "US")
+elec_eu = findTechAct(ELEC_GROUP_NAME, "ENTSO-E")
+elec_fr = findTechAct(ELEC_NAME, "FR")
+elec_cn = findTechAct(ELEC_NAME, "CN-CSG")
+elec_row = findTechAct(ELEC_NAME, "RoW")
+```
+
+```{python}
+# Virtual activity corresponding to switch upon elec mixes
+elec_switch = switch("elec_switch", elec_switch_param, {
+    "us" : elec_us,
+    "eu" : elec_eu,
+    "fr" : elec_fr,
+    "cn" : elec_cn,
+    "row" : elec_row})
+```
+
+```{python}
+multiLCA([elec_us, elec_eu, elec_row, elec_cn, elec_fr], impacts)
+```
+
+# Aluminium 
+
+```{python}
+alu=findTechAct('aluminium alloy production, AlMg3', 'RER')
+alu_scrap=findTechAct('aluminium scrap, new, Recycled Content cut-off')
+alu_cast_amount = alu.get_exchange('aluminium, cast alloy')['amount']
+```
+
+```{python}
+share_recycled_aluminium = newParamDef(
+    'share_recycled_aluminium', 
+    ParamType.NUMBER, 
+    default=0.3, 
+    description="Share of reycled aluminium")
+```
+
+```{python}
+alu_adjusted = copyActivity(alu, "Alu adjusted")
+
+updateExchanges(alu_adjusted, 
+                {"aluminium, cast alloy": alu_cast_amount * (1 - share_recycled_aluminium)}) 
+
+addExchanges(alu_adjusted, {alu_scrap : alu_cast_amount * share_recycled_aluminium} )
+
+substituteWithDefault(alu_adjusted, 'electricity, high voltage, aluminium industry', elec_switch)
+
+```
+
+```{python}
+print_act(alu, alu_adjusted, share_recycled_aluminium=0.3, elec_switch_param=None)
+multiLCA([alu, alu_adjusted], impacts, share_recycled_aluminium=0.3, elec_switch_param=None)
+```
+
+# Mounting system
+
+```{python}
+# 2 Mounting system are identified (Aluminium and stainless steel based)
+ground_system = findTechAct('photovoltaic mounting system production, for 570kWp open ground module')
+roof_system = findTechAct('photovoltaic mounting system production, for slanted-roof installation', 'RER')
+```
+
+```{python}
+# Build a modified roof system with recycled output
+roof_alu_amount = roof_system.get_exchange('aluminium, wrought alloy')['amount']
+roof_steel_amount = roof_system.get_exchange('steel, low-alloyed, hot rolled')['amount']
+scrap_steel_market = findTechAct('market for scrap steel', 'Europe without Switzerland')
+scrap_alu_market= findTechAct('market for scrap aluminium', 'Europe without Switzerland')
+
+
+roof_system_modified = copyActivity(roof_system, "Roof system recycled")
+
+# Add scrap alu and steel output 
+addExchanges(roof_system_modified, {
+    scrap_alu_market : - roof_alu_amount,
+    scrap_steel_market : - roof_steel_amount})
+```
+
+```{python}
+# Replace alu with recycled alu
+ground_system_modified = copyActivity(ground_system, "Ground system modified")
+
+updateExchanges(roof_system_modified, {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
+updateExchanges(ground_system_modified, {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
+
+
+```
+
+```{python}
+print_act(ground_system_modified)
+print_act(roof_system_modified)
+```
+
+```{python}
+multiLCAAlgebric(
+    roof_system, 
+    impacts, 
+    share_recycled_aluminium=0.3, 
+    elec_switch_param=None)
+```
+
+```{python}
+multiLCA(
+    [roof_system_modified, ground_system_modified], 
+    impacts, 
+    elec_switch_param=None, 
+    share_recycled_aluminium=0.3)
+```
+
+# Compute LCA
+
+We provide two methods to compute LCA : 
+* **multiLCA** : It uses brightway2 parametric capabilities. It is much slower and kept for comparing results.
+* **multiLCAAlgebric** : It computes an algebric expression of the model and computes LCA once for all the background activities. Then it express each impact as a function of the parameter. This expression is compiled into 'numpy' native code, for fast computation on vectors of samples. This version is 1 million time faster.
+
+```{python}
+# Uses brightway2 parameters
+multiLCA(us_elec, impacts, 
+                   
+    # Parameters of the model
+    a=1, 
+    b=2, 
+    elec_switch_param="us")
+```
+
+```{python}
+# Compute with algebric implementation : the values should be the same
+multiLCAAlgebric(
+    elec_switch, # The model 
+    impacts, # Impacts
+    
+    # Parameters of the model
+    a=1, 
+    b=2,
+    elec_switch_param="us")
+```
+
+```{python}
+# Here is what the symbolic model looks like 
+expr, _ = actToExpression(model)
+expr
+```
+
+```{python}
+# Fast computation for millions of separate samples
+multiLCAAlgebric(
+    model, # The model 
+    impacts, # Impacts
+    
+    # Parameters of the model
+    a=list(range(1, 100000)), # LIst should be the same size for each param
+    b=list(range(1, 100000)),
+    elec_switch_param="eu")
+```
+
+```{python}
+
+```

@@ -4,7 +4,7 @@
 import re
 import sys
 from collections import defaultdict
-from typing import Dict, Union, List
+from typing import Dict, Union, List, Any
 
 import brightway2 as bw
 import numpy as np
@@ -12,13 +12,15 @@ import pandas as pd
 from IPython.display import display
 from bw2calc.lca import LCA
 from bw2data.backends.peewee import Activity, ActivityDataset
-from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
+from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group, ExchangeDataset
 from sympy import Symbol, Basic, simplify, symbols
 from sympy.parsing.sympy_parser import parse_expr
 from slugify import slugify
 from sympy.utilities.lambdify import lambdify
 from collections import OrderedDict
-
+from bw2data.backends.peewee.utils import dict_as_exchangedataset
+from copy import deepcopy
+import builtins
 
 # -- Constants
 
@@ -30,17 +32,43 @@ ACV_DB_NAME='incer-acv'
 DEFAULT_PARAM_GROUP="acv"
 
 # Global
-param_registry = dict()
+def param_registry() :
+    if not 'param_registry' in builtins.__dict__ :
+        builtins.param_registry = dict()
+    return builtins.param_registry
+
+# Sympy symbols
+old_amount = symbols("old_amount") # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
-# Print activity
-def print_act(act):
-    df = pd.DataFrame(index = ['amount /formula','unit','type'])
-    for (i,exc) in enumerate(act.exchanges()):
-        df[str(bw.get_activity(exc.input.key))] = [exc['formula'] if 'formula' in exc else exc.amount, exc.unit,exc['type']]
-    display(df.T)
+
+def print_act(*activities, **params):
+    '''Print activities and their exchanges.
+    If parameter values are provided, formulas will be evaluated accordingly'''
+    tables = []
+    names = []
+    for act in activities :
+        df = pd.DataFrame(index = ['input', 'amount', 'unit', 'type'])
+        for (i,exc) in enumerate(act.exchanges()):
+            input = bw.get_activity(exc.input.key)
+            amount = getAmountOrFormula(exc)
+
+            # Params provided ? Evaluate formulas
+            if len(params) > 0 and isinstance(amount, Basic) :
+                new_params = [(name, value) for name, value in completeParamValues(params).items()]
+                amount = amount.subs(new_params)
+
+            name = exc['name']
+            if 'location' in input and input['location'] != "GLO" :
+                name += "[%s]" % input['location']
+
+            df[name] = [str(input), amount, exc.unit, exc['type']]
+        tables.append(df.T)
+        names.append(act['name'])
+
+    display(pd.concat(tables, axis = 1, keys = names, sort=True))
 
 # Create or cleanup DB
 def resetDb(db_name=ACV_DB_NAME):
@@ -68,8 +96,7 @@ def getDb(dbname)  -> bw.Database :
 
 def resetParams(db_name=ACV_DB_NAME) :
     ''' Reset project and activity parameters '''
-    global param_registry
-    param_registry = dict()
+    param_registry().clear()
     ProjectParameter.delete().execute()
     ActivityParameter.delete().execute()
     DatabaseParameter.delete().execute()
@@ -114,7 +141,7 @@ def find_candidates(db_name, name) :
 def getActByCode(db_name, code) :
     return getDb(db_name).get(code)
 
-def findActivity(name, location=None, categories=None, category=None, db_name=None) :
+def findActivity(name, location=None, categories=None, category=None, db_name=None, single=True) :
     '''
         Find single activity by name.
         Uses index for fast fetching
@@ -125,9 +152,9 @@ def findActivity(name, location=None, categories=None, category=None, db_name=No
         :param categories: if provided, activity should have this exact list of categories
     '''
     def act_filter(act) :
-        if not name in act['name'] :
+        if not name == act['name'] :
             return False
-        if location and not location in act['location'] :
+        if location and not location == act['location'] :
             return False
         if category and not category in act['categories'] :
             return False
@@ -140,11 +167,14 @@ def findActivity(name, location=None, categories=None, category=None, db_name=No
 
     # Exact match
     acts = list(filter(act_filter, candidates))
-    if len(acts) == 0 :
+    if single and len(acts) == 0 :
         raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name, location))
-    if len(acts) > 1 :
+    if single and len(acts) > 1 :
         raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (db_name, name, location, str(acts)))
-    return acts[0]
+    if len(acts) == 1 :
+        return acts[0]
+    else :
+        return acts
 
 def findBioAct(name, location=None, **kwargs):
     ''' Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) '''
@@ -214,7 +244,7 @@ class EnumParam(ParamDef) :
 
 # Creates a param and register it into a global registry and as a brightway parameter
 def newParamDef(name, type, **kwargs) :
-    global param_registry
+
 
     if type == ParamType.ENUM :
         param = EnumParam(name, **kwargs)
@@ -222,15 +252,127 @@ def newParamDef(name, type, **kwargs) :
         param = ParamDef(name, type=type, **kwargs)
 
     # Put it in local registry (in memory)
-    if name in param_registry:
+    if name in param_registry():
         raise Exception("Param %s already defined" % name)
-    param_registry[name] = param
+    param_registry()[name] = param
 
     # Save in brightway2 project
     bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
     bw.parameters.new_project_parameters(bwParams)
 
     return param
+
+# Transform amount to either simple amount or formula
+def amountToFormula(amount : Union[float, str, Basic], currentAmount=None) :
+    res = dict()
+    if isinstance(amount, Basic):
+
+        if currentAmount != None :
+            amount = amount.subs(old_amount, currentAmount)
+
+        # Check the expression does not reference undefined params
+        all_symbols = list([key for param in param_registry().values() for key, val in param.expandParams().items()])
+        for symbol in amount.free_symbols :
+            if not str(symbol) in all_symbols :
+                raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
+
+        res['formula'] = str(amount)
+        res['amount'] = 0
+    elif isinstance(amount, float) or isinstance(amount, int):
+        res['amount'] = amount
+    else:
+        raise Exception(
+            "Amount should be either a constant number or a Sympy expression (expression of ParamDef). Was : %s" % type(
+                amount))
+    return res
+
+def addExchanges(act, exchanges : Dict[Activity, Union[float, Basic]] = dict()) :
+    ''' Add exchanges to an existing activity, with a compact syntax :
+    :param  exchanges Dict of activity : amount. amount being either a fixed value or
+            Sympy expression (arithmetic expression of Sympy symbols)
+    '''
+    parametrized = False
+    for sub_act, amount in exchanges.items():
+        exch = act.new_exchange(
+            input=sub_act.key,
+            name=sub_act['name'],
+            unit=sub_act['unit'] if 'unit' in sub_act else None,
+            type='biosphere' if sub_act['database'] == BIOSPHERE3_DB_NAME else 'technosphere')
+
+        exch.update(amountToFormula(amount))
+        if 'formula' in exch :
+            parametrized = True
+
+        exch.save()
+    act.save()
+    if parametrized:
+        bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, act)
+
+def updateExchanges(activity: Activity, updates: Dict[str, any] = dict()):
+    '''
+        Update existing exchanges, by name.
+        :param updates Dict of exchange name => either single value (float or SympPy expression) for updating only amount,
+        or dict of attributes, for updating several at a time. The sympy expression can reference the symbol 'old_amount'
+        that will be replaced with the current value.
+    '''
+
+    # Update exchanges
+    for name, attrs in updates.items():
+        exch = activity.get_exchange(name)
+
+        # Single value ? => amount
+        if not isinstance(attrs, dict):
+            attrs = dict(amount=attrs)
+
+        if 'amount' in attrs:
+            attrs.update(amountToFormula(attrs['amount'], exch['amount']))
+
+        exch.update(attrs)
+        exch.save()
+
+        # We have a formula now ? => register it to parametrized exchange
+        if 'formula' in attrs:
+            bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, activity)
+
+
+
+def getAmountOrFormula(ex:ExchangeDataset) -> Union[Basic, float] :
+    '''Return either static amount or Sympy formula'''
+    if 'formula' in ex:
+        try :
+            return parse_expr(ex['formula'])
+        except :
+            eprint("Error while parsing formula '%s' : backing to amount" % ex['formula'])
+
+    return ex['amount']
+
+def substituteWithDefault(act: Activity, exchange_name: str, switch_act : Activity) :
+    '''
+        Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
+        For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by (1-sum(enum_params)),
+        making it null as soon as one enum value is set.
+        This is useful for changing electricty mix, leaving the default one if needed
+    '''
+    sum = 0
+    for exch in switch_act.exchanges() :
+        if exch['input'] != exch['output'] :
+            sum += getAmountOrFormula(exch)
+
+    current_exch = act.get_exchange(exchange_name)
+    addExchanges(act, {switch_act : getAmountOrFormula(current_exch)})
+    updateExchanges(act, {exchange_name : (1-sum)* old_amount})
+
+
+
+def _newAct(code, db_name=ACV_DB_NAME) :
+    db = getDb(db_name)
+    # Already present : delete it ?
+    for act in db:
+        if act['code'] == code:
+            eprint("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
+            act.delete()
+
+    return db.new_activity(code)
 
 # Creates a new activity
 # @param db_name Destination DB : ACV DB by default
@@ -241,56 +383,72 @@ def newActivity(
         exchanges : Dict[Activity, Union[float, str]] = dict(),
         db_name=ACV_DB_NAME, **argv) :
 
-    db = getDb(db_name)
-
-    # Already present : delete it ?
-    for act in db :
-        if act['code'] == name :
-            eprint("Activity '%s' was already in '%s'. Overwriting it" % (name, db_name))
-            act.delete()
-
-    #code = binascii.hexlify(os.urandom(16))
-    act = db.new_activity(name)
+    act = _newAct(name, db_name)
     act['name'] = name
     act['unit'] = unit
     act['type'] = 'process'
     act.update(argv)
 
     # Add exchanges
-    parametrized = False
-    for sub_act, amount in exchanges.items() :
-        exch = act.new_exchange(
-            input=sub_act.key,
-            name=sub_act['name'],
-            unit=sub_act['unit'] if unit in sub_act else None,
-            type='biosphere' if sub_act['database'] == BIOSPHERE3_DB_NAME else 'technosphere')
-        if isinstance(amount, Basic) :
-            parametrized = True
-            exch.expr = amount
-            exch['formula'] = str(amount)
-            exch['amount'] = 0
-        elif isinstance(amount, float) or isinstance(amount, int) :
-            exch['amount'] = amount
-        else :
-            raise Exception("Amount should be either a constant number or a Sympy expression (expression of ParamDef). Was : %s" % type(amount))
-        exch.save()
+    addExchanges(act, exchanges)
 
-    act.save()
-    if parametrized :
-       bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, act)
     return act
+
+
+# Add method to get exchange by name
+def get_exchange(self, name, single=True) :
+    exchs = list([exch for exch in self.exchanges() if name == exch['name']])
+    if single and len(exchs) != 1:
+        raise Exception("Expected 1 exchange with name '%s' for '%s', found %d" % (name, self, len(exchs)))
+    if len(exchs) == 1 :
+        return exchs[0]
+    else :
+        return exchs
+
+setattr(Activity, "get_exchange", get_exchange)
+
+
+def copyActivity(activity, code=None, db_name=ACV_DB_NAME, **kwargs):
+    """
+        Copy activity into a new DB
+    """
+
+    res = _newAct(code, db_name)
+
+    for key, value in activity.items():
+        if key not in ['database', 'code'] :
+            res[key] = value
+    for k, v in kwargs.items():
+        res._data[k] = v
+    res._data[u'code'] = code
+    res['name'] = code
+    res.save()
+
+    for exc in activity.exchanges():
+        data = deepcopy(exc._data)
+        data['output'] = res.key
+        # Change `input` for production exchanges
+        if exc['input'] == exc['output']:
+            data['input'] = res.key
+        ExchangeDataset.create(**dict_as_exchangedataset(data))
+    return res
+
+
+
+
+
 
 # Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
 # This enables to implement a "Switch" with brightway parameters
 # Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
 # @param paramDef : parameter definition of type enum
 # @param acts_dict : dict of <enumValue> => activity
-def switch(paramDef: ParamDef, acts_dict: Dict[str, Activity]) :
+def switch(name, paramDef: ParamDef, acts_dict: Dict[str, Activity]) :
 
     # Transform map of enum values to correspoding formulas <param_name>_<enum_value>
     exch = {act: paramDef.symbol(key) for key, act in acts_dict.items()}
     res = newActivity(
-        paramDef.name + " switch" ,
+        name,
         exchanges=exch)
 
     # Unit of switch activity is the one of the children
@@ -329,27 +487,34 @@ def multi_params_lca(methods, func_unit, nb_iter, update_params) :
 
     return results
 
+def act_name(act:Activity) :
+    '''Generate pretty name for activity, appending location if not "GLO"'''
+    res = act['name']
+    if act['location'] != 'GLO' :
+        res += "[%s]" % act["location"]
+    return res
 
 def _multiLCA(activities, methods) :
     ''' Simple wrapper around brightway API'''
     bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
     lca = bw.MultiLCA('process')
-    cols = [act['code'] for act_amount in activities for act, amount in act_amount.items()]
+    cols = [act_name(act) for act_amount in activities for act, amount in act_amount.items()]
     return pd.DataFrame(lca.results.T, index=[method[2] for method in methods], columns=cols)
 
 def listOfDictToDictOflist(LD) :
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
-def completeParams(params) :
-    '''Check parameters and expand enum params'''
+def completeParamValues(params) :
+    '''Check parameters and expand enum params.
+    :return Dict of param_name => float value '''
 
-    undef_params = param_registry.keys() - params.keys()
-    if undef_params :
-        raise Exception("Some model parameters are not set : %s" % undef_params)
+    #undef_params = param_registry.keys() - params.keys()
+    #if undef_params :
+    #    raise Exception("Some model parameters are not set : %s" % undef_params)
 
     res = dict()
     for key, val in params.items():
-        param = param_registry[key]
+        param = param_registry()[key]
 
         if isinstance(val, list) :
             newvals = [param.expandParams(val) for val in val]
@@ -366,7 +531,7 @@ def multiLCA(model, methods, **params) :
     '''
 
     # Check and expand params
-    params = completeParams(params)
+    params = completeParamValues(params)
 
     # Update brightway parameters
     bwParams = [dict(name=key, amount=value) for key, value in params.items()]
@@ -375,87 +540,107 @@ def multiLCA(model, methods, **params) :
     # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
     bw.parameters.recalculate()
 
-    return _multiLCA([{model: 1}], methods).transpose()
+    if isinstance(model, list) :
+        activities = [{act:1} for act in model]
+    else :
+        activities = [{model: 1}]
+    return _multiLCA(activities, methods).transpose()
 
 
 
 
-def multiLCAAlgebric(model, methods, **params) :
+def multiLCAAlgebric(models, methods, **params) :
     '''
     Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
     Then, compute 'static' inventory of the referenced background activities.
-    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized models
+    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
+    :param: Single model or list of models : if list of models, you cannot use param lists
+    :param: methods List of methods / impacts to consider
     :param: params You should provide named values of all the parameters declared in the model.
             Values can be single value or list of samples, all of the same size
     '''
+    dfs = dict()
+
+    if not isinstance(models, list) :
+        models = [models]
 
     # Check and expand params
-    params = completeParams(params)
+    params = completeParamValues(params)
 
-    expr, actBySymbolName = actToExpression(model)
+    for model in models :
 
-    # display(expr)
+        expr, actBySymbolName = actToExpression(model)
 
-    # Create dummy reference to biosphere
-    # We cannot run LCA to biosphere activities
-    # We create a technosphere activity mapping exactly to 1 biosphere item
-    pureTechActBySymbol = OrderedDict()
-    for name, act in actBySymbolName.items() :
-        if act[0] == BIOSPHERE3_DB_NAME :
-            act = getOrCreateDummyBiosphereActCopy(act[1])
-        else :
-            act = getActByCode(*act)
-        pureTechActBySymbol[name] = act
+        # Create dummy reference to biosphere
+        # We cannot run LCA to biosphere activities
+        # We create a technosphere activity mapping exactly to 1 biosphere item
+        pureTechActBySymbol = OrderedDict()
+        for name, act in actBySymbolName.items() :
+            if act[0] == BIOSPHERE3_DB_NAME :
+                act = getOrCreateDummyBiosphereActCopy(act[1])
+            else :
+                act = getActByCode(*act)
+            pureTechActBySymbol[name] = act
 
-    # List of activities, ordered
-    acts = pureTechActBySymbol.values()
+        # List of activities, ordered
+        acts = pureTechActBySymbol.values()
 
-    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
-    actsWithAmount = [{act:1} for act in acts]
+        # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
+        actsWithAmount = [{act:1} for act in acts]
 
-    # Compute LCA for all background activities and methods
-    lca = _multiLCA(actsWithAmount, methods)
+        # Compute LCA for all background activities and methods
+        lca = _multiLCA(actsWithAmount, methods)
 
-    # display(lca)
+        # For each method, compute an algebric expression with activities replaced by their values
+        lambdas = []
+        for imethod, method in enumerate(methods) :
 
-    # For each method, compute an algebric expression with activities replaced by their values
-    lambdas = []
-    for imethod, method in enumerate(methods) :
+            # Replace activities by their value for this method
+            sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(pureTechActBySymbol.keys())]
+            method_expr = expr.subs(sub)
 
-        # Replace activities by their value for this method
-        sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(pureTechActBySymbol.keys())]
-        method_expr = expr.subs(sub)
+            # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
+            lambd = lambdify(params.keys(), method_expr, 'numpy')
+            lambdas.append(lambd)
 
-        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
-        lambd = lambdify(params.keys(), method_expr, 'numpy')
-        lambdas.append(lambd)
+        # Expand parameters as list of parameters
+        param_length = 1
 
-    # Expand parameters as list of parameters
-    param_length = 1
+        for key, val in params.items() :
+            if isinstance(val, list) :
+                if param_length == 1 :
+                    param_length = len(val)
+                elif param_length != len(val) :
+                    raise Exception("Parameters should be a single value or a list of same number of values")
 
-    for key, val in params.items() :
-        if isinstance(val, list) :
-            if param_length == 1 :
-                param_length = len(val)
-            elif param_length != len(val) :
-                raise Exception("Parameters should be a single value or a list of same number of values")
+        # Expand params and transform lists to np.array for vector computation
+        for key in params.keys() :
+            val = params[key]
+            if not isinstance(val, list) :
+                val = list([val] * param_length)
+            params[key] = np.array(val)
 
-    # Expand params and transform lists to np.array for vector computation
-    for key in params.keys() :
-        val = params[key]
-        if not isinstance(val, list) :
-            val = list([val] * param_length)
-        params[key] = np.array(val)
-
-    res = np.zeros((len(methods), param_length))
+        res = np.zeros((len(methods), param_length))
 
 
-    for imethod, lambd in enumerate(lambdas) :
-        # Compute result on whole vertors of parameter samples at a time : lambdas use numpy for vector computation
-        res[imethod, :] = lambd(**params)
+        for imethod, lambd in enumerate(lambdas) :
+            # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
+            res[imethod, :] = lambd(**params)
 
-    return pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
+        name = act_name(act)
+        df = pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
 
+        # Single params ? => give the single row the name of the model activity
+        if df.shape[0] == 1 :
+            df = df.rename(index={0:act_name(model)})
+
+        dfs[name] = df
+
+    if len(dfs) == 1 :
+        display(list(dfs.values())[0])
+    else :
+        # Concat several dataframes for several models
+        display(pd.concat(list(dfs.values())))
 
 
 def getOrCreateDummyBiosphereActCopy(code) :
@@ -467,8 +652,10 @@ def getOrCreateDummyBiosphereActCopy(code) :
         return getDb(ACV_DB_NAME).get(code)
     except:
         bioAct = getDb(BIOSPHERE3_DB_NAME).get(code)
-        res = newActivity(bioAct['name'] + 'copy', bioAct['unit'], exchanges={bioAct:1})
+        res = newActivity(bioAct['name'] + '#copy', bioAct['unit'], exchanges={bioAct:1})
         return res
+
+
 
 def actToExpression(act : Activity):
     '''
@@ -492,35 +679,38 @@ def actToExpression(act : Activity):
         return symbols(slug)
 
     def rec_func(act:Activity) :
-
         res = 0
 
-        for exch in act.exchanges() :
+        for exch in act.exchanges():
 
-            if 'formula' in exch :
-                amount = parse_expr(exch['formula'], param_registry)
-            else :
-                amount = exch['amount']
+            formula = getAmountOrFormula(exch)
 
-            db_name, act_key = exch['input']
+            input_db, input_code = exch['input']
+
+            #  Ignore output
+            if exch['input'] == exch['output'] :
+                if exch['amount'] != 1 :
+                    raise Exception("Output quantity not 1")
+                continue
 
             # Background DB => reference it as a symbol
-            if db_name != ACV_DB_NAME :
-                if not (db_name, act_key) in act_symbols :
-                    act_symbols[(db_name, act_key)] = act_to_symbol(db_name, act_key)
-                act_expr = act_symbols[(db_name, act_key)]
+            if input_db != ACV_DB_NAME :
+                if not (input_db, input_code) in act_symbols :
+                    act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
+                act_expr = act_symbols[(input_db, input_code)]
 
             # Our model : recursively transform it to a symbolic expression
             else :
-                if db_name == act['database'] and act_key == act['code']:
+
+                if input_db == act['database'] and input_code == act['code']:
                     raise Exception("Recursive exchange : %s" % (act.__dict__))
 
-                sub_act = getDb(db_name).get(act_key)
+                sub_act = getDb(input_db).get(input_code)
                 act_expr = rec_func(sub_act)
 
-            res += amount * act_expr
+            res += formula * act_expr
 
-        return simplify(res)
+        return res
 
     expr =  rec_func(act)
 

@@ -378,7 +378,12 @@ roof_system_with_recycling
 ```
 
 ```{python}
-print_data(roof_system_with_recycling)
+
+```
+
+```{python}
+print(roof_system['database'])
+print_data(roof_system)
 ```
 
 ```{python}
@@ -444,7 +449,7 @@ print_data2(ground_system_adjusted)
 ```
 
 ```{python}
-
+print_data(alu_adjusted)
 ```
 
 ```{python}

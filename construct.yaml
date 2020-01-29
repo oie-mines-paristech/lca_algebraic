@@ -1,0 +1,16 @@
+name: incer-acv
+version: 0.1
+
+channels:
+  - https://repo.anaconda.com/pkgs/main/
+  - https://conda.anaconda.org/conda-forge/
+specs:
+  - jupyter_contrib_nbextensions
+  - scikit-umfpack
+  - python-slugify
+  - conda
+  - jupytext
+
+installer_filename: incer-acv-model-installer.sh
+installer_type: sh
+ignore_duplicate_files: true
