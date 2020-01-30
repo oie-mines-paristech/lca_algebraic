@@ -523,7 +523,7 @@ electrical_installation_weight(10)/33
 unit_of_equivalent_3kW_electrical_installation = InterpolatedUnivariateSpline([3, 570], [33/33, 1570/33], k=1)
 
 P = 10
-unit_of_equivalent_3kW_electrical_installation(P)
+unit_of_equivalent_3kW_electrical_installation(570)
 
 ```
 

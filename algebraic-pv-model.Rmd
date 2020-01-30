@@ -29,6 +29,8 @@ import brightway2 as bw
 # Custom utils defined for inter-acv
 from utils import *
 from expression import *
+
+pd.options.display.max_rows = 100
 ```
 
 # Init brightway2 and databases
@@ -69,8 +71,8 @@ impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in s
 
 ```{python}
 # Switch parameter for electricity mix
-elec_switch_param = newParamDef(
-    'elec_switch_param', 
+elec_switch = newParamDef(
+    'elec_switch', 
     ParamType.ENUM, 
     values=["us", "eu", "row", "cn", "fr" ], 
     default=None, 
@@ -89,7 +91,7 @@ elec_row = findTechAct(ELEC_NAME, "RoW")
 
 ```{python}
 # Virtual activity corresponding to switch upon elec mixes
-elec_switch = switch("elec_switch", elec_switch_param, {
+elec = switch("elec", elec_switch, {
     "us" : elec_us,
     "eu" : elec_eu,
     "fr" : elec_fr,
@@ -110,9 +112,8 @@ alu_cast_amount = alu.get_exchange('aluminium, cast alloy')['amount']
 ```
 
 ```{python}
-share_recycled_aluminium = newParamDef(
-    'share_recycled_aluminium', 
-    ParamType.NUMBER, 
+share_recycled_aluminium = newFloatParam(
+    'share_recycled_aluminium',  
     default=0.3, 
     description="Share of reycled aluminium")
 ```
@@ -121,17 +122,21 @@ share_recycled_aluminium = newParamDef(
 alu_adjusted = copyActivity(alu, "Alu adjusted")
 
 updateExchanges(alu_adjusted, 
-                {"aluminium, cast alloy": alu_cast_amount * (1 - share_recycled_aluminium)}) 
+    {"aluminium, cast alloy": alu_cast_amount * (1 - share_recycled_aluminium)}) 
 
-addExchanges(alu_adjusted, {alu_scrap : alu_cast_amount * share_recycled_aluminium} )
+addExchanges(alu_adjusted, 
+    {alu_scrap : alu_cast_amount * share_recycled_aluminium} )
 
-substituteWithDefault(alu_adjusted, 'electricity, high voltage, aluminium industry', elec_switch)
+substituteWithDefault(
+    alu_adjusted, 
+    'electricity, high voltage, aluminium industry', 
+    elec)
 
 ```
 
 ```{python}
-print_act(alu, alu_adjusted, share_recycled_aluminium=0.3, elec_switch_param=None)
-multiLCA([alu, alu_adjusted], impacts, share_recycled_aluminium=0.3, elec_switch_param=None)
+print_act(alu, alu_adjusted, share_recycled_aluminium=0.3, elec_switch=None)
+multiLCA([alu, alu_adjusted], impacts, share_recycled_aluminium=0.3, elec_switch=None)
 ```
 
 # Mounting system
@@ -162,10 +167,10 @@ addExchanges(roof_system_modified, {
 # Replace alu with recycled alu
 ground_system_modified = copyActivity(ground_system, "Ground system modified")
 
-updateExchanges(roof_system_modified, {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
-updateExchanges(ground_system_modified, {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
-
-
+updateExchanges(roof_system_modified, 
+    {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
+updateExchanges(ground_system_modified, 
+    {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
 ```
 
 ```{python}
@@ -174,65 +179,52 @@ print_act(roof_system_modified)
 ```
 
 ```{python}
-multiLCAAlgebric(
-    roof_system, 
-    impacts, 
-    share_recycled_aluminium=0.3, 
-    elec_switch_param=None)
-```
-
-```{python}
 multiLCA(
     [roof_system_modified, ground_system_modified], 
     impacts, 
-    elec_switch_param=None, 
+    elec_switch=None, 
     share_recycled_aluminium=0.3)
 ```
 
-# Compute LCA
 
-We provide two methods to compute LCA : 
-* **multiLCA** : It uses brightway2 parametric capabilities. It is much slower and kept for comparing results.
-* **multiLCAAlgebric** : It computes an algebric expression of the model and computes LCA once for all the background activities. Then it express each impact as a function of the parameter. This expression is compiled into 'numpy' native code, for fast computation on vectors of samples. This version is 1 million time faster.
+# Electrical installation
 
 ```{python}
-# Uses brightway2 parameters
-multiLCA(us_elec, impacts, 
-                   
-    # Parameters of the model
-    a=1, 
-    b=2, 
-    elec_switch_param="us")
+P = newFloatParam("P", 10, description="power Kwc")
+
+electrical_installation_3kW = findTechAct('photovoltaics, electric installation for 3kWp module, at building', 'RoW')
+
+# 3kW system weights 33 kg, 570kW system weight 1570kg
+# We compute a formula computing the number of unit of 3kw electrical installation for given power, based on weigth
+unit_3kW_equiv = interpolate(P, 3, 570, 1, 1570/33)
+```
+
+# Inverter
+
+```{python}
+inverter_500kW = findTechAct('inverter production, 500kW', 'RER')
+inverter_2500W = findTechAct('inverter production, 2.5kW', 'RER')
+weigth_2500W = 18.5
+weigth_500kW = 3000
+print_act(inverter_500kW, inverter_2500W)
 ```
 
 ```{python}
-# Compute with algebric implementation : the values should be the same
-multiLCAAlgebric(
-    elec_switch, # The model 
-    impacts, # Impacts
-    
-    # Parameters of the model
-    a=1, 
-    b=2,
-    elec_switch_param="us")
+# Generate a dataset for 1kG of inverter, based on the power
+inverter_per_kg = interpolated_act(
+    "Inverter production, P kW per kg",
+    inverter_2500W, 
+    inverter_500kW,
+    2.5, # FIXME : Wrong in original model should be 2.5 ?
+    500,
+    P,
+    1 / weigth_2500W,
+    1 / weigth_500kW, 
+    unit="kilogram")
 ```
 
 ```{python}
-# Here is what the symbolic model looks like 
-expr, _ = actToExpression(model)
-expr
-```
-
-```{python}
-# Fast computation for millions of separate samples
-multiLCAAlgebric(
-    model, # The model 
-    impacts, # Impacts
-    
-    # Parameters of the model
-    a=list(range(1, 100000)), # LIst should be the same size for each param
-    b=list(range(1, 100000)),
-    elec_switch_param="eu")
+print_act(inverter_per_kg, P=2.5)
 ```
 
 ```{python}

@@ -20,6 +20,7 @@ from sympy.utilities.lambdify import lambdify
 from collections import OrderedDict
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from copy import deepcopy
+from itertools import chain
 import builtins
 
 # -- Constants
@@ -40,9 +41,37 @@ def param_registry() :
 # Sympy symbols
 old_amount = symbols("old_amount") # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
 
+# Improved API for activity
+class BetterActivity(Activity) :
+
+    # Add method to get exchange by name
+    def get_exchange(self, name=None, input=None, single=True) :
+
+        exchs = list([exch for exch in self.exchanges_np() if name and name == exch['name'] or input and input == exch['input']])
+        if single and len(exchs) != 1:
+            raise Exception("Expected 1 exchange with name '%s' for '%s', found %d" % (name, self, len(exchs)))
+        if len(exchs) == 1 :
+            return exchs[0]
+        elif len(exchs) == 0 :
+            return None
+        else:
+            return exchs
+    # Return list of exchanges, except prodution
+    def exchanges_np(self) :
+        for exch in self.exchanges() :
+            if exch['input'] != exch['output'] :
+                yield  exch
+
+# Amend the existing class so that all instances of Activity benefit it
+setattr(Activity, "get_exchange", BetterActivity.get_exchange)
+setattr(Activity, "exchanges_np", BetterActivity.exchanges_np)
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
+
+def isnumber(value) :
+    return isinstance(value, int) or isinstance(value, float)
 
 def print_act(*activities, **params):
     '''Print activities and their exchanges.
@@ -184,11 +213,41 @@ def findTechAct(name, location=None, **kwargs):
     ''' Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) '''
     return findActivity(name, location, db_name=ECOINVENT_DB_NAME, **kwargs)
 
+def interpolate(x, x1, x2, y1, y2):
+    return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+
+
+def interpolated_act(name:str, act1:BetterActivity, act2:BetterActivity, x1, x2, x, alpha1=1, alpha2=1, **kwargs) :
+
+    res = copyActivity(act1, name, withExchanges=False, **kwargs)
+
+    exch1_by_input = dict({exch['input'] : exch for exch in act1.exchanges_np()})
+    exch2_by_input = dict({exch['input']: exch for exch in act2.exchanges_np()})
+
+    inputs = set(chain(exch1_by_input.keys(), exch2_by_input.keys()))
+
+    for input in inputs :
+
+        exch1 = exch1_by_input.get(input)
+        exch2 = exch2_by_input.get(input)
+        exch = exch1 if exch1 else exch2
+
+        amount1 = exch1['amount'] if exch1 else 0
+        amount2 = exch2['amount'] if exch2 else 0
+
+        if exch1 and exch2 and exch1['name'] != exch2['name'] :
+            raise Exception("Input %s refer two different names : %s, %s" % (input,  exch1['name'],  exch2['name']))
+
+        amount = interpolate(x, x1, x2, amount1 * alpha1, amount2 * alpha2)
+        act = getActByCode(*input)
+        addExchanges(res, {act: dict(amount=amount, name=exch['name'])})
+    return res
+
 # Type of parameters
 class ParamType :
     ENUM = "enum"
     BOOL = "bool"
-    NUMBER = "number"
+    FLOAT = "float"
 
 class ParamDef(Symbol) :
     '''
@@ -253,7 +312,7 @@ def newParamDef(name, type, **kwargs) :
 
     # Put it in local registry (in memory)
     if name in param_registry():
-        raise Exception("Param %s already defined" % name)
+        eprint("Param %s was already defined : overriding" % name)
     param_registry()[name] = param
 
     # Save in brightway2 project
@@ -261,6 +320,9 @@ def newParamDef(name, type, **kwargs) :
     bw.parameters.new_project_parameters(bwParams)
 
     return param
+
+def newFloatParam(name, default, **kwargs) :
+    return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
 
 # Transform amount to either simple amount or formula
 def amountToFormula(amount : Union[float, str, Basic], currentAmount=None) :
@@ -286,19 +348,28 @@ def amountToFormula(amount : Union[float, str, Basic], currentAmount=None) :
                 amount))
     return res
 
-def addExchanges(act, exchanges : Dict[Activity, Union[float, Basic]] = dict()) :
+NumOrExpression = Union[float, Basic]
+
+def addExchanges(act, exchanges : Dict[Activity, Union[NumOrExpression, dict]] = dict()) :
     ''' Add exchanges to an existing activity, with a compact syntax :
-    :param  exchanges Dict of activity : amount. amount being either a fixed value or
-            Sympy expression (arithmetic expression of Sympy symbols)
+    :param  exchanges Dict of activity => amount or activity => attributes_dict.
+            Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
     '''
     parametrized = False
-    for sub_act, amount in exchanges.items():
+    for sub_act, attrs in exchanges.items():
+
+        if isinstance(attrs, dict):
+            amount = attrs.pop('amount')
+        else :
+            attrs = dict()
+
         exch = act.new_exchange(
             input=sub_act.key,
             name=sub_act['name'],
             unit=sub_act['unit'] if 'unit' in sub_act else None,
             type='biosphere' if sub_act['database'] == BIOSPHERE3_DB_NAME else 'technosphere')
 
+        exch.update(attrs)
         exch.update(amountToFormula(amount))
         if 'formula' in exch :
             parametrized = True
@@ -395,20 +466,10 @@ def newActivity(
     return act
 
 
-# Add method to get exchange by name
-def get_exchange(self, name, single=True) :
-    exchs = list([exch for exch in self.exchanges() if name == exch['name']])
-    if single and len(exchs) != 1:
-        raise Exception("Expected 1 exchange with name '%s' for '%s', found %d" % (name, self, len(exchs)))
-    if len(exchs) == 1 :
-        return exchs[0]
-    else :
-        return exchs
-
-setattr(Activity, "get_exchange", get_exchange)
 
 
-def copyActivity(activity, code=None, db_name=ACV_DB_NAME, **kwargs):
+
+def copyActivity(activity: BetterActivity, code=None, db_name=ACV_DB_NAME, withExchanges=True, **kwargs):
     """
         Copy activity into a new DB
     """
@@ -424,13 +485,15 @@ def copyActivity(activity, code=None, db_name=ACV_DB_NAME, **kwargs):
     res['name'] = code
     res.save()
 
-    for exc in activity.exchanges():
-        data = deepcopy(exc._data)
-        data['output'] = res.key
-        # Change `input` for production exchanges
-        if exc['input'] == exc['output']:
-            data['input'] = res.key
-        ExchangeDataset.create(**dict_as_exchangedataset(data))
+    if withExchanges :
+        for exc in activity.exchanges():
+            data = deepcopy(exc._data)
+            data['output'] = res.key
+            # Change `input` for production exchanges
+            if exc['input'] == exc['output']:
+                data['input'] = res.key
+            ExchangeDataset.create(**dict_as_exchangedataset(data))
+
     return res
 
 

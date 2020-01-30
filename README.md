@@ -9,3 +9,5 @@
 * Mounting system : scrap steel & alu are equal to alu and steeel used ? This is not the case for ground model
 * "Market for scrap alu" vs "aluminium scrap, new, Recycled Content cut-off"
 * Wierd ground 
+* Electrical installation : why by weight ?? Function is not affine : 1570 instead of 570
+* Inverter : 3Kw or 2.5kw ?? 
