@@ -5,9 +5,9 @@
 
 # Notes on model 
 
-* Recycling aluminium : why electricty is not reduced ? why updating alu instad of creating linear interpolation between scrap and new alu ?
-* Mounting system : scrap steel & alu are equal to alu and steeel used ? This is not the case for ground model
+* Recycling aluminium : why electricity is not reduced ? why updating alu instead of creating linear interpolation between scrap and new alu ?
+* Mounting system : scrap steel & alu are equal to alu and steel used ? This is not the case for ground model
 * "Market for scrap alu" vs "aluminium scrap, new, Recycled Content cut-off"
 * Wierd ground 
-* Electrical installation : why by weight ?? Function is not affine : 1570 instead of 570
-* Inverter : 3Kw or 2.5kw ?? 
+* Electrical installation : why by weight ?? Function is not affine ?
+* Inverter : 3Kw or 2.5kw ?? Scrap alu : Yet another ? Positive recycling ? Input not changed ? 

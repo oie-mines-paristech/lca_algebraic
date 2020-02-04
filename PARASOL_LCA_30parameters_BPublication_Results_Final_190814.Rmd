@@ -828,7 +828,7 @@ def generate_inverter_dataset(P = 10, elec_dataset = None, recycling_rate = 0):
 ```
 
 ```{python}
-inverter_P_per_kg = generate_inverter_dataset(P = 2.5, elec_dataset = None, recycling_rate = 0)
+inverter_P_per_kg = generate_inverter_dataset(P = 500, elec_dataset = None, recycling_rate = 0.3)
 inverter_P_per_kg
 ```
 

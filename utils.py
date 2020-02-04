@@ -44,18 +44,68 @@ old_amount = symbols("old_amount") # Can be used in epxression of amount for upd
 # Improved API for activity
 class BetterActivity(Activity) :
 
-    # Add method to get exchange by name
-    def get_exchange(self, name=None, input=None, single=True) :
+    def get_exchange(self, name = None, in_name=None, input=None, single=True):
+        """
+        Get exchange by name or input
+        :param name : name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name
+        :param in_name : Match if 'in_name' is part of the name of the exchange
+        :param single: True if a single match is expected. Otherwize, a list of result is returned
+        """
 
-        exchs = list([exch for exch in self.exchanges_np() if name and name == exch['name'] or input and input == exch['input']])
+        # Name can be "Elecricity#RER"
+        loc = None
+        if name:
+            if "#" in name:
+                name, loc = name.split("#")
+
+        def match(exch):
+
+            if name :
+                if isinstance(name, list) :
+                    return exch['name'] in name
+                else :
+                    if name == exch['name'] :
+                        if loc is None :
+                            return True
+                        else :
+                            act = getActByCode(*exch['input'])
+                            return act['location'] == loc
+
+            if in_name:
+                if isinstance(in_name, list):
+                    for item in in_name :
+                        if item in exch['name'] :
+                            return True
+                    return False
+                else:
+                    return exch['name'] in in_name
+            if input :
+                return input == exch['input']
+
+        exchs = list([exch for exch in self.exchanges_np() if match(exch)])
         if single and len(exchs) != 1:
             raise Exception("Expected 1 exchange with name '%s' for '%s', found %d" % (name, self, len(exchs)))
-        if len(exchs) == 1 :
-            return exchs[0]
-        elif len(exchs) == 0 :
-            return None
+        if single :
+            if len(exchs) == 0 :
+                return None
+            else :
+                return exchs[0]
         else:
             return exchs
+
+    def get_amount(self, *args, sum=False, **kargs) :
+        '''Get the amount of one or several exchanges, selected by name or input. See #get_dict_as_exchange()'''
+        exchs = self.get_exchange(*args, single = not sum, **kargs)
+        if sum :
+            res = 0
+            if len(exchs) == 0 :
+                raise Exception("No exchange found")
+            for exch in exchs :
+                res += getAmountOrFormula(exch)
+            return res
+        else :
+            return getAmountOrFormula(exchs)
+
     # Return list of exchanges, except prodution
     def exchanges_np(self) :
         for exch in self.exchanges() :
@@ -65,10 +115,10 @@ class BetterActivity(Activity) :
 # Amend the existing class so that all instances of Activity benefit it
 setattr(Activity, "get_exchange", BetterActivity.get_exchange)
 setattr(Activity, "exchanges_np", BetterActivity.exchanges_np)
+setattr(Activity, "get_amount", BetterActivity.get_amount)
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
-
 
 def isnumber(value) :
     return isinstance(value, int) or isinstance(value, float)
@@ -170,7 +220,7 @@ def find_candidates(db_name, name) :
 def getActByCode(db_name, code) :
     return getDb(db_name).get(code)
 
-def findActivity(name, location=None, categories=None, category=None, db_name=None, single=True) :
+def findActivity(name=None, loc=None, in_name=None, categories=None, category=None, db_name=None, single=True) :
     '''
         Find single activity by name.
         Uses index for fast fetching
@@ -181,9 +231,11 @@ def findActivity(name, location=None, categories=None, category=None, db_name=No
         :param categories: if provided, activity should have this exact list of categories
     '''
     def act_filter(act) :
-        if not name == act['name'] :
+        if name and not name == act['name'] :
             return False
-        if location and not location == act['location'] :
+        if in_name and not act['name'] in in_name:
+            return False
+        if loc and not loc == act['location'] :
             return False
         if category and not category in act['categories'] :
             return False
@@ -191,27 +243,29 @@ def findActivity(name, location=None, categories=None, category=None, db_name=No
             return False
         return True
 
+    name_key = name if name else in_name
+
     # Find candidates via index
-    candidates = find_candidates(db_name, name)
+    candidates = find_candidates(db_name, name_key)
 
     # Exact match
     acts = list(filter(act_filter, candidates))
     if single and len(acts) == 0 :
-        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name, location))
+        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name_key, loc))
     if single and len(acts) > 1 :
-        raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (db_name, name, location, str(acts)))
+        raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (db_name, name_key, loc, str(acts)))
     if len(acts) == 1 :
         return acts[0]
     else :
         return acts
 
-def findBioAct(name, location=None, **kwargs):
+def findBioAct(name=None, loc=None, **kwargs):
     ''' Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) '''
-    return findActivity(name, location, db_name=BIOSPHERE3_DB_NAME, **kwargs)
+    return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)
 
-def findTechAct(name, location=None, **kwargs):
+def findTechAct(name=None, loc=None, **kwargs):
     ''' Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) '''
-    return findActivity(name, location, db_name=ECOINVENT_DB_NAME, **kwargs)
+    return findActivity(name=name, loc=loc, db_name=ECOINVENT_DB_NAME, **kwargs)
 
 def interpolate(x, x1, x2, y1, y2):
     return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
@@ -361,6 +415,7 @@ def addExchanges(act, exchanges : Dict[Activity, Union[NumOrExpression, dict]] =
         if isinstance(attrs, dict):
             amount = attrs.pop('amount')
         else :
+            amount = attrs
             attrs = dict()
 
         exch = act.new_exchange(
@@ -379,7 +434,7 @@ def addExchanges(act, exchanges : Dict[Activity, Union[NumOrExpression, dict]] =
     if parametrized:
         bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, act)
 
-def updateExchanges(activity: Activity, updates: Dict[str, any] = dict()):
+def updateExchanges(activity: BetterActivity, updates: Dict[str, any] = dict()):
     '''
         Update existing exchanges, by name.
         :param updates Dict of exchange name => either single value (float or SympPy expression) for updating only amount,
@@ -417,12 +472,16 @@ def getAmountOrFormula(ex:ExchangeDataset) -> Union[Basic, float] :
 
     return ex['amount']
 
-def substituteWithDefault(act: Activity, exchange_name: str, switch_act : Activity) :
+def substituteWithDefault(act: Activity, exchange_name: str, switch_act : Activity, amount=None) :
     '''
         Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
         For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by (1-sum(enum_params)),
         making it null as soon as one enum value is set.
         This is useful for changing electricty mix, leaving the default one if needed
+        :param act Activity to update
+        :param exchange_name Name of the exchange to update
+        :param switch_act Activity to substitue as input
+        :param amount Amount of the input (uses previous amount by default)
     '''
     sum = 0
     for exch in switch_act.exchanges() :
@@ -430,9 +489,11 @@ def substituteWithDefault(act: Activity, exchange_name: str, switch_act : Activi
             sum += getAmountOrFormula(exch)
 
     current_exch = act.get_exchange(exchange_name)
-    addExchanges(act, {switch_act : getAmountOrFormula(current_exch)})
-    updateExchanges(act, {exchange_name : (1-sum)* old_amount})
 
+    prev_amount = amount if amount else getAmountOrFormula(current_exch)
+
+    addExchanges(act, {switch_act : prev_amount})
+    updateExchanges(act, {exchange_name : (1-sum)* prev_amount})
 
 
 def _newAct(code, db_name=ACV_DB_NAME) :
@@ -577,7 +638,10 @@ def completeParamValues(params) :
 
     res = dict()
     for key, val in params.items():
-        param = param_registry()[key]
+        if key in param_registry() :
+            param = param_registry()[key]
+        else :
+            raise Exception("Parameter not found : %s. Valid parameters : %s" % (key, list(param_registry().keys())))
 
         if isinstance(val, list) :
             newvals = [param.expandParams(val) for val in val]
@@ -622,6 +686,7 @@ def multiLCAAlgebric(models, methods, **params) :
     :param: params You should provide named values of all the parameters declared in the model.
             Values can be single value or list of samples, all of the same size
     '''
+
     dfs = dict()
 
     if not isinstance(models, list) :
@@ -630,9 +695,33 @@ def multiLCAAlgebric(models, methods, **params) :
     # Check and expand params
     params = completeParamValues(params)
 
+    # Expand parameters as list of parameters
+    param_length = 1
+
+    for key, val in params.items():
+        if isinstance(val, list):
+            if param_length == 1:
+                param_length = len(val)
+            elif param_length != len(val):
+                raise Exception("Parameters should be a single value or a list of same number of values")
+
+    # Expand params and transform lists to np.array for vector computation
+    for key in params.keys():
+        val = params[key]
+        if not isinstance(val, list):
+            val = list([val] * param_length)
+        params[key] = np.array(val)
+
     for model in models :
 
         expr, actBySymbolName = actToExpression(model)
+
+        # Check missing parameters
+        param_names = set([str(symb) for symb in expr.free_symbols])
+        act_names = set([str(symb) for symb in actBySymbolName.keys()])
+        remaining = param_names - act_names - params.keys()
+        if remaining :
+            raise Exception("Some model parameters are not set : %s" % remaining)
 
         # Create dummy reference to biosphere
         # We cannot run LCA to biosphere activities
@@ -658,7 +747,7 @@ def multiLCAAlgebric(models, methods, **params) :
         lambdas = []
         for imethod, method in enumerate(methods) :
 
-            # Replace activities by their value for this method
+            # Replace activities by their value in expression for this method
             sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(pureTechActBySymbol.keys())]
             method_expr = expr.subs(sub)
 
@@ -666,41 +755,24 @@ def multiLCAAlgebric(models, methods, **params) :
             lambd = lambdify(params.keys(), method_expr, 'numpy')
             lambdas.append(lambd)
 
-        # Expand parameters as list of parameters
-        param_length = 1
-
-        for key, val in params.items() :
-            if isinstance(val, list) :
-                if param_length == 1 :
-                    param_length = len(val)
-                elif param_length != len(val) :
-                    raise Exception("Parameters should be a single value or a list of same number of values")
-
-        # Expand params and transform lists to np.array for vector computation
-        for key in params.keys() :
-            val = params[key]
-            if not isinstance(val, list) :
-                val = list([val] * param_length)
-            params[key] = np.array(val)
-
         res = np.zeros((len(methods), param_length))
 
-
+        # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
         for imethod, lambd in enumerate(lambdas) :
-            # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
             res[imethod, :] = lambd(**params)
 
-        name = act_name(act)
+        model_name = act_name(model)
         df = pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
 
         # Single params ? => give the single row the name of the model activity
         if df.shape[0] == 1 :
-            df = df.rename(index={0:act_name(model)})
+            df = df.rename(index={0:model_name})
 
-        dfs[name] = df
+        dfs[model_name] = df
 
     if len(dfs) == 1 :
-        display(list(dfs.values())[0])
+        df = list(dfs.values())[0]
+        display(df)
     else :
         # Concat several dataframes for several models
         display(pd.concat(list(dfs.values())))

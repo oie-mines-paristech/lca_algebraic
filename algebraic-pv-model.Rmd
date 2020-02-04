@@ -108,7 +108,7 @@ multiLCA([elec_us, elec_eu, elec_row, elec_cn, elec_fr], impacts)
 ```{python}
 alu=findTechAct('aluminium alloy production, AlMg3', 'RER')
 alu_scrap=findTechAct('aluminium scrap, new, Recycled Content cut-off')
-alu_cast_amount = alu.get_exchange('aluminium, cast alloy')['amount']
+alu_cast_amount = alu.get_amount('aluminium, cast alloy')
 ```
 
 ```{python}
@@ -149,8 +149,8 @@ roof_system = findTechAct('photovoltaic mounting system production, for slanted-
 
 ```{python}
 # Build a modified roof system with recycled output
-roof_alu_amount = roof_system.get_exchange('aluminium, wrought alloy')['amount']
-roof_steel_amount = roof_system.get_exchange('steel, low-alloyed, hot rolled')['amount']
+roof_alu_amount = roof_system.get_amount('aluminium, wrought alloy')
+roof_steel_amount = roof_system.get_amount('steel, low-alloyed, hot rolled')
 scrap_steel_market = findTechAct('market for scrap steel', 'Europe without Switzerland')
 scrap_alu_market= findTechAct('market for scrap aluminium', 'Europe without Switzerland')
 
@@ -224,7 +224,82 @@ inverter_per_kg = interpolated_act(
 ```
 
 ```{python}
-print_act(inverter_per_kg, P=2.5)
+# Add recycling 
+recycling_rate = newFloatParam("recycling_rate", 0.3, description="Recycling rate for inverter")
+
+scrap_alu = findTechAct("market for scrap aluminium", "Europe without Switzerland")
+scrap_steel = findTechAct("market for scrap steel", "Europe without Switzerland")
+scrap_coper = findTechAct("market for scrap copper", "Europe without Switzerland")
+scrap_electronic = findTechAct("market for electronics scrap")
+
+amount_alu = inverter_per_kg.get_amount('aluminium, cast alloy')
+amount_copper = inverter_per_kg.get_amount('copper')
+amount_steel = inverter_per_kg.get_amount('steel, low-alloyed, hot rolled')
+amount_electronic = inverter_per_kg.get_amount(
+    in_name=['capacitor', 'diode', 'integrated circuit', 'printed wiring', 'resistor', 'transitor'], 
+    sum=True)
+
+addExchanges(inverter_per_kg, {
+    scrap_alu : amount_alu * recycling_rate,
+    scrap_coper : amount_copper * recycling_rate,
+    scrap_electronic : amount_electronic * recycling_rate,
+    scrap_steel : amount_steel * recycling_rate})
+```
+
+```{python}
+print_act(inverter_per_kg, P=500, recycling_rate=0.3)
+```
+
+# Metalization paste
+
+This section replaces all the silver used in the metallization paste by copper. However, the adequate replacement will be accomplished in the following sections according to the conductivity.
+
+
+```{python}
+# Find root activities
+metal_paste = findTechAct("metallization paste production, back side", "RER")
+copper = findTechAct('copper production, primary', "RoW")
+
+# Copy and update mateal paste with copper
+metal_paste_copper = copyActivity(metal_paste, 'metal paste, copper')
+updateExchanges(metal_paste_copper, {'silver' : dict(input=copper, name="copper")})
+```
+
+```{python}
+print_act(metal_paste_copper)
+```
+
+# Silicon solar grade manufacturing
+
+In this section, the main modification implemented is the change of the electrcity intensity used for the manufacturing of the solar grade.
+
+```{python}
+silicon_elec_intensity = newFloatParam("silicon_elec_intensity", 40, description="electrcity used for solar processing and casting ")
+```
+
+```{python}
+silicon = findTechAct('silicon production, solar grade, modified Siemens process', 'RER')
+```
+
+```{python}
+silicon_adjusted = copyActivity(silicon, "Silicon adjusted")
+print_act(silicon)
+```
+
+```{python}
+# Delete hydroelectricy, for not counting it twice
+updateExchanges(silicon_adjusted, {'electricity, high voltage#RoW' : 0})
+
+# Replace elec with elec switch, and update amount as a parameter
+substituteWithDefault(silicon_adjusted, 'electricity, high voltage#RER', elec, silicon_elec_intensity)
+```
+
+```{python}
+print_act(silicon_adjusted)
+```
+
+```{python}
+multiLCAAlgebric([silicon, silicon_adjusted], impacts, elec_switch=None, silicon_elec_intensity=40)
 ```
 
 ```{python}
