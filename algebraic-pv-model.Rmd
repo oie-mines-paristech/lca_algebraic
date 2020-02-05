@@ -91,7 +91,7 @@ elec_row = findTechAct(ELEC_NAME, "RoW")
 
 ```{python}
 # Virtual activity corresponding to switch upon elec mixes
-elec = switch("elec", elec_switch, {
+elec = newSwitchAct("elec", elec_switch, {
     "us" : elec_us,
     "eu" : elec_eu,
     "fr" : elec_fr,
@@ -108,7 +108,7 @@ multiLCA([elec_us, elec_eu, elec_row, elec_cn, elec_fr], impacts)
 ```{python}
 alu=findTechAct('aluminium alloy production, AlMg3', 'RER')
 alu_scrap=findTechAct('aluminium scrap, new, Recycled Content cut-off')
-alu_cast_amount = alu.get_amount('aluminium, cast alloy')
+alu_cast_amount = alu.getAmount('aluminium, cast alloy')
 ```
 
 ```{python}
@@ -121,21 +121,18 @@ share_recycled_aluminium = newFloatParam(
 ```{python}
 alu_adjusted = copyActivity(alu, "Alu adjusted")
 
-updateExchanges(alu_adjusted, 
+alu_adjusted.updateExchanges( 
     {"aluminium, cast alloy": alu_cast_amount * (1 - share_recycled_aluminium)}) 
-
-addExchanges(alu_adjusted, 
+alu_adjusted.addExchanges( 
     {alu_scrap : alu_cast_amount * share_recycled_aluminium} )
 
-substituteWithDefault(
-    alu_adjusted, 
+alu_adjusted.substituteWithDefault(
     'electricity, high voltage, aluminium industry', 
     elec)
-
 ```
 
 ```{python}
-print_act(alu, alu_adjusted, share_recycled_aluminium=0.3, elec_switch=None)
+printAct(alu, alu_adjusted, share_recycled_aluminium=0.3, elec_switch=None)
 multiLCA([alu, alu_adjusted], impacts, share_recycled_aluminium=0.3, elec_switch=None)
 ```
 
@@ -149,8 +146,8 @@ roof_system = findTechAct('photovoltaic mounting system production, for slanted-
 
 ```{python}
 # Build a modified roof system with recycled output
-roof_alu_amount = roof_system.get_amount('aluminium, wrought alloy')
-roof_steel_amount = roof_system.get_amount('steel, low-alloyed, hot rolled')
+roof_alu_amount = roof_system.getAmount('aluminium, wrought alloy')
+roof_steel_amount = roof_system.getAmount('steel, low-alloyed, hot rolled')
 scrap_steel_market = findTechAct('market for scrap steel', 'Europe without Switzerland')
 scrap_alu_market= findTechAct('market for scrap aluminium', 'Europe without Switzerland')
 
@@ -158,7 +155,7 @@ scrap_alu_market= findTechAct('market for scrap aluminium', 'Europe without Swit
 roof_system_modified = copyActivity(roof_system, "Roof system recycled")
 
 # Add scrap alu and steel output 
-addExchanges(roof_system_modified, {
+roof_system_modified.addExchanges({
     scrap_alu_market : - roof_alu_amount,
     scrap_steel_market : - roof_steel_amount})
 ```
@@ -167,15 +164,15 @@ addExchanges(roof_system_modified, {
 # Replace alu with recycled alu
 ground_system_modified = copyActivity(ground_system, "Ground system modified")
 
-updateExchanges(roof_system_modified, 
+roof_system_modified.updateExchanges(
     {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
-updateExchanges(ground_system_modified, 
+ground_system_modified.updateExchanges(
     {'aluminium, wrought alloy' : dict(input=alu_adjusted)})
 ```
 
 ```{python}
-print_act(ground_system_modified)
-print_act(roof_system_modified)
+printAct(ground_system, ground_system_modified)
+printAct(roof_system, roof_system_modified)
 ```
 
 ```{python}
@@ -206,12 +203,12 @@ inverter_500kW = findTechAct('inverter production, 500kW', 'RER')
 inverter_2500W = findTechAct('inverter production, 2.5kW', 'RER')
 weigth_2500W = 18.5
 weigth_500kW = 3000
-print_act(inverter_500kW, inverter_2500W)
+printAct(inverter_500kW, inverter_2500W)
 ```
 
 ```{python}
 # Generate a dataset for 1kG of inverter, based on the power
-inverter_per_kg = interpolated_act(
+inverter_per_kg = newInterpolatedAct(
     "Inverter production, P kW per kg",
     inverter_2500W, 
     inverter_500kW,
@@ -232,14 +229,14 @@ scrap_steel = findTechAct("market for scrap steel", "Europe without Switzerland"
 scrap_coper = findTechAct("market for scrap copper", "Europe without Switzerland")
 scrap_electronic = findTechAct("market for electronics scrap")
 
-amount_alu = inverter_per_kg.get_amount('aluminium, cast alloy')
-amount_copper = inverter_per_kg.get_amount('copper')
-amount_steel = inverter_per_kg.get_amount('steel, low-alloyed, hot rolled')
-amount_electronic = inverter_per_kg.get_amount(
-    in_name=['capacitor', 'diode', 'integrated circuit', 'printed wiring', 'resistor', 'transitor'], 
+amount_alu = inverter_per_kg.getAmount('aluminium, cast alloy')
+amount_copper = inverter_per_kg.getAmount('copper')
+amount_steel = inverter_per_kg.getAmount('steel, low-alloyed, hot rolled')
+amount_electronic = inverter_per_kg.getAmount(
+    ['capacitor*', 'diode*', 'integrated circuit*', 'printed wiring*', 'resistor*', 'transitor*'], 
     sum=True)
 
-addExchanges(inverter_per_kg, {
+inverter_per_kg.addExchanges({
     scrap_alu : amount_alu * recycling_rate,
     scrap_coper : amount_copper * recycling_rate,
     scrap_electronic : amount_electronic * recycling_rate,
@@ -247,7 +244,7 @@ addExchanges(inverter_per_kg, {
 ```
 
 ```{python}
-print_act(inverter_per_kg, P=500, recycling_rate=0.3)
+printAct(inverter_per_kg, P=500, recycling_rate=0.3)
 ```
 
 # Metalization paste
@@ -266,7 +263,7 @@ updateExchanges(metal_paste_copper, {'silver' : dict(input=copper, name="copper"
 ```
 
 ```{python}
-print_act(metal_paste_copper)
+printAct(metal_paste_copper)
 ```
 
 # Silicon solar grade manufacturing
@@ -274,32 +271,101 @@ print_act(metal_paste_copper)
 In this section, the main modification implemented is the change of the electrcity intensity used for the manufacturing of the solar grade.
 
 ```{python}
-silicon_elec_intensity = newFloatParam("silicon_elec_intensity", 40, description="electrcity used for solar processing and casting ")
+silicon_elec_intensity = newFloatParam(
+    "silicon_elec_intensity", 
+    40, 
+    description="electricity used for solar processing and casting ")
 ```
 
 ```{python}
 silicon = findTechAct('silicon production, solar grade, modified Siemens process', 'RER')
-```
-
-```{python}
 silicon_adjusted = copyActivity(silicon, "Silicon adjusted")
-print_act(silicon)
-```
 
-```{python}
 # Delete hydroelectricy, for not counting it twice
-updateExchanges(silicon_adjusted, {'electricity, high voltage#RoW' : 0})
+silicon_adjusted.updateExchanges({'electricity, high voltage#RoW' : None})
 
 # Replace elec with elec switch, and update amount as a parameter
-substituteWithDefault(silicon_adjusted, 'electricity, high voltage#RER', elec, silicon_elec_intensity)
+silicon_adjusted.substituteWithDefault('electricity, high voltage#RER', elec, silicon_elec_intensity)
 ```
 
 ```{python}
-print_act(silicon_adjusted)
+printAct(silicon_adjusted)
 ```
 
 ```{python}
 multiLCAAlgebric([silicon, silicon_adjusted], impacts, elec_switch=None, silicon_elec_intensity=40)
+```
+
+# Casting Dataset 
+
+Let's remove the use of silicon electronics grade (it was significant when the world silicon production was relatively low, nowadays this volume can be neglected compared to the level reached by the solar industry).
+Let's remove also silicon solar grade as it is directly call by the wafer dataset and also electricity that is already accounted in the amount of electricity for solar grade manufacturing.
+As a consequence, only chemicals, the factory and ceramic will be left and this dataset will complement the silicon solar grade dataset and both will be called for the wafer dataset.
+
+```{python}
+silicon_casting = findTechAct('silicon production, multi-Si, casted', 'RoW')
+```
+
+```{python}
+silicon_casting_adjusted = copyActivity(silicon_casting, 'silicon casting updated')
+```
+
+```{python}
+silicon_casting_adjusted.updateExchanges({
+    'silicon,*' : None,
+    'electricity, medium voltage*' : None})
+```
+
+```{python}
+printAct(silicon_casting, silicon_casting_adjusted)
+```
+
+# Wafer manufacturing
+
+In this section, some modifications were integrated by creating new datasets related mainly to the emerging practices in the cutting processes: 6 new datasets were created to serve this purpose.
+On one hand, 2 of them (SiC recycled and TEG recycled) are related to the advancements of the traditional cutting process (loose abrasive slurry). The advancement of their recycling has resulted in the use of their recycled material recovered.
+On another hand, the 4 new datasets are created to represent 1 meter of wire used in the emerging technology: the diamond wiring.
+
+
+## Cutting Process
+
+### SiC, Recycled
+
+```{python}
+silicon_carbide = findTechAct('silicon carbide production', 'RER')
+silicon_carbide_adjusted = copyActivity(silicon_carbide, 'Silicon carbid adjusted', withExchanges=False)
+silicon_carbide_adjusted.addExchanges({
+    findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 0.78571,
+    findTechAct('market for transport, freight, lorry, unspecified', 'GLO') : 0.2625,
+    findTechAct('market for silicone factory') : 1e-11,
+    findBioAct('Heat, waste', categories=['air']) : 2.8286,
+    findTechAct('market for waste, from silicon wafer production, inorganic') : -0.042857,
+    findTechAct('treatment of spent antifreezer liquid, hazardous waste incineration', 'CH') : -0.071429,
+    findTechAct('market for sludge, pig iron production', 'Europe without Switzerland') : -0.13571,
+})
+```
+
+```{python}
+printAct(silicon_carbide, silicon_carbide_adjusted)
+```
+
+```{python}
+multiLCAAlgebric([silicon_carbide, silicon_carbide_adjusted], impacts)
+```
+
+### TEG, Recycled
+
+```{python}
+teg = findTechAct(code='85c5a45f05a8e40c76aebf8a4dbdc3ad')
+teg_recycled = copyActivity(teg, "TEG recycled", withExchanges=False)
+
+addExchanges(teg_recycled, {
+    findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 0.78571,
+    findTechAct('market for transport, freight, lorry, unspecified', 'GLO') : 0.2625,
+```
+
+```{python}
+
 ```
 
 ```{python}

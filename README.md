@@ -10,4 +10,7 @@
 * "Market for scrap alu" vs "aluminium scrap, new, Recycled Content cut-off"
 * Wierd ground 
 * Electrical installation : why by weight ?? Function is not affine ?
-* Inverter : 3Kw or 2.5kw ?? Scrap alu : Yet another ? Positive recycling ? Input not changed ? 
+* Inverter : 3Kw or 2.5kw ?? Scrap alu : Yet another ? Positive recycling ? Input not changed ?
+* Casting dataset : Water = Water, cooling = 5 in Scarlet model ?? 
+* Wafer manufacturing : why no elec switch ?
+* TEG == Silicon ??
