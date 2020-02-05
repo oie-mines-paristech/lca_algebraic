@@ -53,7 +53,7 @@ class BetterActivity(Activity):
     Those methods are backported to #Activity in order to be directly available on all existing instances
     """
 
-    def getExchange(self, name=None, input=None, _single=True):
+    def getExchange(self, name=None, input=None, single=True):
         """Get exchange by name or input
 
         Parameters
@@ -68,10 +68,10 @@ class BetterActivity(Activity):
             raise Exception if not matching exchange found
         """
 
-        single=_single
+        _single=single
 
         def single_match(name, exch) :
-            nonlocal single
+            nonlocal _single
             # Name can be "Elecricity#RER"
             if "#" in name:
                 name, loc = name.split("#")
@@ -79,7 +79,7 @@ class BetterActivity(Activity):
                 if not 'location' in act or not act['location'] == loc :
                     return False
             if '*' in name :
-                single=False
+                _single=False
                 name = name.replace('*', '')
                 return name in exch['name']
             else :
@@ -100,9 +100,9 @@ class BetterActivity(Activity):
         if len(exchs) == 0:
             raise Exception("Found no exchange matching name : %s" % name)
 
-        if single and len(exchs) != 1:
+        if _single and len(exchs) != 1:
             raise Exception("Expected 1 exchange with name '%s' found %d" % (name, len(exchs)))
-        if single:
+        if _single:
             return exchs[0]
         else:
             return exchs

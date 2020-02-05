@@ -67,6 +67,11 @@ b = newFloatParam(
     default=0.5, 
     description="foo bar")
 
+share_recycled_aluminium = newFloatParam(
+    'share_recycled_aluminium',  
+    default=0.3, 
+    description="Share of reycled aluminium")
+
 # Example 'enum' parameter, acting like a switch between several possibilities
 # Enum parameters are not Symbol themselves
 # They are a facility to represent many parameters at once '<paramName>_<enumValue>' 
@@ -91,7 +96,8 @@ ground_occupuation = findBioAct('Occupation, industrial area')
 heat = findBioAct('Heat, waste', categories=['air'])
 
 # Technosphere activities
-alu = findTechAct(in_name="aluminium alloy production", loc="RER")
+alu = findTechAct(in_name="aluminium alloy production, AlMg3", loc="RER")
+alu_scrap=findTechAct('aluminium scrap, new, Recycled Content cut-off')
 
 # Elec 
 eu_elec = findTechAct("market group for electricity, medium voltage", 'ENTSO-E')
@@ -103,14 +109,10 @@ us_elec = findTechAct("market group for electricity, medium voltage", 'US')
 The model is defined as a nested combination of reference activities and amount. 
 Amounts are defined either as constant float values or algebric formulas implying the parameters defined above.
 
+
+## Create new activities
+
 ```{python}
-# Create new, parametrized activity
-
-# You can create a virtual "switch" activity combining an enum param and several other activities 
-elec_switch = newSwitchAct("elec", elec_switch_param, {
-    "us" : us_elec,
-    "eu" : eu_elec})
-
 # Create a new activity
 activity1 = newActivity(
     "act1", "kg", # Any extra named arg will be added as activity attribute
@@ -119,19 +121,54 @@ activity1 = newActivity(
         heat: b + 0.2,  # Amount can be a Sympy expression (any arithmetic expression of Parameters)
         elec_switch:4})
 
-# The final model is just the root activity referencing the others
+# You can create a virtual "switch" activity combining an enum param and several other activities 
+elec_switch = newSwitchAct("elec", elec_switch_param, {
+    "us" : us_elec,
+    "eu" : eu_elec})
+```
+
+## Copy and update existing activity
+
+You can copy and update an existing inventory
+Some new helper methods have been added to the class **Activity** for easy update of exchanges
+
+```{python}
+alu2 = copyActivity(alu, "Alu2")
+
+# Update exchange by name 
+# The special *old_amount* can be used to reference the previous value of the original inventory
+alu2.updateExchanges( 
+    {"aluminium, cast alloy": old_amount * (1 - share_recycled_aluminium)}) 
+
+# Add exchanges 
+alu2.addExchanges({alu_scrap :  12})
+
+# Substitute an exchange with a "switch" activity, defaulting to the previous activity
+# Here Electricity is replaced by the switch on electricity mix defined above. 
+# If elec_switch_param is None at the time of evaluation, the former electricy mix will be used
+alu2.substituteWithDefault(
+    'electricity, high voltage, aluminium industry', 
+    elec_switch)
+```
+
+## Final model
+The final model is just the root activity referencing the others
+
+```{python}
 model = newActivity("model", "kg", {
         activity1 : b * 5 + a + 1, # Reference the activity we just created
         heat: 3,
         alu:0.4 * a}) 
 ```
 
+## Display activities
+
+Note that symbolic expressions have not been evaluated at this stage
+
 ```{python}
 # Print_act displays activities as "pandas" tables
 printAct(activity1) 
 printAct(model)
-          
-# Note that symbolic expressions have not been evaluated at this stage
 ```
 
 # Select the impacts to consider
@@ -149,7 +186,9 @@ We provide two methods to compute LCA :
 
 ```{python}
 # Uses brightway2 parameters
-multiLCA(us_elec, impacts, 
+multiLCA(
+    us_elec, 
+    impacts, 
                    
     # Parameters of the model
     a=1, 
