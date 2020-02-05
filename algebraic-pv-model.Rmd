@@ -28,7 +28,6 @@ import brightway2 as bw
 
 # Custom utils defined for inter-acv
 from utils import *
-from expression import *
 
 pd.options.display.max_rows = 100
 ```
@@ -259,7 +258,7 @@ copper = findTechAct('copper production, primary', "RoW")
 
 # Copy and update mateal paste with copper
 metal_paste_copper = copyActivity(metal_paste, 'metal paste, copper')
-updateExchanges(metal_paste_copper, {'silver' : dict(input=copper, name="copper")})
+metal_paste_copper.updateExchanges({'silver' : dict(input=copper, name="copper")})
 ```
 
 ```{python}
@@ -355,17 +354,135 @@ multiLCAAlgebric([silicon_carbide, silicon_carbide_adjusted], impacts)
 
 ### TEG, Recycled
 
+FIXME : This model is wrong, it is a pure copy-paste of SiC recycled.
+
 ```{python}
 teg = findTechAct(code='85c5a45f05a8e40c76aebf8a4dbdc3ad')
 teg_recycled = copyActivity(teg, "TEG recycled", withExchanges=False)
 
-addExchanges(teg_recycled, {
+teg_recycled.addExchanges({
     findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 0.78571,
     findTechAct('market for transport, freight, lorry, unspecified', 'GLO') : 0.2625,
+    findTechAct('market for silicone factory') : 1e-11,
+    findBioAct('Heat, waste', categories=['air']) : 2.8286,
+    findTechAct('market for waste, from silicon wafer production, inorganic') : -0.042857,
+    findTechAct('treatment of spent antifreezer liquid, hazardous waste incineration', 'CH') : -0.071429,
+    findTechAct('market for sludge, pig iron production', 'Europe without Switzerland') : -0.13571,
+})
 ```
 
 ```{python}
+multiLCAAlgebric([teg, teg_recycled], impacts)
+```
 
+### Diamond Wiring
+
+All the following datasets are based on Isabella Bianco thesis (2018) in which she analyzed the cutting processes in details. It was essential to integrate these datasets to elaborate the dataset of the wire which will be used for the cutting process according to the emerging diamond wiring technology.
+
+#### Tungstene
+
+```{python}
+tungstene_carbide = copyActivity(silicon_carbide, "tungstene carbide", withExchanges=False)
+
+tungstene_carbide.addExchanges({
+    findTechAct('market for sodium hydroxide*') : 1.49,
+    findTechAct('aluminium sulfate production, powder', 'RER') : 0.071,
+    findTechAct('sodium sulfide production') : 0.044,
+    findTechAct('magnesium sulfate production', 'RER') : 0.027,
+    findTechAct('market for ammonia, liquid', 'RER') : 0.106,
+    findTechAct('market for soda ash, dense') : 1.21,
+    findTechAct('sulfuric acid production', 'RER') : 1.24,
+    findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 111.16,
+    findTechAct('hydrogen sulfide production', 'RER') : 0.0076,
+    findTechAct('market for nitrogen, liquid', 'RER') : 1.65,
+    findTechAct('market for hydrogen, liquid', 'RER') : 0.32,
+    findTechAct('market for tap water', 'RoW') : 2.84,
+    findTechAct('carbon black production') : 0.13,
+})
+    
+```
+
+```{python}
+multiLCAAlgebric(tungstene_carbide, impacts)
+```
+
+```{python}
+printAct(tungstene_carbide)
+```
+
+#### Diamond powder
+
+```{python}
+diamond_powder_ori = findTechAct('sodium percarbonate production, powder', 'RER',)
+diamond_powder = copyActivity(diamond_powder_ori, "Diamond powder",  withExchanges=False)
+diamond_powder.addExchanges({
+    findTechAct("market for electricity, medium voltage", "RoW") : 840,
+    findTechAct("graphite production", "RER") : 1,
+    findTechAct("transport, freight, sea, transoceanic ship") : 170,
+    findTechAct("transport, freight, lorry 16-32 metric ton, EURO4", "RER") : 0.53,
+})
+```
+
+```{python}
+ printAct(diamond_powder)
+```
+
+```{python}
+multiLCAAlgebric(diamond_powder, impacts)
+```
+
+#### Sintered diamond
+
+```{python}
+sintered_diamond_ori = findTechAct("polymethyl methacrylate production, beads", "RER")
+
+sintered_diamond = copyActivity(sintered_diamond_ori, "sintered diamond bead, for quarrying", withExchanges=False)
+sintered_diamond.addExchanges({
+    findTechAct("market group for electricity, medium voltage", "ENTSO-E") : 0.1,
+    findTechAct("market for steel, unalloyed") : 0.003,
+    findTechAct("market for cobalt") : 7e-08,
+    findTechAct("market for copper") : 2.1e-07,
+    findTechAct("market for pig iron") : 3.5e-07,
+    findTechAct("market for nickel, 99.5%") : 2.1e-08,
+    tungstene_carbide : 3.5e-08,
+    diamond_powder : 2e-05,
+    findTechAct('polymethyl methacrylate production, beads', "RER") :  2e-05,
+    findTechAct("cobalt production") : 5e-05,
+    findTechAct("market for silver") : 2.1e-04,
+    findTechAct("market for nitrogen, liquid", "RER") : 0.0323, 
+    findTechAct("market for hydrogen, liquid", "RER") : 9e-04, 
+})
+
+sintered_diamond.setOutputAmount(0.004)
+```
+
+```{python}
+printAct(sintered_diamond)
+```
+
+```{python}
+multiLCAAlgebric(sintered_diamond, impacts)
+```
+
+#### sintered diamond wire, steel
+
+```{python}
+act_ori = findTechAct('wire drawing, steel', 'RER')
+sintered_dw = copyActivity(act_ori, "sintered diamond wire, steel", withExchanges=False)
+
+sintered_dw.addExchanges({
+    sintered_diamond : 0.0427,
+    findTechAct("market group for electricity, medium voltage", "ENTSO-E") : 0.9, 
+    findTechAct("wire drawing, steel", "RER") : 0.095, 
+    findTechAct("wire drawing, steel", "RER") : 0.095, 
+    findTechAct("polyurethane production, flexible foam", "RER") : 0.15, 
+    findTechAct("transport, freight, lorry 16-32 metric ton, EURO4", "RER") : 0.003, 
+    findTechAct("market for waste plastic, mixture", "Europe without Switzerland") : 0.045, 
+})
+```
+
+```{python}
+printAct(sintered_dw)
 ```
 
 ```{python}

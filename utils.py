@@ -107,6 +107,9 @@ class BetterActivity(Activity):
         else:
             return exchs
 
+    def setOutputAmount(self, amount):
+        self.addExchanges({self : amount})
+
     def updateExchanges(self, updates: Dict[str, any] = dict()):
         """Update existing exchanges, by name.
 
@@ -190,7 +193,7 @@ class BetterActivity(Activity):
                 input=sub_act.key,
                 name=sub_act['name'],
                 unit=sub_act['unit'] if 'unit' in sub_act else None,
-                type='biosphere' if sub_act['database'] == BIOSPHERE3_DB_NAME else 'technosphere')
+                type='production' if self == sub_act else 'biosphere' if sub_act['database'] == BIOSPHERE3_DB_NAME else 'technosphere')
 
             exch.update(attrs)
             exch.update(amountToFormula(amount))
@@ -320,14 +323,11 @@ def _split_words(name):
 
 
 def _build_index(db):
-    res = defaultdict(set)
+    res = defaultdict(list)
     for act in db:
         words = _split_words(act['name'])
         for word in words:
-            res[word].add(act)
-
-        # Add index by code
-        res[act['code']].add(act)
+            res[word].append(act)
     return res
 
 
@@ -361,6 +361,10 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         Uses index for fast fetching
     """
 
+    if name and '*' in name :
+        in_name = name.replace("*", "")
+        name = None
+
     def act_filter(act):
         if name and not name == act['name']:
             return False
@@ -375,7 +379,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         return True
 
     if code:
-        acts = _find_candidates(db_name, code)
+        acts = [getActByCode(db_name, code)]
     else:
         name_key = name if name else in_name
 
@@ -386,10 +390,10 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         acts = list(filter(act_filter, candidates))
 
     if single and len(acts) == 0:
-        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name_key, loc))
+        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name, loc))
     if single and len(acts) > 1:
         raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (
-        db_name, name_key, loc, str(acts)))
+        db_name, name, loc, str(acts)))
     if len(acts) == 1:
         return acts[0]
     else:
@@ -904,10 +908,12 @@ def actToExpression(act: Activity):
 
             input_db, input_code = exch['input']
 
-            #  Ignore output
+            outputAmount = 1
+
+            #  Different output ?
             if exch['input'] == exch['output']:
                 if exch['amount'] != 1:
-                    raise Exception("Output quantity not 1")
+                    outputAmount = exch['amount']
                 continue
 
             # Background DB => reference it as a symbol
@@ -927,7 +933,7 @@ def actToExpression(act: Activity):
 
             res += formula * act_expr
 
-        return res
+        return  res / outputAmount
 
     expr = rec_func(act)
 

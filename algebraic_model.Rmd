@@ -113,6 +113,11 @@ Amounts are defined either as constant float values or algebric formulas implyin
 ## Create new activities
 
 ```{python}
+# You can create a virtual "switch" activity combining an enum param and several other activities 
+elec_switch = newSwitchAct("elec", elec_switch_param, {
+    "us" : us_elec,
+    "eu" : eu_elec})
+
 # Create a new activity
 activity1 = newActivity(
     "act1", "kg", # Any extra named arg will be added as activity attribute
@@ -120,11 +125,6 @@ activity1 = newActivity(
         ground_occupuation:3, # Amount can be a fixed value 
         heat: b + 0.2,  # Amount can be a Sympy expression (any arithmetic expression of Parameters)
         elec_switch:4})
-
-# You can create a virtual "switch" activity combining an enum param and several other activities 
-elec_switch = newSwitchAct("elec", elec_switch_param, {
-    "us" : us_elec,
-    "eu" : eu_elec})
 ```
 
 ## Copy and update existing activity

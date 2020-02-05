@@ -1540,8 +1540,7 @@ tungsten_carbide
 
 ```{python}
 #This shows the impact of the AMOUNT used later on in the diamond wire
-list_methods = set_of_methods
-bw.calculation_setups['B_tungsten_carbide'] = {'inv': [{tungsten_carbide:1e-08}], 'ia': list_methods}
+bw.calculation_setups['B_tungsten_carbide'] = {'inv': [{tungsten_carbide:1}], 'ia': list_methods}
 myMultiLCA = bw.MultiLCA('B_tungsten_carbide')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
 df_impact
@@ -1625,9 +1624,8 @@ print_data(diamond_powder)
 ```
 
 ```{python}
-#this code presents the impact of the amount needed for the diamond wire at the end of this section
-list_methods = set_of_methods
-bw.calculation_setups['B_diamond_powder'] = {'inv': [{diamond_powder:2e-05}], 'ia': list_methods}
+
+bw.calculation_setups['B_diamond_powder'] = {'inv': [{diamond_powder:1}], 'ia': list_methods}
 myMultiLCA = bw.MultiLCA('B_diamond_powder')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
 df_impact
@@ -1754,8 +1752,7 @@ print_data(sintered_diamond_bead)
 
 ```{python}
 #To understand the impact of the amount of sintered bead used for the diamond wire at the end of this section
-list_methods = set_of_methods
-bw.calculation_setups['B_sintered_diamond_bead'] = {'inv': [{sintered_diamond_bead:0.0427}], 'ia': list_methods}
+bw.calculation_setups['B_sintered_diamond_bead'] = {'inv': [{sintered_diamond_bead:1}], 'ia': list_methods}
 myMultiLCA = bw.MultiLCA('B_sintered_diamond_bead')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
 df_impact
@@ -1842,8 +1839,7 @@ print_data(sintered_DW)
 
 ```{python}
 #To calculate the impact of the wire used for cutting alone
-list_methods = set_of_methods
-bw.calculation_setups['B_sintered_DW'] = {'inv': [{sintered_DW:0.0006075}], 'ia': list_methods}
+bw.calculation_setups['B_sintered_DW'] = {'inv': [{sintered_DW:1}], 'ia': list_methods}
 myMultiLCA = bw.MultiLCA('B_sintered_DW')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
 df_impact
