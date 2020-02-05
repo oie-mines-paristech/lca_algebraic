@@ -35,6 +35,7 @@ DEFAULT_PARAM_GROUP = "acv"
 
 # Global
 def param_registry():
+    """ """
     if not 'param_registry' in builtins.__dict__:
         builtins.param_registry = dict()
     return builtins.param_registry
@@ -48,19 +49,23 @@ old_amount = symbols(
 NumOrExpression = Union[float, Basic]
 
 class BetterActivity(Activity):
-    """
-        Improved API for activity : adding a few useful methods.
-        Those methods are backported to #Activity in order to be directly available on all existing instances
+    """Improved API for activity : adding a few useful methods.
+    Those methods are backported to #Activity in order to be directly available on all existing instances
     """
 
     def getExchange(self, name=None, input=None, _single=True):
-        """
-        Get exchange by name or input
-        :param name : name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name.
-                        It can also be suffised by '*' to match on exchange starting with this name
-        :param single: True if a single match is expected. Otherwize, a list of result is returned
-        :return List of exchange, if single is False or name contains a wildcard '*', single exchange otherwize
-        :raise Exception if not matching exchange found
+        """Get exchange by name or input
+
+        Parameters
+        ----------
+        name : name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
+            It can also be suffised by '*' to match on exchange starting with this name (Default value = None)
+        single :True if a single match is expected. Otherwize, a list of result is returned
+
+        Returns
+        -------
+            Single exchange or list of exchanges (if _single is False or "name" contains a '*')
+            raise Exception if not matching exchange found
         """
 
         single=_single
@@ -103,11 +108,13 @@ class BetterActivity(Activity):
             return exchs
 
     def updateExchanges(self, updates: Dict[str, any] = dict()):
-        """
-        Update existing exchanges, by name.
-        :param updates: Dict of exchange name => either single value (float or SympPy expression) for updating only amount,
-        or dict of attributes, for updating several at a time. The sympy expression can reference the symbol 'old_amount'
-        that will be replaced with the current value.
+        """Update existing exchanges, by name.
+
+        Parameters
+        ----------
+        updates : Dict of exchange name => either single value (float or SympPy expression) for updating only amount, \
+            or dict of attributes, for updating several at a time. The sympy expression can reference the symbol 'old_amount' \
+            that will be replaced with the current value.
         """
 
         # Update exchanges
@@ -138,15 +145,17 @@ class BetterActivity(Activity):
                     bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
     def substituteWithDefault(self, exchange_name: str, switch_act: Activity, amount=None):
-        """
-        Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
+        """Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
         For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by (1-sum(enum_params)),
         making it null as soon as one enum value is set.
         This is useful for changing electricty mix, leaving the default one if needed
-        :param act: Activity to update
-        :param exchange_name: Name of the exchange to update
-        :param switch_act: Activity to substitue as input
-        :param amount: Amount of the input (uses previous amount by default)
+
+        Parameters
+        ----------
+        act : Activity to update
+        exchange_name : Name of the exchange to update
+        switch_act : Activity to substitue as input
+        amount : Amount of the input (uses previous amount by default)
         """
         sum = 0
         for exch in switch_act.exchanges():
@@ -161,10 +170,12 @@ class BetterActivity(Activity):
         self.updateExchanges({exchange_name: (1 - sum) * prev_amount})
 
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
-        """
-        Add exchanges to an existing activity, with a compact syntax :
-        :param  exchanges: Dict of activity => amount or activity => attributes_dict.
-                Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
+        """Add exchanges to an existing activity, with a compact syntax :
+
+        Parameters
+        ----------
+        exchanges : Dict of activity => amount or activity => attributes_dict. \
+            Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         """
         parametrized = False
         for sub_act, attrs in exchanges.items():
@@ -192,7 +203,9 @@ class BetterActivity(Activity):
             bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
     def getAmount(self, *args, sum=False, **kargs):
-        """Get the amount of one or several exchanges, selected by name or input. See #get_dict_as_exchange()"""
+        """
+        Get the amount of one or several exchanges, selected by name or input. See #get_dict_as_exchange()
+        """
         exchs = self.getExchange(*args, single=not sum, **kargs)
         if sum:
             res = 0
@@ -205,7 +218,7 @@ class BetterActivity(Activity):
             return getAmountOrFormula(exchs)
 
     def exchangesNp(self):
-        """ Return list of exchanges, except production """
+        """ """
         for exch in self.exchanges():
             if exch['input'] != exch['output']:
                 yield exch
@@ -226,8 +239,10 @@ def isnumber(value):
 
 
 def printAct(*activities, **params):
-    """Print activities and their exchanges.
-    If parameter values are provided, formulas will be evaluated accordingly"""
+    """
+    Print activities and their exchanges.
+    If parameter values are provided, formulas will be evaluated accordingly
+    """
     tables = []
     names = []
     for act in activities:
@@ -252,8 +267,9 @@ def printAct(*activities, **params):
     display(pd.concat(tables, axis=1, keys=names, sort=True))
 
 
-# Create or cleanup DB
+
 def resetDb(db_name=ACV_DB_NAME):
+    """ Create or cleanup DB """
     if db_name in bw.databases:
         eprint("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
@@ -262,6 +278,7 @@ def resetDb(db_name=ACV_DB_NAME):
 
 
 def importDb(dbname, path):
+
     if dbname in bw.databases:
         eprint("Database '%s' has already been imported " % dbname)
     else:
@@ -275,14 +292,14 @@ dbs = dict()
 
 
 def getDb(dbname) -> bw.Database:
-    """ Pool of Database instances """
+    """Pool of Database instances"""
     if not dbname in dbs:
         dbs[dbname] = bw.Database(dbname)
     return dbs[dbname]
 
 
 def resetParams(db_name=ACV_DB_NAME):
-    """ Reset project and activity parameters """
+    """Reset project and activity parameters"""
     param_registry().clear()
     ProjectParameter.delete().execute()
     ActivityParameter.delete().execute()
@@ -321,7 +338,7 @@ def _get_indexed_db(db_name):
 
 
 def _find_candidates(db_name, name):
-    """Return the shortest list of candidates among all the words in name"""
+
     res = []
     index = _get_indexed_db(db_name)
     words = _split_words(name)
@@ -340,13 +357,8 @@ def getActByCode(db_name, code):
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
                  single=True):
     """
-        Find single activity by name.
+        Find single activity by name & location
         Uses index for fast fetching
-
-        :param name: Part of the name to search for
-        :param location: [optional] 'GLO' or other
-        :param category: if provided, activity should have at least this category
-        :param categories: if provided, activity should have this exact list of categories
     """
 
     def act_filter(act):
@@ -385,12 +397,14 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
 
 def findBioAct(name=None, loc=None, **kwargs):
-    """ Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) """
+    """Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME)
+    """
     return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)
 
 
 def findTechAct(name=None, loc=None, **kwargs):
-    """ Alias for findActivity(name, ... db_name=ECOINVENT_DB_NAME) """
+    """Alias for findActivity(name, ... db_name=ECOINVENT_DB_NAME)
+    """
     return findActivity(name=name, loc=loc, db_name=ECOINVENT_DB_NAME, **kwargs)
 
 
@@ -401,20 +415,21 @@ def interpolate(x, x1, x2, y1, y2):
 
 def newInterpolatedAct(name: str, act1: BetterActivity, act2: BetterActivity, x1, x2, x, alpha1=1, alpha2=1, **kwargs):
 
-    """
-    Creates a new activity made of interpolation of two similar activities.
+    """Creates a new activity made of interpolation of two similar activities.
     For each exchange :
     amount = alpha1 * a1 + (x - X1) * (alpha2 * a2 - alpha1 * a1) / (x2 - x1)
 
-    :param name: Name of new activity
-    :param act1: Activity 1
-    :param act2: Activity 2
-    :param x1: X for act1
-    :param x2: X for act 2
-    :param x: Should be a parameter symbol
-    :param alpha1: Ratio for act1
-    :param alpha2: Ratio for act2
-    :param kwargs: Any other param will be added as attributes of new activity
+    Parameters
+    ----------
+    name : Name of new activity
+    act1 : Activity 1
+    act2 : Activity 2
+    x1 : X for act1
+    x2 : X for act 2
+    x : Should be a parameter symbol
+    alpha1 : Ratio for act1 (Default value = 1)
+    alpha2 : Ratio for act2 (Default value = 1)
+    kwargs : Any other param will be added as attributes of new activity
     """
     res = copyActivity(act1, name, withExchanges=False, **kwargs)
 
@@ -449,10 +464,9 @@ class ParamType:
 
 
 class ParamDef(Symbol):
-    """
-    Generic definition of a parameter, with name, bound, type, distribution
+    """Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
-
+    
     This class inherits sympy Symbol, making it possible to use in standard arithmetic python
     while keeping it as a symbolic expression (delayed evaluation).
     """
@@ -477,10 +491,8 @@ class ParamDef(Symbol):
 
 
 class EnumParam(ParamDef):
-    """
-    Enum param is a facility representing a choice / switch as many 0/1 parameters.
-    It is not itself a Sympy symbol. use #symbol("value") to access it
-    """
+    """Enum param is a facility representing a choice / switch as many 0/1 parameters.
+    It is not itself a Sympy symbol. use #symbol("value") to access it"""
 
     def __init__(self, name, values: List[str], **argv):
         super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
@@ -491,20 +503,15 @@ class EnumParam(ParamDef):
         return {"%s_%s" % (self.name, enum_val): 1.0 if enum_val == value else 0.0 for enum_val in self.values}
 
     def symbol(self, enumValue):
-        """
-            Access parameter for each enum value :
-            <paramName>_<paramValue>
-        """
+        """Access parameter for each enum value : <paramName>_<paramValue>"""
         if not enumValue in self.values:
             raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
         return Symbol(self.name + '_' + enumValue)
 
 
-#
+
 def newParamDef(name, type, **kwargs):
-    """
-        Creates a param and register it into a global registry and as a brightway parameter
-    """
+    """Creates a param and register it into a global registry and as a brightway parameter"""
     if type == ParamType.ENUM:
         param = EnumParam(name, **kwargs)
     else:
@@ -526,11 +533,12 @@ def newFloatParam(name, default, **kwargs):
     return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
 
 
+def newEnumParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
+
 
 def amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
-    """
-        Transform amount in exchange to either simple amount or formula
-    """
+    """Transform amount in exchange to either simple amount or formula"""
     res = dict()
     if isinstance(amount, Basic):
 
@@ -563,7 +571,7 @@ def amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
 
 
 def getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
-    """Return either static amount or Sympy formula (if present) from an exchange"""
+    """ Return either a fixed float value or an expression for the amount of this exchange"""
     if 'formula' in ex:
         try:
             return parse_expr(ex['formula'])
@@ -577,6 +585,7 @@ def getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
 
 
 def _newAct(code, db_name=ACV_DB_NAME):
+
     db = getDb(db_name)
     # Already present : delete it ?
     for act in db:
@@ -589,15 +598,18 @@ def _newAct(code, db_name=ACV_DB_NAME):
 
 
 def newActivity(
-        name,
+        name, unit,
         exchanges: Dict[Activity, Union[float, str]] = dict(),
         db_name=ACV_DB_NAME,
         **argv):
-    """
-    Creates a new activity
-    :param db_name: Destination DB : ACV DB by default
-    :param exchanges: Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
-    :param argv: extra params passed as properties of the new activity
+    """Creates a new activity
+
+    Parameters
+    ----------
+    name : Name ofthe new activity
+    db_name : Destination DB : ACV DB by default
+    exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
+    argv : extra params passed as properties of the new activity
     """
 
     act = _newAct(name, db_name)
@@ -612,9 +624,7 @@ def newActivity(
 
 
 def copyActivity(activity: BetterActivity, code=None, db_name=ACV_DB_NAME, withExchanges=True, **kwargs) -> BetterActivity:
-    """
-        Copy activity into a new DB
-    """
+    """Copy activity into a new DB"""
 
     res = _newAct(code, db_name)
 
@@ -641,18 +651,21 @@ def copyActivity(activity: BetterActivity, code=None, db_name=ACV_DB_NAME, withE
 
 
 def newSwitchAct(name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
-    """
-    Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
+    """Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
     Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
-    :param paramDef : parameter definition of type enum
-    :param acts_dict : dict of <enumValue> => activity
+
+    Parameters
+    ----------
+    paramDef : parameter definition of type enum
+    acts_dict : dict of <enumValue> => activity
     """
 
     # Transform map of enum values to correspoding formulas <param_name>_<enum_value>
     exch = {act: paramDef.symbol(key) for key, act in acts_dict.items()}
     res = newActivity(
         name,
+        unit=list(acts_dict.values())[0]['unit'],
         exchanges=exch)
 
 
@@ -665,9 +678,7 @@ def newSwitchAct(name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
 
 
 def actName(act: Activity):
-    """
-        Generate pretty name for activity, appending location if not 'GLO'
-    """
+    """Generate pretty name for activity, appending location if not 'GLO' """
     res = act['name']
     if act['location'] != 'GLO':
         res += "[%s]" % act["location"]
@@ -675,9 +686,7 @@ def actName(act: Activity):
 
 
 def _multiLCA(activities, methods):
-    """
-        Simple wrapper around brightway API
-    """
+    """Simple wrapper around brightway API"""
     bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
     lca = bw.MultiLCA('process')
     cols = [actName(act) for act_amount in activities for act, amount in act_amount.items()]
@@ -689,9 +698,11 @@ def listOfDictToDictOflist(LD):
 
 
 def completeParamValues(params):
-    """
-        Check parameters and expand enum params.
-        :return  Dict of param_name => float value
+    """Check parameters and expand enum params.
+
+    Returns
+    -------
+        Dict of param_name => float value
     """
 
     # undef_params = param_registry.keys() - params.keys()
@@ -714,11 +725,13 @@ def completeParamValues(params):
 
 
 def multiLCA(model, methods, **params):
-    """
-        Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
-        :param model(s) : Single activity (root model) or list of activities
-        :param methods : Impact methods to consider
-        :param params : Other parameters of the model
+    """Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
+
+    Parameters
+    ----------
+    model : Single activity (root model) or list of activities
+    methods : Impact methods to consider
+    params : Other parameters of the model
     """
 
     # Check and expand params
@@ -739,14 +752,16 @@ def multiLCA(model, methods, **params):
 
 
 def multiLCAAlgebric(models, methods, **params):
-    """
-    Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
     Then, compute 'static' inventory of the referenced background activities.
     This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
-    :param models: Single model or list of models : if list of models, you cannot use param lists
-    :param methods: List of methods / impacts to consider
-    :param params: You should provide named values of all the parameters declared in the model.
-            Values can be single value or list of samples, all of the same size
+
+    Parameters
+    ----------
+    models : Single model or list of models : if list of models, you cannot use param lists
+    methods : List of methods / impacts to consider
+    params : You should provide named values of all the parameters declared in the model. \
+             Values can be single value or list of samples, all of the same size
     """
     dfs = dict()
 
@@ -847,19 +862,22 @@ def _getOrCreateDummyBiosphereActCopy(code):
         return getDb(ACV_DB_NAME).get(code)
     except:
         bioAct = getDb(BIOSPHERE3_DB_NAME).get(code)
-        res = newActivity(bioAct['name'] + '#copy', {bioAct: 1}, unit=bioAct['unit'])
+        res = newActivity(bioAct['name'] + '#copy', bioAct['unit'], {bioAct: 1})
         return res
 
 
 def actToExpression(act: Activity):
-    """
-        Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
-        :return (sympy_expr, dict of symbol => activity)
+    """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
+
+    Returns
+    -------
+        (sympy_expr, dict of symbol => activity)
     """
 
     act_symbols = dict()  # Dict of  act = > symbol
 
     def act_to_symbol(db_name, code):
+
         act = getDb(db_name).get(code)
         name = act['name']
         base_slug = slugify(name, separator='_')
