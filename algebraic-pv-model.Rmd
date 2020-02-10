@@ -36,7 +36,7 @@ pd.options.display.max_rows = 100
 
 ```{python}
 # Setup bw2
-bw.projects.set_current('B_Publication')
+bw.projects.set_current('acv-pv')
 bw.bw2setup()
 
 # Import Ecoinvent DB (if not already done)
@@ -278,7 +278,7 @@ silicon_elec_intensity = newFloatParam(
 
 ```{python}
 silicon = findTechAct('silicon production, solar grade, modified Siemens process', 'RER')
-silicon_adjusted = copyActivity(silicon, "Silicon adjusted")
+silicon_adjusted = copyActivity(silicon, "silicon production adjusted")
 
 # Delete hydroelectricy, for not counting it twice
 silicon_adjusted.updateExchanges({'electricity, high voltage#RoW' : None})
@@ -303,13 +303,9 @@ As a consequence, only chemicals, the factory and ceramic will be left and this 
 
 ```{python}
 silicon_casting = findTechAct('silicon production, multi-Si, casted', 'RoW')
-```
 
-```{python}
-silicon_casting_adjusted = copyActivity(silicon_casting, 'silicon casting updated')
-```
+silicon_casting_adjusted = copyActivity(silicon_casting, 'silicon casting adjusted')
 
-```{python}
 silicon_casting_adjusted.updateExchanges({
     'silicon,*' : None,
     'electricity, medium voltage*' : None})
@@ -317,6 +313,10 @@ silicon_casting_adjusted.updateExchanges({
 
 ```{python}
 printAct(silicon_casting, silicon_casting_adjusted)
+```
+
+```{python}
+multiLCAAlgebric([silicon_casting, silicon_casting_adjusted], impacts)
 ```
 
 # Wafer manufacturing
@@ -332,8 +332,8 @@ On another hand, the 4 new datasets are created to represent 1 meter of wire use
 
 ```{python}
 silicon_carbide = findTechAct('silicon carbide production', 'RER')
-silicon_carbide_adjusted = copyActivity(silicon_carbide, 'Silicon carbid adjusted', withExchanges=False)
-silicon_carbide_adjusted.addExchanges({
+silicon_carbide_recycled = copyActivity(silicon_carbide, 'silicon carbid adjusted', withExchanges=False)
+silicon_carbide_recycled.addExchanges({
     findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 0.78571,
     findTechAct('market for transport, freight, lorry, unspecified', 'GLO') : 0.2625,
     findTechAct('market for silicone factory') : 1e-11,
@@ -345,11 +345,11 @@ silicon_carbide_adjusted.addExchanges({
 ```
 
 ```{python}
-printAct(silicon_carbide, silicon_carbide_adjusted)
+printAct(silicon_carbide, silicon_carbide_recycled)
 ```
 
 ```{python}
-multiLCAAlgebric([silicon_carbide, silicon_carbide_adjusted], impacts)
+multiLCAAlgebric([silicon_carbide, silicon_carbide_recycled], impacts)
 ```
 
 ### TEG, Recycled
@@ -410,10 +410,14 @@ multiLCAAlgebric(tungstene_carbide, impacts)
 printAct(tungstene_carbide)
 ```
 
+```{python}
+multiLCAAlgebric(tungstene_carbide, impacts)
+```
+
 #### Diamond powder
 
 ```{python}
-diamond_powder_ori = findTechAct('sodium percarbonate production, powder', 'RER',)
+diamond_powder_ori = findTechAct('sodium percarbonate production, powder', 'RER')
 diamond_powder = copyActivity(diamond_powder_ori, "Diamond powder",  withExchanges=False)
 diamond_powder.addExchanges({
     findTechAct("market for electricity, medium voltage", "RoW") : 840,
@@ -424,14 +428,14 @@ diamond_powder.addExchanges({
 ```
 
 ```{python}
- printAct(diamond_powder)
+printAct(diamond_powder)
 ```
 
 ```{python}
 multiLCAAlgebric(diamond_powder, impacts)
 ```
 
-#### Sintered diamond
+#### Sintered diamond bead
 
 ```{python}
 sintered_diamond_ori = findTechAct("polymethyl methacrylate production, beads", "RER")
@@ -468,9 +472,9 @@ multiLCAAlgebric(sintered_diamond, impacts)
 
 ```{python}
 act_ori = findTechAct('wire drawing, steel', 'RER')
-sintered_dw = copyActivity(act_ori, "sintered diamond wire, steel", withExchanges=False)
+sintered_diamond_wire = copyActivity(act_ori, "sintered diamond wire, steel", withExchanges=False)
 
-sintered_dw.addExchanges({
+sintered_diamond_wire.addExchanges({
     sintered_diamond : 0.0427,
     findTechAct("market group for electricity, medium voltage", "ENTSO-E") : 0.9, 
     findTechAct("wire drawing, steel", "RER") : 0.095, 
@@ -482,7 +486,134 @@ sintered_dw.addExchanges({
 ```
 
 ```{python}
-printAct(sintered_dw)
+printAct(sintered_diamond_wire)
+```
+
+```{python}
+multiLCAAlgebric(sintered_diamond_wire, impacts)
+```
+
+## Wafer 
+
+This function generates an inventory of 1 m² of wafer production. 
+    The initial amount of electricity (8 kWh/m²) is adjusted (to 20 kWh/m2 as per KBOB:2016) considering the possibility 
+    to be improved (by using less) using manufacturing_efficiency_gains parameter (expressed in fraction/percentage).
+    The electricity dataset can be also controlled using the elec_dataset parameter.
+    The wafer solar grade used is the wafer solar grade adjusted (that considered the progress in solar grade wafer production),
+    the amount of wafer is also adjusted considering the wafer thickness decreasing with the technical progress and evolution 
+    of cutting processes with less kerf loss. manufacturing_efficiency_gains and kerf loss are expressed in fraction.
+    wafer thickness is expressed in micrometer.
+    SiC amount is adjusted from 2.63 kg (Ecoinvent 3.4) to 2.02988 kg (KBOB:2016) in total of which a certain amount (69.4%) 
+    is produced from a recycled process with the possibility to modify it. SiC_recycled_share is the amount of recycled SiC
+    expressed in fraction/percentage.
+    TEG amount is adjusted from 2.71 kg (Ecoinvent 3.4) to 2.16548 kg (KBOB:2016) in total of which a certain amount (89.9%) 
+    is produced from a recycled process with the possibility to modify it. TEG_recycled_share is the amount of recycled TEG
+    expressed in fraction/percentage.
+    Since the Diamond wiring technology is emerging, hence an added boolean parameter is added related to the added/omitted
+    amount of SiC, TEG, diamond wire, and water.
+
+```{python}
+# Parameters
+diamond_wiring = newFloatParam("diamond_wiring", 1, description="Boolean choice. ") 
+wafer_thickness = newFloatParam("wafer_thickness", 200)
+kerf_loss = newFloatParam("kerf_loss", 0.44)
+sic_recycled_share = newFloatParam("sic_recycled_share", 0.694)
+teg_recycled_share = newFloatParam("teg_recycled_share", 0.899)
+manufacturing_efficiency = newFloatParam("manufacturing_efficiency", 0)
+
+# Root activities
+natural_gas = findTechAct(in_name="heat production, natural gas, at industrial furnace >100kW", loc="Europe without Switzerland")
+
+# Formulas 
+sili_casting_amount = wafer_thickness * 1e-6 * 2328 / (1 - kerf_loss)
+non_diamond_wiring = 1 - diamond_wiring
+
+
+# Copy Wafer
+wafer = findTechAct("multi-Si wafer production", "RER")
+wafer_adjusted = copyActivity(wafer, "Wafer adjusted")
+
+# Update wafer
+wafer_adjusted.updateExchanges({
+    'silicon, multi-Si, casted' : dict(
+        input = silicon_adjusted, 
+        amount = sili_casting_amount, 
+        name='silicon production, adjusted'),  
+    'tap water' : old_amount + diamond_wiring * 98.94,
+    'silicon carbide' : non_diamond_wiring * 2.02988 * (1 - sic_recycled_share),
+    'triethylene glycol' : non_diamond_wiring * 2.16548 * (1 - teg_recycled_share),
+})
+
+wafer_adjusted.addExchanges({
+    # Diamond wiring (see also Tap water updated above)
+    # sintered_diamond : diamond_wiring * 0.0006075,
+    sintered_diamond_wire :  diamond_wiring * 0.0006075,
+    
+    # Non -diamond wiring
+    silicon_carbide_recycled : non_diamond_wiring * 2.02988 * sic_recycled_share,
+    teg_recycled : non_diamond_wiring * 2.16548 * teg_recycled_share,
+    
+    silicon_casting_adjusted : sili_casting_amount,
+    
+    # Adding the 4 MJ natural gas used for the wafer as proposed by KBOB
+    natural_gas : 4 
+})
+
+# Adjusting the amount of electricity used
+wafer_adjusted.substituteWithDefault(
+    'electricity, medium voltage', 
+    elec, 
+    amount=20 * (1 - manufacturing_efficiency))
+```
+
+```{python}
+printAct(wafer_adjusted, 
+         sic_recycled_share=0.4,
+        teg_recycled_share=0.3,
+        diamond_wiring=1,
+        manufacturing_efficiency=0.2,
+        kerf_loss=0.50,
+        wafer_thickness=240,
+        elec_switch=None,
+        silicon_elec_intensity=40)
+```
+
+```{python}
+multiLCAAlgebric([wafer, wafer_adjusted], 
+        impacts, 
+        sic_recycled_share=0.4,
+        teg_recycled_share=0.3,
+        diamond_wiring=1,
+        manufacturing_efficiency=0.2,
+        kerf_loss=0.50,
+        wafer_thickness=240,
+        elec_switch=None,
+        silicon_elec_intensity=40)
+```
+
+```{python}
+multiLCAAlgebric([wafer, wafer_adjusted], 
+        impacts, 
+        sic_recycled_share=0.694,
+        teg_recycled_share=0.899,
+        diamond_wiring=0,
+        manufacturing_efficiency=0,
+        kerf_loss=0.44,
+        wafer_thickness=200,
+        elec_switch=None,
+        silicon_elec_intensity=40)
+```
+
+```{python}
+printAct(wafer_adjusted,
+         sic_recycled_share=0.694,
+        teg_recycled_share=0.899,
+        diamond_wiring=0,
+        manufacturing_efficiency=0,
+        kerf_loss=0.44,
+        wafer_thickness=200,
+        elec_switch=None,
+        silicon_elec_intensity=40)
 ```
 
 ```{python}

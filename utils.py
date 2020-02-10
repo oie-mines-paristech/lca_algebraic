@@ -250,6 +250,7 @@ def printAct(*activities, **params):
     names = []
     for act in activities:
         df = pd.DataFrame(index=['input', 'amount', 'unit', 'type'])
+        data = dict()
         for (i, exc) in enumerate(act.exchanges()):
             input = bw.get_activity(exc.input.key)
             amount = getAmountOrFormula(exc)
@@ -262,8 +263,20 @@ def printAct(*activities, **params):
             name = exc['name']
             if 'location' in input and input['location'] != "GLO":
                 name += "[%s]" % input['location']
+            if exc.input.key[0] == ACV_DB_NAME :
+                name += " {incer}"
 
-            df[name] = [str(input), amount, exc.unit, exc['type']]
+            iname = name
+            i=1
+            while iname in data :
+                iname = "%s#%d" % (name, i)
+                i += 1
+
+            data[iname] = [str(input), amount, exc.unit, exc['type']]
+
+        for key, values in data.items() :
+            df[key] = values
+
         tables.append(df.T)
         names.append(act['name'])
 
@@ -323,11 +336,11 @@ def _split_words(name):
 
 
 def _build_index(db):
-    res = defaultdict(list)
+    res = defaultdict(set)
     for act in db:
         words = _split_words(act['name'])
         for word in words:
-            res[word].append(act)
+            res[word].add(act)
     return res
 
 
@@ -345,7 +358,7 @@ def _find_candidates(db_name, name):
     for word in words:
         candidates = index[word]
         if len(res) == 0 or (0 < len(candidates) < len(res)):
-            res = candidates
+            res = list(candidates)
     return res
 
 

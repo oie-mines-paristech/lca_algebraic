@@ -45,6 +45,9 @@ bw.databases
 ```{python}
 # Ecoinvent Db is loaded once and saved locally
 fpei34 =  r'./ecoinvent 3.4_cutoff_ecoSpold02/datasets'
+
+# del bw.databases['ecoinvent 3.4 cut off']
+
 if 'ecoinvent 3.4 cut off' in bw.databases:
     print("Database has already been imported")
 else:
@@ -91,12 +94,10 @@ It is where the production of the system is calculated. This part includes all t
 
 The others sections analyze different scenarios and simulations. 
 
-
 As a recap, it must be noted that the purpose of this project is to conduct a Life Cycle Assessment (LCA) study of energy systems. In particular, the PV systems were modeled as an example on which to be based other applications and sectors.
 
 The LCA stages include the raw material extraction, the manufactuing and assembly, the use, and the end-of-life including the transportation all the way. The list of parameters which were defined and modeled contribute to each of these stages.
 The user will explore them gradually throughout the model and they are listed in the following paragraph.
-
 
 ########################################## Print #################################################
 
@@ -109,11 +110,17 @@ def print_data(act):
     print(act)
     df = pd.DataFrame(index = ['amount','unit','key'])
     for exc in act.exchanges():
+        name = exc['name']
+        if exc.input.key[0] == 'ecoinvent 3.4 cut off' :
+            input = eidb.get(exc.input.key[1])
+            author = input['author'] if 'author' in input else input['authors']
+            if "Romain" in author or 'Isabella' in author:
+                name += '{incer}'
         if exc['name'] in df.columns:
-            df[exc['name']].loc['amount'] += exc.amount
+            df[name].loc['amount'] += exc.amount
         else:
-            df[exc['name']] = [exc.amount, exc.unit, exc.input.key]
-    return df.T
+            df[name] = [exc.amount, exc.unit, exc.input.key]
+    return df.T.sort_index()
 ```
 
 ```{python}
@@ -1186,6 +1193,15 @@ casting_act
 print_data(casting_act)
 ```
 
+```{python}
+casting_act_ori = [act for act in eidb if 'silicon production, multi-Si, casted' in act['name'] and 'RoW' in act['location']][0]
+
+bw.calculation_setups['B_SiC'] = {'inv': [{casting_act_ori:1}, {casting_act:1}], 'ia': list_methods}
+myMultiLCA = bw.MultiLCA('B_SiC')
+df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
+df_impact
+```
+
 ## Wafer manufacturing
 
 
@@ -1561,7 +1577,7 @@ def generate_diamond_powder():
     This function generates a new dataset of diamond powder which is used for the wire later on.
     '''
     
-    if [act for act in eidb if 'diamond powder, production' == act['name']] == []:
+    if len([act for act in eidb if 'diamond powder, production' in act['name']]) == 0 :
         act_original= [act for act in eidb if 'sodium percarbonate production, powder' in act['name'] and 'RER' in act['location']][0]
         diamond_powder=act_original.copy()
         diamond_powder['name'] = 'diamond powder, production'
@@ -1583,7 +1599,7 @@ def generate_diamond_powder():
         diamond_powder.save()
         
         #input
-        act = [act for act in eidb if 'market for electricity, medium voltage' in act['name'] and 'RoW' in act['location']][0]
+        act = [act for act in eidb if 'market for electricity, medium voltage' == act['name'] and 'RoW' in act['location']][0]
         new_exc = diamond_powder.new_exchange(input = act.key, amount = 840, unit = 'kilowatt hour', type = 'technosphere', name = act['name'])
         new_exc.save()
         diamond_powder.save()
@@ -1636,14 +1652,14 @@ df_impact
 ```
 
 ```{python code_folding=c()}
-def generate_sintered_diamond_bead():
+def generate_sintered_diamond_bead(out_amount=0.004):
     
     '''
     This function generates a new dataset of sintered diamond which is used for the wire later on.
     The paramater elec_dataset permits the control of the electricity used for manufacturing.
     '''
     
-    if [act for act in eidb if 'sintered diamond bead, for quarrying' == act['name']] == []:
+    if len([act for act in eidb if 'sintered diamond bead, for quarrying' == act['name']]) == 0 :
         act_original= [act for act in eidb if  'polymethyl methacrylate production, beads' == act['name'] and 'RER' in act['location']][0]
         sintered_diamond_bead=act_original.copy()
         sintered_diamond_bead['name'] = 'sintered diamond bead, for quarrying'
@@ -1658,9 +1674,9 @@ def generate_sintered_diamond_bead():
             exc.save()
         sintered_diamond_bead.save()
         
-        #Output
-        act = [act for act in eidb if 'sintered diamond bead, for quarrying' in act['name']][0]
-        new_exc = sintered_diamond_bead.new_exchange(input = act.key, amount = 0.004, unit = 'kilogram', type = 'production', name = act['name'])
+        new_exc = sintered_diamond_bead.new_exchange(
+            input = sintered_diamond_bead.key, 
+            amount = out_amount, unit = 'kilogram', type = 'production', name=sintered_diamond_bead['name'])
         new_exc.save()
         sintered_diamond_bead.save()
     
@@ -1736,13 +1752,13 @@ def generate_sintered_diamond_bead():
         sintered_diamond_bead.save()        
     return sintered_diamond_bead 
 
-sintered_diamond_bead = generate_sintered_diamond_bead()
+sintered_diamond_bead = generate_sintered_diamond_bead(0.004)
 sintered_diamond_bead
 ```
 
 ```{python}
-sintered_diamond_bead = [act for act in eidb if 'sintered diamond bead, for quarrying' in act['name']][0]
-sintered_diamond_bead
+#sintered_diamond_bead = [act for act in eidb if 'sintered diamond bead, for quarrying' in act['name']][0]
+#sintered_diamond_bead
 ```
 
 ```{python}
@@ -1752,8 +1768,8 @@ print_data(sintered_diamond_bead)
 
 ```{python}
 #To understand the impact of the amount of sintered bead used for the diamond wire at the end of this section
-bw.calculation_setups['B_sintered_diamond_bead'] = {'inv': [{sintered_diamond_bead:1}], 'ia': list_methods}
-myMultiLCA = bw.MultiLCA('B_sintered_diamond_bead')
+bw.calculation_setups['B_sintered_diamond_b1'] = {'inv': [{sintered_diamond_bead:1}], 'ia': list_methods}
+myMultiLCA = bw.MultiLCA('B_sintered_diamond_b1')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
 df_impact
 ```
@@ -2013,27 +2029,30 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
 ```
 
 ```{python}
-wafer_adjusted = generate_wafer_dataset(SiC_recycled_share=0, 
-                                        TEG_recycled_share = 0, 
-                                        DW= False, manufacturing_efficiency_gains = 0, 
-                                        kerf_loss = 0.50, wafer_thickness = 240, 
+wafer_adjusted = generate_wafer_dataset(SiC_recycled_share=0.4, 
+                                        TEG_recycled_share = 0.3, 
+                                        DW= True, 
+                                        manufacturing_efficiency_gains = 0.2, 
+                                        kerf_loss = 0.50, 
+                                        wafer_thickness = 240, 
                                         elec_dataset = None,
-                                        Silicon_dataset = None)
-wafer_adjusted
+                                        Silicon_dataset = Silicon_adjusted)
 ```
 
 ```{python}
-wafer_adjusted = [act for act in eidb if 'multi-Si wafer production adjusted' == act['name']][0]
-wafer_adjusted
+print_data(wafer_adjusted)
 ```
 
 ```{python}
 wafer_ori = [act for act in eidb if 'multi-Si wafer production' == act['name'] and 'RER' in act['location']][0]
 wafer_ori
+print_data(wafer_ori)
+
+
 ```
 
 ```{python}
-list_methods = set_of_methods
+
 bw.calculation_setups['B_wafer_original'] = {'inv': [{wafer_ori:1} , {wafer_adjusted:1}], 'ia': list_methods}
 myMultiLCA = bw.MultiLCA('B_wafer_original')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
@@ -2090,6 +2109,10 @@ wafer_adjusted = generate_wafer_dataset(SiC_recycled_share=0.694,
                                         elec_dataset = None,
                                         Silicon_dataset = Silicon_adjusted)
 wafer_adjusted
+```
+
+```{python}
+print_data(wafer_adjusted)
 ```
 
 ```{python}
@@ -2541,7 +2564,7 @@ def generate_panel_dataset(SiC_recycled_share=0.694,
 ```{python}
 panel_adjusted = generate_panel_dataset(SiC_recycled_share=0,
                                         TEG_recycled_share = 0,
-                                        DW = False, 
+                                        DW = True, 
                                         glass_thickness = 4, 
                                         aluminium_dataset = alu_original, 
                                         elec_dataset = None,

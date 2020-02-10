@@ -13,4 +13,7 @@
 * Inverter : 3Kw or 2.5kw ?? Scrap alu : Yet another ? Positive recycling ? Input not changed ?
 * Casting dataset : Water = Water, cooling = 5 in Scarlet model ?? 
 * Wafer manufacturing : why no elec switch ?
+* generate_diamond_powder : Electricy was randomly selected ('in')
+* WAfer : new diamond wiring not used ?
+
 * TEG == Silicon ??
