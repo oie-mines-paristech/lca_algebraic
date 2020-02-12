@@ -17,3 +17,9 @@
 * WAfer : new diamond wiring not used ?
 
 * TEG == Silicon ??
+* PV cell manufacturing : 
+    * 'metallization paste production, back side, copper' does not exist : not created either
+    * New copper amount 0.67 * 0.67 ??
+    * Silver amount :1e-3 (not others ??)
+    
+ 

@@ -368,7 +368,7 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True):
+                 single=True, unit=None):
     """
         Find single activity by name & location
         Uses index for fast fetching
@@ -384,6 +384,8 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         if in_name and not in_name in act['name']:
             return False
         if loc and not loc == act['location']:
+            return False
+        if unit and not unit == act['unit'] :
             return False
         if category and not category in act['categories']:
             return False
@@ -910,7 +912,8 @@ def actToExpression(act: Activity):
     def rec_func(act: Activity):
 
         res = 0
-
+        outputAmount = 1
+        
         for exch in act.exchanges():
 
             formula = getAmountOrFormula(exch)
@@ -920,8 +923,6 @@ def actToExpression(act: Activity):
                 continue
 
             input_db, input_code = exch['input']
-
-            outputAmount = 1
 
             #  Different output ?
             if exch['input'] == exch['output']:

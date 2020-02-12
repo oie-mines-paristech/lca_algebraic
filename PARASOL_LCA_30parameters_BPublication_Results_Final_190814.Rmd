@@ -1942,6 +1942,11 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
         act = [act for act in eidb if 'triethylene glycol, recycled production' in act['name'] and 'RER' in act['location']][0]
         new_exc = wafer_adjusted.new_exchange(input = act.key, amount = 0, unit = 'kilogram', type = 'technosphere', name = act['name'])
         new_exc.save()
+        
+        #Adding the 4 MJ natural gas used for the wafer as proposed by KBOB
+        act = [act for act in eidb if 'at industrial furnace >100kW' in act['name'] and 'Europe' in act['location']][0]
+        new_exc = wafer_adjusted.new_exchange(input = act.key, amount = 4, unit = 'megajoule', type = 'technosphere', name = act['name'])
+        new_exc.save()
           
         wafer_adjusted.save()        
         
@@ -1998,6 +2003,7 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
         if exc['name'] == 'electricity, medium voltage':
             exc['amount'] = 20 * (1 - manufacturing_efficiency_gains) # It was 8 but it was modified by ST to 20
             exc.save()
+            
     #Adjusting the electricity used for manufacturing
     if elec_dataset != None:
         for exc in wafer_adjusted.exchanges():
@@ -2005,10 +2011,7 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
                 exc['input'] = elec_dataset.key
                 exc.save()
                 
-    #Adding the 4 MJ natural gas used for the wafer as proposed by KBOB
-    act = [act for act in eidb if 'at industrial furnace >100kW' in act['name'] and 'Europe' in act['location']][0]
-    new_exc = wafer_adjusted.new_exchange(input = act.key, amount = 4, unit = 'megajoule', type = 'technosphere', name = act['name'])
-    new_exc.save()
+
     
     #Adjusting the amount of solar grade silicon used
     #Amount calculated from wafer thickness and Silicon density (2328 kg/m3)
@@ -2301,6 +2304,7 @@ pv_cell
 ```{python}
 pv_cell_adjusted = [act for act in eidb if 'photovoltaic cell production, multi-Si wafer with copper adjusted' in act['name']][0]
 pv_cell_adjusted
+print_data(pv_cell_adjusted)
 ```
 
 ```{python}
@@ -2604,6 +2608,10 @@ df_impact
 (206.31-194.64)/206.31*100
 ```
 
+```{python}
+print_data(panel_adjusted)
+```
+
 There is a slight difference of 5% at the validation level, it can be from the transport or from dataset replacement. (SOURCE NOT FOUND)
 
 ```{python}
@@ -2611,7 +2619,7 @@ panel_adjusted = generate_panel_dataset(SiC_recycled_share=0,
                                           TEG_recycled_share = 0,
                                           DW = True, 
                                           glass_thickness = 4,
-                                          aluminium_dataset = alu_original,
+                                          aluminium_dataset = alu_adjusted,
                                           elec_dataset = None,
                                           manufacturing_efficiency_gains = 0, 
                                           kerf_loss = 0.44-0.15, 

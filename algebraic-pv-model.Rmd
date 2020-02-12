@@ -25,9 +25,13 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import brightway2 as bw
+from sympy import *
 
 # Custom utils defined for inter-acv
 from utils import *
+
+from IPython.core.display import display, HTML
+display(HTML("<style>.container { width:70% !important; }</style>"))
 
 pd.options.display.max_rows = 100
 ```
@@ -605,7 +609,7 @@ multiLCAAlgebric([wafer, wafer_adjusted],
 ```
 
 ```{python}
-printAct(wafer_adjusted,
+printAct(wafer, wafer_adjusted,
          sic_recycled_share=0.694,
         teg_recycled_share=0.899,
         diamond_wiring=0,
@@ -614,6 +618,151 @@ printAct(wafer_adjusted,
         wafer_thickness=200,
         elec_switch=None,
         silicon_elec_intensity=40)
+```
+
+# PV Cell manufacturing
+
+```{python}
+# Params 
+silver_amount = newFloatParam("silver_amount", 9.6)
+
+cell_init = findTechAct('photovoltaic cell production, multi-Si wafer', 'RER')
+cell_adjusted = copyActivity(cell_init, 'photovoltaic cell production, multi-Si wafer - adjusted')
+
+#Adapting the amount of Silver used for the metallic contact
+#By default, for the front side : 7.4 g/m² Silver based paste corresponding to 6.2 g/m² of Ag (84% Silver)
+#By default, for the back side : 4.9 g/m² Silver based paste corresponding to 3.3 g/m² of Ag (67% Silver)
+#An additional 0.7 g of Ag is used is anyway considered for the panel.
+    
+#Adding copper paste used to substitute the amount of Silver used.
+#The amount of copper is calculated considering the difference of conductivity between Ag and Cu
+#Conductiviy of Ag = 6.3e7 S/m, Cu = 5.96e7 S/m at 20°C
+front_silver_amount = Max(7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), 0)
+new_front_silver_amount = 0.84 * front_silver_amount
+
+back_silver_amount = Max(4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), 0)
+new_back_silver_amount = 0.67 * back_silver_amount
+
+copper_amount = Max(1/0.67 * 6.3e7 / 5.96e7 * ( 9.6e-3 -(new_front_silver_amount + new_back_silver_amount)), 0)
+new_copper_amount = 0.67 * copper_amount
+
+
+cell_adjusted.updateExchanges({
+    'metallization paste, front side' : front_silver_amount,
+    'metallization paste, back side': back_silver_amount,
+    # 'metallization paste production, back side, copper' : copper_amount, # FIXME ! Was bugged in current model, not added at all
+    'multi-Si wafer' : dict(input=wafer_adjusted)
+})
+
+cell_adjusted.substituteWithDefault(
+    'electricity, medium voltage', 
+    elec,
+    amount=30.243 * (1 - manufacturing_efficiency))
+```
+
+```{python}
+printAct(
+    cell_adjusted, 
+    sic_recycled_share=0,
+    teg_recycled_share = 0,
+    diamond_wiring = 0,
+    manufacturing_efficiency = 0,
+    kerf_loss = 0.5, 
+    wafer_thickness = 240,
+    silver_amount = 11.2,
+    silicon_elec_intensity = 110+19.5,
+    elec_switch = None)
+```
+
+```{python}
+multiLCAAlgebric(
+    [cell_init, cell_adjusted], 
+    impacts,
+    sic_recycled_share=0,
+    teg_recycled_share = 0,
+    diamond_wiring = 0,
+    manufacturing_efficiency = 0,
+    kerf_loss = 0.5, 
+    wafer_thickness = 240,
+    silver_amount = 11.2,
+    silicon_elec_intensity = 110+19.5,
+    elec_switch = None)
+```
+
+# PV Module 
+
+```{python}
+# Params 
+recycling_rate_alu = newFloatParam("recycling_rate_alu", 0.96) 
+recycling_rate_cu = newFloatParam("recycling_rate_cu", 0.75)
+recycling_rate_glass = newFloatParam("recycling_rate_glass", 0.9),
+electricity_recycling = newFloatParam("electricity_recycling", 50)
+heat_recycling = newFloatParam("heat_recycling", 76)
+glass_thickness = newFloatParam("glass_thickness", 4) 
+
+# Activities
+scrapGlass = findTechAct('market for waste glass sheet', 'Europe without Switzerland')
+scrapAlu = findTechAct('market for scrap alu*', 'Europe without Switzerland')
+scrapCopper = findTechAct('market for scrap copper*', 'Europe without Switzerland')
+heat_for_recycling = findTechAct('heat and power co-generation, biogas, gas engine', 'RoW', unit='megajoule')
+
+# Base activity
+module_init = findTechAct('photovoltaic panel production, multi-Si wafer', 'RER')
+
+# Amount to recycle
+amount_copper = new_copper_amount + module_init.getAmount('copper')
+amount_glass = module_init.getAmount('solar glass, low-iron')
+amount_alu =  cell_adjusted.getAmount('Aluminium') + module_init.getAmount('aluminium alloy, AlMg3')
+
+# Copy / update activity
+module = copyActivity(module_init, 'photovoltaic panel production, multi-Si wafer - adjusted')
+
+module.addExchanges({
+    scrapAlu : amount_alu,
+    scrapCopper : amount_copper,
+    scrapGlass : amount_glass,
+    elec : dict(name='elec for recycling', amount = electricity_recycling * (20e-3/1.6)),
+    heat_for_recycling : heat_recycling * (20e-3/1.6) / 3.6,
+})
+
+module.updateExchanges({
+    'aluminium alloy, AlMg3' : dict(input=alu_adjusted),
+    'solar glass, low-iron' : glass_thickness * 2.5 * 1,
+    'tempering, flat glass' : glass_thickness * 2.5 * 1,
+    'photovoltaic cell, multi-Si wafer' : dict(input=wafer_adjusted),
+})
+
+module.substituteWithDefault('electricity, medium voltage', elec)
+
+
+```
+
+```{python}
+printAct(module_init, module, 
+    sic_recycled_share=0,
+    teg_recycled_share = 0,
+    diamond_wiring = 1, 
+    glass_thickness = 4, 
+    elec_switch = None,
+    manufacturing_efficiency = 0, 
+    kerf_loss = 0.5,
+    wafer_thickness = 240, 
+    silver_amount = 11.2,
+    silicon_elec_intensity = 110+19.5, 
+    recycling_rate_alu = 0, 
+    recycling_rate_cu = 0, 
+    recycling_rate_glass = 0,
+    electricity_recycling = 0, 
+    heat_recycling = 0,
+    share_recycled_aluminium=0.3)
+```
+
+```{python}
+printActt
+```
+
+```{python}
+printAct(module_init, module)
 ```
 
 ```{python}
