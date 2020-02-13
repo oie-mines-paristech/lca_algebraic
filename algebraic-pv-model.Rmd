@@ -731,10 +731,10 @@ module.addExchanges({
 })
 
 module.updateExchanges({
-    'aluminium alloy, AlMg3' : dict(input=alu_adjusted),
+    'aluminium alloy, AlMg3' : alu_adjusted,
     'solar glass, low-iron' : glass_thickness * 2.5 * 1,
     'tempering, flat glass' : glass_thickness * 2.5 * 1,
-    'photovoltaic cell, multi-Si wafer' : dict(input=wafer_adjusted),
+    'photovoltaic cell, multi-Si wafer' : cell_adjusted,
 })
 
 module.substituteWithDefault('electricity, medium voltage', elec, elec_switch)
@@ -775,7 +775,7 @@ printAct(
     kerf_loss = 0.5,
     wafer_thickness = 240, 
     silver_amount = 11.2,
-    silicon_elec_intensity = 110+19.5, 
+    silicon_elec_intensity = 40, 
     recycling_rate_alu = 0, 
     recycling_rate_cu = 0, 
     recycling_rate_glass = 0,

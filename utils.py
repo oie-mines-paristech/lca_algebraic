@@ -176,7 +176,7 @@ class ActivityExtended(Activity):
 
         Parameters
         ----------
-        updates : Dict of exchange name => either single value (float or SympPy expression) for updating only amount, \
+        updates : Dict of exchange name => either single value (float or SympPy expression or new target activity) for updating only amount, \
             or dict of attributes, for updating several at a time. The sympy expression can reference the symbol 'old_amount' \
             that will be replaced with the current value.
         """
@@ -196,7 +196,10 @@ class ActivityExtended(Activity):
 
                 # Single value ? => amount
                 if not isinstance(attrs, dict):
-                    attrs = dict(amount=attrs)
+                    if isinstance(attrs, Activity):
+                        attrs = dict(input=attrs)
+                    else :
+                        attrs = dict(amount=attrs)
 
                 if 'amount' in attrs:
                     attrs.update(amountToFormula(attrs['amount'], exch['amount']))
@@ -307,11 +310,6 @@ def printAct(*activities,  **params):
     tables = []
     names = []
 
-    if 'hide_same' in params :
-        hide_same = params.pop('hide_same')
-    else :
-        hide_same = False
-
     for act in activities:
         df = pd.DataFrame(index=['input', 'amount', 'unit', 'type'])
         data = dict()
@@ -345,8 +343,25 @@ def printAct(*activities,  **params):
         names.append(actDesc(act))
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
-    if hide_same :
-        full = full.loc[full[names[0]]['amount'] != full[names[1]]['amount']]
+
+    if len(activities) == 2 :
+        yellow = "background-color:yellow"
+        iamount1 = full.columns.get_loc((names[0], "amount"))
+        iamount2 = full.columns.get_loc((names[1], "amount"))
+        iact1 = full.columns.get_loc((names[0], "input"))
+        iact2 = full.columns.get_loc((names[1], "input"))
+        def same_amount(row) :
+            res = [""] * len(row)
+
+            if row[iamount1] != row[iamount2] :
+                res[iamount1] = yellow
+                res[iamount2] = yellow
+            if row[iact1] != row[iact2]:
+                res[iact1] = yellow
+                res[iact2] = yellow
+            return res
+
+        full = full.style.apply(same_amount, axis=1)
 
     display(full)
 
