@@ -23,6 +23,7 @@ from copy import deepcopy
 from itertools import chain
 import builtins
 
+
 # -- Constants
 
 # DB names
@@ -48,7 +49,67 @@ old_amount = symbols(
 
 NumOrExpression = Union[float, Basic]
 
-class BetterActivity(Activity):
+
+# Type of parameters
+class ParamType:
+    ENUM = "enum"
+    BOOL = "bool"
+    FLOAT = "float"
+
+
+class ParamDef(Symbol):
+    """Generic definition of a parameter, with name, bound, type, distribution
+    This definition will serve both to generate brightway2 parameters and to evaluate.
+
+    This class inherits sympy Symbol, making it possible to use in standard arithmetic python
+    while keeping it as a symbolic expression (delayed evaluation).
+    """
+
+    def __new__(cls, name, *karg, **kargs):
+        return Symbol.__new__(cls, name)
+
+    def __init__(self, name, type: str, default, description=""):
+        self.name = name
+        self.type = type
+        self.default = default
+        self.description = description
+
+    # Expand parameter (usefull for enum param)
+    def expandParams(self, value=None) -> Dict[str, float]:
+        if value == None:
+            value = self.default
+        return {self.name: value}
+
+    def __repr__(self):
+        return self.name
+
+
+class EnumParam(ParamDef):
+    """Enum param is a facility representing a choice / switch as many 0/1 parameters.
+    It is not itself a Sympy symbol. use #symbol("value") to access it"""
+
+    def __init__(self, name, values: List[str], **argv):
+        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
+        self.values = values
+
+    def expandParams(self, currValue=None):
+        values = self.values + [None]
+        res = dict()
+        for enum_val in values:
+            var_name = "%s_%s" % (self.name, enum_val if enum_val is not None else "default")
+            res[var_name] = 1.0 if enum_val == currValue else 0.0
+        return res
+
+    def symbol(self, enumValue):
+        """Access parameter for each enum value : <paramName>_<paramValue>"""
+        if enumValue is None:
+            return Symbol(self.name + '_default')
+        if not enumValue in self.values:
+            raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
+        return Symbol(self.name + '_' + enumValue)
+
+
+class ActivityExtended(Activity):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
     """
@@ -147,9 +208,10 @@ class BetterActivity(Activity):
                 if 'formula' in attrs:
                     bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
-    def substituteWithDefault(self, exchange_name: str, switch_act: Activity, amount=None):
+    def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
+
         """Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
-        For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by (1-sum(enum_params)),
+        For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by '<param_name>_default',
         making it null as soon as one enum value is set.
         This is useful for changing electricty mix, leaving the default one if needed
 
@@ -160,17 +222,13 @@ class BetterActivity(Activity):
         switch_act : Activity to substitue as input
         amount : Amount of the input (uses previous amount by default)
         """
-        sum = 0
-        for exch in switch_act.exchanges():
-            if exch['input'] != exch['output']:
-                sum += getAmountOrFormula(exch)
 
         current_exch = self.getExchange(exchange_name)
 
         prev_amount = amount if amount else getAmountOrFormula(current_exch)
 
         self.addExchanges({switch_act: prev_amount})
-        self.updateExchanges({exchange_name: (1 - sum) * prev_amount})
+        self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
 
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
         """Add exchanges to an existing activity, with a compact syntax :
@@ -228,7 +286,7 @@ class BetterActivity(Activity):
 
 
 # Backport new methods to vanilla Activity class in order to benefit from it for all existing instances
-for name, item in BetterActivity.__dict__.items():
+for name, item in ActivityExtended.__dict__.items():
     if isinstance(item, types.FunctionType):
         setattr(Activity, name, item)
 
@@ -241,13 +299,19 @@ def isnumber(value):
     return isinstance(value, int) or isinstance(value, float)
 
 
-def printAct(*activities, **params):
+def printAct(*activities,  **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly
     """
     tables = []
     names = []
+
+    if 'hide_same' in params :
+        hide_same = params.pop('hide_same')
+    else :
+        hide_same = False
+
     for act in activities:
         df = pd.DataFrame(index=['input', 'amount', 'unit', 'type'])
         data = dict()
@@ -278,9 +342,13 @@ def printAct(*activities, **params):
             df[key] = values
 
         tables.append(df.T)
-        names.append(act['name'])
+        names.append(actDesc(act))
 
-    display(pd.concat(tables, axis=1, keys=names, sort=True))
+    full = pd.concat(tables, axis=1, keys=names, sort=True)
+    if hide_same :
+        full = full.loc[full[names[0]]['amount'] != full[names[1]]['amount']]
+
+    display(full)
 
 
 
@@ -432,7 +500,7 @@ def interpolate(x, x1, x2, y1, y2):
     return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
 
 
-def newInterpolatedAct(name: str, act1: BetterActivity, act2: BetterActivity, x1, x2, x, alpha1=1, alpha2=1, **kwargs):
+def newInterpolatedAct(name: str, act1: ActivityExtended, act2: ActivityExtended, x1, x2, x, alpha1=1, alpha2=1, **kwargs):
 
     """Creates a new activity made of interpolation of two similar activities.
     For each exchange :
@@ -474,58 +542,6 @@ def newInterpolatedAct(name: str, act1: BetterActivity, act2: BetterActivity, x1
         res.addExchanges({act: dict(amount=amount, name=exch['name'])})
     return res
 
-
-# Type of parameters
-class ParamType:
-    ENUM = "enum"
-    BOOL = "bool"
-    FLOAT = "float"
-
-
-class ParamDef(Symbol):
-    """Generic definition of a parameter, with name, bound, type, distribution
-    This definition will serve both to generate brightway2 parameters and to evaluate.
-    
-    This class inherits sympy Symbol, making it possible to use in standard arithmetic python
-    while keeping it as a symbolic expression (delayed evaluation).
-    """
-
-    def __new__(cls, name, *karg, **kargs):
-        return Symbol.__new__(cls, name)
-
-    def __init__(self, name, type: str, default, description=""):
-        self.name = name
-        self.type = type
-        self.default = default
-        self.description = description
-
-    # Expand parameter (usefull for enum param)
-    def expandParams(self, value=None) -> Dict[str, float]:
-        if value == None:
-            value = self.default
-        return {self.name: value}
-
-    def __repr__(self):
-        return self.name
-
-
-class EnumParam(ParamDef):
-    """Enum param is a facility representing a choice / switch as many 0/1 parameters.
-    It is not itself a Sympy symbol. use #symbol("value") to access it"""
-
-    def __init__(self, name, values: List[str], **argv):
-        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
-
-        self.values = values
-
-    def expandParams(self, value=None):
-        return {"%s_%s" % (self.name, enum_val): 1.0 if enum_val == value else 0.0 for enum_val in self.values}
-
-    def symbol(self, enumValue):
-        """Access parameter for each enum value : <paramName>_<paramValue>"""
-        if not enumValue in self.values:
-            raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
-        return Symbol(self.name + '_' + enumValue)
 
 
 
@@ -620,6 +636,7 @@ def newActivity(
         name, unit,
         exchanges: Dict[Activity, Union[float, str]] = dict(),
         db_name=ACV_DB_NAME,
+        code=None,
         **argv):
     """Creates a new activity
 
@@ -630,10 +647,10 @@ def newActivity(
     exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
     argv : extra params passed as properties of the new activity
     """
-
-    act = _newAct(name, db_name)
+    act = _newAct(code if code else name , db_name)
     act['name'] = name
     act['type'] = 'process'
+    act['unit'] = unit
     act.update(argv)
 
     # Add exchanges
@@ -642,7 +659,7 @@ def newActivity(
     return act
 
 
-def copyActivity(activity: BetterActivity, code=None, db_name=ACV_DB_NAME, withExchanges=True, **kwargs) -> BetterActivity:
+def copyActivity(activity: ActivityExtended, code=None, db_name=ACV_DB_NAME, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy activity into a new DB"""
 
     res = _newAct(code, db_name)
@@ -703,6 +720,15 @@ def actName(act: Activity):
         res += "[%s]" % act["location"]
     return res
 
+def actDesc(act: Activity):
+    """Generate pretty name for activity + basic information """
+    name = actName(act)
+    amount = 1
+    for ex in act.exchanges() :
+        if ex['type'] == 'production' :
+            amount = ex['amount']
+
+    return "%s (%f %s)" % (name, amount, act['unit'])
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
@@ -809,6 +835,7 @@ def multiLCAAlgebric(models, methods, **params):
 
     for model in models:
 
+        #print("computing model to expression for %s" % model)
         expr, actBySymbolName = actToExpression(model)
 
         # Check missing parameters
@@ -835,12 +862,17 @@ def multiLCAAlgebric(models, methods, **params):
         # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
         actsWithAmount = [{act: 1} for act in acts]
 
+        #print("Computing full LCA of background activities for '%s'" % model)
+
         # Compute LCA for all background activities and methods
         lca = _multiLCA(actsWithAmount, methods)
 
         # For each method, compute an algebric expression with activities replaced by their values
         lambdas = []
         for imethod, method in enumerate(methods):
+
+            #print("Generating lamba function for %s / %s" % (model, method))
+
             # Replace activities by their value in expression for this method
             sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(pureTechActBySymbol.keys())]
             method_expr = expr.subs(sub)
@@ -853,6 +885,7 @@ def multiLCAAlgebric(models, methods, **params):
 
         # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
         for imethod, lambd in enumerate(lambdas):
+            #print("Computing results for %s / %s" % (model, methods[imethod]))
             res[imethod, :] = lambd(**params)
 
         model_name = actName(model)
@@ -877,11 +910,14 @@ def _getOrCreateDummyBiosphereActCopy(code):
         We cannot reference directly biosphere in the model, since LCA can only be applied to products
         We create a dummy activity in our DB, with same code, and single exchange of '1'
     """
+
+    code_to_find = code + "#asTech"
     try:
-        return getDb(ACV_DB_NAME).get(code)
+        return getDb(ACV_DB_NAME).get(code_to_find)
     except:
         bioAct = getDb(BIOSPHERE3_DB_NAME).get(code)
-        res = newActivity(bioAct['name'] + '#copy', bioAct['unit'], {bioAct: 1})
+        name = bioAct['name'] + ' # asTech'
+        res = newActivity(name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
         return res
 
 
@@ -913,7 +949,7 @@ def actToExpression(act: Activity):
 
         res = 0
         outputAmount = 1
-        
+
         for exch in act.exchanges():
 
             formula = getAmountOrFormula(exch)
@@ -956,3 +992,27 @@ def actToExpression(act: Activity):
 
 def reverse_dict(dic):
     return {v: k for k, v in dic.items()}
+
+
+
+# ---   Graphviz tools -------
+
+from graphviz import Digraph
+
+def graph(act:ActivityExtended) :
+    g = Digraph(node_attr=dict(
+        shape ='plaintext',
+        rankdir='LR'))
+
+    aName = actName(act)
+
+    lines = ['<tr><td colspan="2" > %s </td></tr>' % aName]
+
+    for exch in act.exchanges() :
+        amount = getAmountOrFormula(exch)
+        name = exch["name"]
+        lines.append('<tr><td>%s</td><td label="foo" port="%s">%s</td></tr>' % (name, name, str(amount)))
+
+    g.node(aName, "<<table>%s</table>>" % "\n".join(lines))
+
+    display(g)

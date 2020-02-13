@@ -28,7 +28,6 @@ import brightway2 as bw
 
 # Custom utils defined for inter-acv
 from utils import *
-from expression import *
 ```
 
 # Init brightway2 and databases

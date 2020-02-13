@@ -55,13 +55,6 @@ resetDb(ACV_DB_NAME)
 resetParams()
 ```
 
-#  Parameters of the model
-
-We define the parameters of the model.
-
-The numeric parametes are instances of sympy' 'Symbol' . Thus, any python arithmetic expression composed of parameters will not result into direct evaluation, but the creation of a symbolic formula that can be manipulated later.
-
-
 # Select the impacts to consider
 
 ```{python}
@@ -131,7 +124,7 @@ alu_adjusted.addExchanges(
 
 alu_adjusted.substituteWithDefault(
     'electricity, high voltage, aluminium industry', 
-    elec)
+    elec, elec_switch)
 ```
 
 ```{python}
@@ -285,14 +278,16 @@ silicon = findTechAct('silicon production, solar grade, modified Siemens process
 silicon_adjusted = copyActivity(silicon, "silicon production adjusted")
 
 # Delete hydroelectricy, for not counting it twice
-silicon_adjusted.updateExchanges({'electricity, high voltage#RoW' : None})
-
+silicon_adjusted.updateExchanges(
+    {
+        'electricity, high voltage#RoW' : None,
+        'electricity, high voltage#RER' : silicon_elec_intensity})
 # Replace elec with elec switch, and update amount as a parameter
-silicon_adjusted.substituteWithDefault('electricity, high voltage#RER', elec, silicon_elec_intensity)
+silicon_adjusted.substituteWithDefault('electricity, high voltage#RER', elec, elec_switch)
 ```
 
 ```{python}
-printAct(silicon_adjusted)
+printAct(silicon, silicon_adjusted, silicon_elec_intensity=40, elec_switch=None)
 ```
 
 ```{python}
@@ -566,16 +561,26 @@ wafer_adjusted.addExchanges({
 # Adjusting the amount of electricity used
 wafer_adjusted.substituteWithDefault(
     'electricity, medium voltage', 
-    elec, 
+    elec, elec_switch
     amount=20 * (1 - manufacturing_efficiency))
 ```
 
 ```{python}
-printAct(wafer_adjusted, 
-         sic_recycled_share=0.4,
-        teg_recycled_share=0.3,
+#printAct(wafer_adjusted, 
+#         sic_recycled_share=0.4,
+#        teg_recycled_share=0.3,
+#        diamond_wiring=1,
+#        manufacturing_efficiency=0.2,
+#        kerf_loss=0.50,
+#        wafer_thickness=240,
+#        elec_switch=None,
+#        silicon_elec_intensity=40)
+
+printAct(wafer, wafer_adjusted, 
+         sic_recycled_share=0,
+        teg_recycled_share=0,
         diamond_wiring=1,
-        manufacturing_efficiency=0.2,
+        manufacturing_efficiency=0,
         kerf_loss=0.50,
         wafer_thickness=240,
         elec_switch=None,
@@ -583,12 +588,12 @@ printAct(wafer_adjusted,
 ```
 
 ```{python}
-multiLCAAlgebric([wafer, wafer_adjusted], 
+multiLCAAlgebric([wafer, wafer_adjusted, silicon_casting_adjusted, silicon_carbide_recycled, silicon_adjusted], 
         impacts, 
-        sic_recycled_share=0.4,
-        teg_recycled_share=0.3,
-        diamond_wiring=1,
-        manufacturing_efficiency=0.2,
+        sic_recycled_share=0,
+        teg_recycled_share=0,
+       diamond_wiring=1,
+        manufacturing_efficiency=0,
         kerf_loss=0.50,
         wafer_thickness=240,
         elec_switch=None,
@@ -656,7 +661,7 @@ cell_adjusted.updateExchanges({
 
 cell_adjusted.substituteWithDefault(
     'electricity, medium voltage', 
-    elec,
+    elec, elec_switch,
     amount=30.243 * (1 - manufacturing_efficiency))
 ```
 
@@ -665,7 +670,7 @@ printAct(
     cell_adjusted, 
     sic_recycled_share=0,
     teg_recycled_share = 0,
-    diamond_wiring = 0,
+    diamond_wiring = 1,
     manufacturing_efficiency = 0,
     kerf_loss = 0.5, 
     wafer_thickness = 240,
@@ -680,7 +685,7 @@ multiLCAAlgebric(
     impacts,
     sic_recycled_share=0,
     teg_recycled_share = 0,
-    diamond_wiring = 0,
+    diamond_wiring = 1,
     manufacturing_efficiency = 0,
     kerf_loss = 0.5, 
     wafer_thickness = 240,
@@ -695,7 +700,7 @@ multiLCAAlgebric(
 # Params 
 recycling_rate_alu = newFloatParam("recycling_rate_alu", 0.96) 
 recycling_rate_cu = newFloatParam("recycling_rate_cu", 0.75)
-recycling_rate_glass = newFloatParam("recycling_rate_glass", 0.9),
+recycling_rate_glass = newFloatParam("recycling_rate_glass", 0.9)
 electricity_recycling = newFloatParam("electricity_recycling", 50)
 heat_recycling = newFloatParam("heat_recycling", 76)
 glass_thickness = newFloatParam("glass_thickness", 4) 
@@ -718,9 +723,9 @@ amount_alu =  cell_adjusted.getAmount('Aluminium') + module_init.getAmount('alum
 module = copyActivity(module_init, 'photovoltaic panel production, multi-Si wafer - adjusted')
 
 module.addExchanges({
-    scrapAlu : amount_alu,
-    scrapCopper : amount_copper,
-    scrapGlass : amount_glass,
+    scrapAlu : amount_alu * recycling_rate_alu,
+    scrapCopper : amount_copper * recycling_rate_cu,
+    scrapGlass : amount_glass * recycling_rate_glass,
     elec : dict(name='elec for recycling', amount = electricity_recycling * (20e-3/1.6)),
     heat_for_recycling : heat_recycling * (20e-3/1.6) / 3.6,
 })
@@ -732,13 +737,35 @@ module.updateExchanges({
     'photovoltaic cell, multi-Si wafer' : dict(input=wafer_adjusted),
 })
 
-module.substituteWithDefault('electricity, medium voltage', elec)
-
+module.substituteWithDefault('electricity, medium voltage', elec, elec_switch)
 
 ```
 
 ```{python}
-printAct(module_init, module, 
+multiLCAAlgebric(
+    [module_init, module, alu_adjusted, wafer_adjusted], 
+    impacts,
+    sic_recycled_share=0.3,
+    teg_recycled_share = 0,
+    diamond_wiring = 1, 
+    glass_thickness = 4, 
+    elec_switch = None,
+    manufacturing_efficiency = 0, 
+    kerf_loss = 0.5,
+    wafer_thickness = 240, 
+    silver_amount = 11.2,
+    silicon_elec_intensity = 40, 
+    recycling_rate_alu = 0, 
+    recycling_rate_cu = 0, 
+    recycling_rate_glass = 0,
+    electricity_recycling = 0, 
+    heat_recycling = 0,
+    share_recycled_aluminium=0.3)
+```
+
+```{python}
+printAct(
+    module_init, module, 
     sic_recycled_share=0,
     teg_recycled_share = 0,
     diamond_wiring = 1, 
@@ -758,11 +785,26 @@ printAct(module_init, module,
 ```
 
 ```{python}
-printActt
-```
+printAct(
+    module_init,
+    module,
+    sic_recycled_share=0,
+    teg_recycled_share = 0,
+    diamond_wiring = 1, 
+    glass_thickness = 4, 
+    elec_switch = None,
+    manufacturing_efficiency = 0, 
+    kerf_loss = 0.5,
+    wafer_thickness = 240, 
+    silver_amount = 11.2,
+    silicon_elec_intensity = 40, 
+    recycling_rate_alu = 0, 
+    recycling_rate_cu = 0, 
+    recycling_rate_glass = 0,
+    electricity_recycling = 0, 
+    heat_recycling = 0,
+    share_recycled_aluminium=0.3)
 
-```{python}
-printAct(module_init, module)
 ```
 
 ```{python}
