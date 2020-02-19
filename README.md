@@ -28,4 +28,7 @@
     * Silver amount :1e-3 (not others ??)
     * 'aluminium alloy, AlMg3' changed for name of new dataset, but not is selection ?
     
+* Module efficiency : unité ? Kw / m2 ? Dans modele final, la surface par module nintervient pas. 
+  0.15 à 0.22 semble très grand (8m2 par kWc -> 0.12)
+* 
  

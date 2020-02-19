@@ -20,6 +20,7 @@ Besides external libraries, we import several function from the local file : `ut
 ```{python}
 # %load_ext autoreload
 # %autoreload 2
+# %matplotlib inline
 import pandas as pd
 import time
 import matplotlib.pyplot as plt
@@ -67,9 +68,8 @@ impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in s
 
 ```{python}
 # Switch parameter for electricity mix
-elec_switch = newParamDef(
+elec_switch = newEnumParam(
     'elec_switch', 
-    ParamType.ENUM, 
     values=["us", "eu", "row", "cn", "fr" ], 
     default=None, 
     description="Switch on electricty mix")
@@ -110,7 +110,8 @@ alu_cast_amount = alu.getAmount('aluminium, cast alloy')
 ```{python}
 share_recycled_aluminium = newFloatParam(
     'share_recycled_aluminium',  
-    default=0.3, 
+    default=0.27, min=0, max=1,
+    unit="ratio",
     description="Share of reycled aluminium")
 ```
 
@@ -183,7 +184,9 @@ multiLCA(
 # Electrical installation
 
 ```{python}
-P = newFloatParam("P", 10, description="power Kwc")
+P = newFloatParam("P", 
+    default=10, min=3, max=3000, 
+    description="Power of the system", unit="kWc")
 
 electrical_installation_3kW = findTechAct('photovoltaics, electric installation for 3kWp module, at building', 'RoW')
 
@@ -218,7 +221,10 @@ inverter_per_kg = newInterpolatedAct(
 
 ```{python}
 # Add recycling 
-recycling_rate = newFloatParam("recycling_rate", 0.3, description="Recycling rate for inverter")
+recycling_rate = newFloatParam(
+    "recycling_rate", 
+    default=0.9, min=0.75, max=1, 
+    description="Recycling rate for inverter", unit="ratio")
 
 scrap_alu = findTechAct("market for scrap aluminium", "Europe without Switzerland")
 scrap_steel = findTechAct("market for scrap steel", "Europe without Switzerland")
@@ -269,8 +275,8 @@ In this section, the main modification implemented is the change of the electrci
 ```{python}
 silicon_elec_intensity = newFloatParam(
     "silicon_elec_intensity", 
-    40, 
-    description="electricity used for solar processing and casting ")
+    default=40, min=20, max=200,  
+    description="electricity used for solar processing and casting ", unit="kWh per kg")
 ```
 
 ```{python}
@@ -513,12 +519,33 @@ This function generates an inventory of 1 m² of wafer production.
 
 ```{python}
 # Parameters
-diamond_wiring = newFloatParam("diamond_wiring", 1, description="Boolean choice. ") 
-wafer_thickness = newFloatParam("wafer_thickness", 200)
-kerf_loss = newFloatParam("kerf_loss", 0.44)
-sic_recycled_share = newFloatParam("sic_recycled_share", 0.694)
-teg_recycled_share = newFloatParam("teg_recycled_share", 0.899)
-manufacturing_efficiency = newFloatParam("manufacturing_efficiency", 0)
+diamond_wiring = newBoolParam(
+    "diamond_wiring", False, description="Diamond wiring") 
+
+wafer_thickness = newFloatParam(
+    "wafer_thickness", 
+    default=200, min=128, max=300,
+    description="Wafer thickness", unit="micrometer")
+
+kerf_loss = newFloatParam(
+    "kerf_loss", 0.44, min=0.20, max=0.50,
+    description="Kerf loss", unit="fraction")
+
+sic_recycled_share = newFloatParam(
+    "sic_recycled_share", 
+    0.694, min=0.528, max=1, 
+    description="Silicon recycled share", 
+    unit="fraction")
+
+teg_recycled_share = newFloatParam(
+    "teg_recycled_share", 
+    0.899, min=0.528, max=1, 
+    description="Recycled TEG", unit="fraction")
+
+manufacturing_efficiency = newFloatParam(
+    "manufacturing_efficiency", 
+    0, min=0, max=1, 
+    description="Manufacturing efficiency gain (elec for wafer)", unit="fraction")
 
 # Root activities
 natural_gas = findTechAct(in_name="heat production, natural gas, at industrial furnace >100kW", loc="Europe without Switzerland")
@@ -561,7 +588,7 @@ wafer_adjusted.addExchanges({
 # Adjusting the amount of electricity used
 wafer_adjusted.substituteWithDefault(
     'electricity, medium voltage', 
-    elec, elec_switch
+    elec, elec_switch,
     amount=20 * (1 - manufacturing_efficiency))
 ```
 
@@ -628,8 +655,12 @@ printAct(wafer, wafer_adjusted,
 # PV Cell manufacturing
 
 ```{python}
-# Params 
-silver_amount = newFloatParam("silver_amount", 9.6)
+# Params
+
+silver_amount = newFloatParam(
+    "silver_amount", 
+    9.6, min=2, max=11, 
+    description="Silver amount for PV cell", unit="g/m2")
 
 cell_init = findTechAct('photovoltaic cell production, multi-Si wafer', 'RER')
 cell_adjusted = copyActivity(cell_init, 'photovoltaic cell production, multi-Si wafer - adjusted')
@@ -642,13 +673,18 @@ cell_adjusted = copyActivity(cell_init, 'photovoltaic cell production, multi-Si 
 #Adding copper paste used to substitute the amount of Silver used.
 #The amount of copper is calculated considering the difference of conductivity between Ag and Cu
 #Conductiviy of Ag = 6.3e7 S/m, Cu = 5.96e7 S/m at 20°C
-front_silver_amount = Max(7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), 0)
+
+# FIXME removing Min/Max 
+#front_silver_amount = Max(7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), zero)
+front_silver_amount = 7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3)
 new_front_silver_amount = 0.84 * front_silver_amount
 
-back_silver_amount = Max(4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), 0)
+#back_silver_amount = Max(4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), zero)
+back_silver_amount = 4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3)
 new_back_silver_amount = 0.67 * back_silver_amount
 
-copper_amount = Max(1/0.67 * 6.3e7 / 5.96e7 * ( 9.6e-3 -(new_front_silver_amount + new_back_silver_amount)), 0)
+#copper_amount = Max(1/0.67 * 6.3e7 / 5.96e7 * ( 9.6e-3 -(new_front_silver_amount + new_back_silver_amount)), zero)
+copper_amount=1/0.67 * 6.3e7 / 5.96e7 * ( 9.6e-3 -(new_front_silver_amount + new_back_silver_amount))
 new_copper_amount = 0.67 * copper_amount
 
 
@@ -698,12 +734,35 @@ multiLCAAlgebric(
 
 ```{python}
 # Params 
-recycling_rate_alu = newFloatParam("recycling_rate_alu", 0.96) 
-recycling_rate_cu = newFloatParam("recycling_rate_cu", 0.75)
-recycling_rate_glass = newFloatParam("recycling_rate_glass", 0.9)
-electricity_recycling = newFloatParam("electricity_recycling", 50)
-heat_recycling = newFloatParam("heat_recycling", 76)
-glass_thickness = newFloatParam("glass_thickness", 4) 
+recycling_rate_alu = newFloatParam(
+    "recycling_rate_alu", 
+    0.92, min=0.56, max=1, 
+    description="Recycling rate for alu in panel", unit="fraction")
+
+recycling_rate_cu = newFloatParam(
+    "recycling_rate_cu", 
+    0.75, min=0.44, max=1, 
+    description="Recycling rate for copper in panel", unit="fraction")
+
+recycling_rate_glass = newFloatParam(
+    "recycling_rate_glass", 
+    0.9, min=0.6, max=1, 
+    description="Recycling rate for glass in panel", unit="fraction")
+
+electricity_recycling = newFloatParam(
+    "electricity_recycling", 
+    50, min=50, max=100, 
+    description="elec used for recycling", unit="kWh/ton")
+
+heat_recycling = newFloatParam(
+    "heat_recycling",
+    76, min=75, max=150, 
+    description="Heat for recycling", unit="MJ/ton")
+
+glass_thickness = newFloatParam(
+    "glass_thickness", 
+    4, min=2, max=4,
+description="Glass thickness", unit="mm") 
 
 # Activities
 scrapGlass = findTechAct('market for waste glass sheet', 'Europe without Switzerland')
@@ -745,21 +804,21 @@ module.substituteWithDefault('electricity, medium voltage', elec, elec_switch)
 multiLCAAlgebric(
     [module_init, module, alu_adjusted, wafer_adjusted], 
     impacts,
-    sic_recycled_share=0.3,
+    sic_recycled_share=0,
     teg_recycled_share = 0,
     diamond_wiring = 1, 
     glass_thickness = 4, 
     elec_switch = None,
     manufacturing_efficiency = 0, 
-    kerf_loss = 0.5,
-    wafer_thickness = 240, 
-    silver_amount = 11.2,
+    kerf_loss = 0.44 - 0.15,
+    wafer_thickness = 200, 
+    silver_amount = 9.6,
     silicon_elec_intensity = 40, 
-    recycling_rate_alu = 0, 
-    recycling_rate_cu = 0, 
-    recycling_rate_glass = 0,
-    electricity_recycling = 0, 
-    heat_recycling = 0,
+    recycling_rate_alu = 0.96, 
+    recycling_rate_cu = 0.75, 
+    recycling_rate_glass = 0.9,
+    electricity_recycling = 50, 
+    heat_recycling = 76,
     share_recycled_aluminium=0.3)
 ```
 
@@ -805,6 +864,205 @@ printAct(
     heat_recycling = 0,
     share_recycled_aluminium=0.3)
 
+```
+
+# Final model
+
+```{python}
+# Tech datasets
+diesel = findTechAct('market for diesel, burned in building machine')
+
+# Transport datasets
+transport_car = findTechAct('transport, passenger car, large size, petrol, EURO 5', 'RER')
+transport_van = findTechAct('transport, freight, light commercial vehicle', 'Europe without Switzerland')
+transport_lorry = findTechAct('lorry, all sizes, EURO6*', 'RER')
+transport_train = findTechAct('transport, freight train, electricity', 'RoW')
+transport_sea = findTechAct('transport, freight, sea, transoceanic ship')
+```
+
+```{python}
+# New params
+module_efficiency =  newFloatParam(
+    "module_efficiency", 
+    default=0.2, min=0.15, max=0.22, 
+    unit="kWc per m2")
+
+is_roof_system = newBoolParam("is_roof_system", True, description="Is roof system")
+
+pv_lifetime = newFloatParam(
+    "pv_lifetime", 
+    default=30, min=20, max=40, 
+    unit="year")
+
+inverter_lifetime = newFloatParam(
+    "inverter_lifetime", 
+    default=15, min=10, max=30,
+    unit="year")
+
+inverter_weight_per_p = newFloatParam(
+    "inverter_weight_per_p", 
+    default=2, min=1, max=6, 
+    unit="kg per kWc",
+    description="Inverter weight. Kg per kWc")
+
+d_lorry = newFloatParam(
+    "d_lorry", 
+    default=1020, min=40, max=2000, 
+    unit="km",
+    description="Distance by lorry")
+
+d_train = newFloatParam(
+    "d_train", 
+    default=350, min=0, max=600,
+    unit="km",
+    description="Distance by train")
+
+d_sea = newFloatParam(
+    "d_sea", 
+    default=4000, min=0, max=6000,
+    description="Distance by ships")
+
+# Alias for ground system
+is_ground_system = 1 - is_roof_system
+```
+
+```{python}
+surface_module = 1.6 #Module surface in m²
+P_module = module_efficiency * surface_module * 1000
+surface  = P*1e3 / P_module * surface_module
+```
+
+```{python}
+pvModel = newActivity("PV model", "unit")
+
+inverter_weight = inverter_weight_per_p * P
+
+# PV panel weigths 20kg 
+total_mass_tons = 1e-3 * ((surface / surface_module) * 20 + unit_3kW_equiv * 33 + inverter_weight * pv_lifetime / inverter_lifetime)
+
+pvModel.addExchanges({
+    ground_system_modified : is_ground_system * surface,
+    roof_system_modified : is_roof_system * surface,
+    
+    # Adding diesel burned in machine for site preparation
+    # 7673 MJ were accounted for the 570 kWp power plant
+    diesel : is_ground_system * P/570 * 7673, 
+    
+    # Number of equivalent unit of 3kW elec install
+    electrical_installation_3kW : unit_3kW_equiv, 
+    
+    
+    inverter_per_kg : inverter_weight * pv_lifetime / inverter_lifetime,
+    module : surface,
+    
+    #for engineers for feasability study (100 - 200 km)
+    transport_car : 150,
+    
+    #for maintenance
+    transport_van : 1e-3 * (inverter_weight) * 100 * pv_lifetime / inverter_lifetime,
+    
+    transport_lorry : total_mass_tons * d_lorry,
+    transport_sea : total_mass_tons * d_sea,
+    transport_train : total_mass_tons * d_train
+})
+```
+
+```{python}
+printAct(pvModel, 
+         P = 10, 
+        module_efficiency = 0.125, 
+        is_roof_system = 1,
+        share_recycled_aluminium = 0.27, 
+        elec_switch = None, 
+        inverter_weight_per_p = 2,   
+        inverter_lifetime = 15,
+        pv_lifetime = 30,
+        glass_thickness = 4,
+        recycling_rate = 0,
+        manufacturing_efficiency = 0,
+        kerf_loss = 0.44, 
+        wafer_thickness = 200, 
+        silver_amount = 9.6, 
+        silicon_elec_intensity = 30+10,
+        sic_recycled_share=0.694, 
+        teg_recycled_share = 0.899, 
+        diamond_wiring=False, 
+        d_lorry = 1020, 
+        d_train = 350, 
+        d_sea = 4000,
+        recycling_rate_alu = 0.96, 
+        recycling_rate_cu = 0.75,
+        recycling_rate_glass = 0.9,
+        electricity_recycling = 50,
+        heat_recycling = 76)
+```
+
+```{python}
+multiLCAAlgebric(
+    #[pvModel, roof_system_modified, inverter_per_kg, module], 
+    [pvModel, module, wafer_adjusted],
+    impacts,
+        P = 10, 
+        module_efficiency = 0.125, 
+        is_roof_system = 1,
+        share_recycled_aluminium = 0.27, 
+        elec_switch = None, 
+        inverter_weight_per_p = 2,   
+        inverter_lifetime = 15,
+        pv_lifetime = 30,
+        glass_thickness = 4,
+        recycling_rate = 0,
+        manufacturing_efficiency = 0,
+        kerf_loss = 0.44, 
+        wafer_thickness = 200, 
+        silver_amount = 9.6, 
+        silicon_elec_intensity = 30+10,
+        sic_recycled_share=0.694, 
+        teg_recycled_share = 0.899, 
+        diamond_wiring=0, 
+        d_lorry = 1020, 
+        d_train = 350, 
+        d_sea = 4000,
+        recycling_rate_alu = 0.96, 
+        recycling_rate_cu = 0.75,
+        recycling_rate_glass = 0.9,
+        electricity_recycling = 50,
+        heat_recycling = 76)
+```
+
+```{python}
+printAct(
+    wafer, wafer_adjusted,
+        P = 10, 
+        module_efficiency = 0.125, 
+        is_roof_system = 1,
+        share_recycled_aluminium = 0.27, 
+        elec_switch = None, 
+        inverter_weight_per_p = 2,   
+        inverter_lifetime = 15,
+        pv_lifetime = 30,
+        glass_thickness = 4,
+        recycling_rate = 0,
+        manufacturing_efficiency = 0,
+        kerf_loss = 0.44, 
+        wafer_thickness = 200, 
+        silver_amount = 9.6, 
+        silicon_elec_intensity = 30+10,
+        sic_recycled_share=0.694, 
+        teg_recycled_share = 0.899, 
+        diamond_wiring=0, 
+        d_lorry = 1020, 
+        d_train = 350, 
+        d_sea = 4000,
+        recycling_rate_alu = 0.96, 
+        recycling_rate_cu = 0.75,
+        recycling_rate_glass = 0.9,
+        electricity_recycling = 50,
+        heat_recycling = 76)
+```
+
+```{python}
+interactive_param_analysis(pvModel, impacts)
 ```
 
 ```{python}

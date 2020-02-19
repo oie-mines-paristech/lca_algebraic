@@ -10,7 +10,6 @@ import brightway2 as bw
 import numpy as np
 import pandas as pd
 from IPython.display import display
-from bw2calc.lca import LCA
 from bw2data.backends.peewee import Activity, ActivityDataset
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group, ExchangeDataset
 from sympy import Symbol, Basic, simplify, symbols
@@ -22,9 +21,17 @@ from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from copy import deepcopy
 from itertools import chain
 import builtins
-
+import matplotlib.pyplot as plt
+from ipywidgets import interact, interactive, fixed, interact_manual
+import ipywidgets as widgets
+import warnings
 
 # -- Constants
+DEBUG=False
+
+def debug(*args, **kwargs) :
+    if DEBUG :
+        print(*args, **kwargs)
 
 # DB names
 ECOINVENT_DB_NAME = 'ecoinvent 3.4 cut off'
@@ -35,7 +42,7 @@ DEFAULT_PARAM_GROUP = "acv"
 
 
 # Global
-def param_registry():
+def param_registry() :
     """ """
     if not 'param_registry' in builtins.__dict__:
         builtins.param_registry = dict()
@@ -68,11 +75,20 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
 
-    def __init__(self, name, type: str, default, description=""):
+    def __init__(self, name, type: str, default, min, max, unit="", description=""):
         self.name = name
         self.type = type
         self.default = default
         self.description = description
+        self.min = min
+        self.max = max
+        self.unit = unit
+
+    def range(self, n) :
+        '''Used for parametric analysis'''
+        step = (self.max - self.min) / (n - 1)
+        return list(i * step + self.min for i in range(0, n))
+
 
     # Expand parameter (usefull for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
@@ -84,12 +100,24 @@ class ParamDef(Symbol):
         return self.name
 
 
+class BooleanDef(ParamDef):
+    """Enum param is a facility representing a choice / switch as many 0/1 parameters.
+    It is not itself a Sympy symbol. use #symbol("value") to access it"""
+
+    def __init__(self, name, **argv):
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=None, max=None, **argv)
+
+    def range(self, n):
+        return [0, 1]
+
+
+
 class EnumParam(ParamDef):
     """Enum param is a facility representing a choice / switch as many 0/1 parameters.
     It is not itself a Sympy symbol. use #symbol("value") to access it"""
 
     def __init__(self, name, values: List[str], **argv):
-        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
+        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
         self.values = values
 
     def expandParams(self, currValue=None):
@@ -107,6 +135,9 @@ class EnumParam(ParamDef):
         if not enumValue in self.values:
             raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
         return Symbol(self.name + '_' + enumValue)
+
+    def range(self, n):
+        return self.values
 
 
 class ActivityExtended(Activity):
@@ -564,6 +595,8 @@ def newParamDef(name, type, **kwargs):
     """Creates a param and register it into a global registry and as a brightway parameter"""
     if type == ParamType.ENUM:
         param = EnumParam(name, **kwargs)
+    elif type == ParamType.BOOL :
+        param = BooleanDef(name, **kwargs)
     else:
         param = ParamDef(name, type=type, **kwargs)
 
@@ -582,6 +615,8 @@ def newParamDef(name, type, **kwargs):
 def newFloatParam(name, default, **kwargs):
     return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
 
+def newBoolParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
 
 def newEnumParam(name, default, **kwargs):
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
@@ -811,22 +846,72 @@ def multiLCA(model, methods, **params):
     return _multiLCA(activities, methods).transpose()
 
 
-def multiLCAAlgebric(models, methods, **params):
-    """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
-    Then, compute 'static' inventory of the referenced background activities.
-    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
 
-    Parameters
-    ----------
-    models : Single model or list of models : if list of models, you cannot use param lists
-    methods : List of methods / impacts to consider
-    params : You should provide named values of all the parameters declared in the model. \
-             Values can be single value or list of samples, all of the same size
-    """
-    dfs = dict()
 
-    if not isinstance(models, list):
-        models = [models]
+def preMultiLCAAlgebric(model, methods) :
+    '''
+        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change
+    '''
+
+    # print("computing model to expression for %s" % model)
+    expr, actBySymbolName = actToExpression(model)
+
+    # List params required by the model
+    free_names = set([str(symb) for symb in expr.free_symbols])
+    act_names = set([str(symb) for symb in actBySymbolName.keys()])
+    param_names = free_names - act_names
+
+    #for name in param_names :
+    #    if name not in param_registry() :
+    #        raise Exception('Model refers to unknown param "%s"' % name)
+
+    # Create dummy reference to biosphere
+    # We cannot run LCA to biosphere activities
+    # We create a technosphere activity mapping exactly to 1 biosphere item
+    pureTechActBySymbol = OrderedDict()
+    for name, act in actBySymbolName.items():
+        if act[0] == BIOSPHERE3_DB_NAME:
+            act = _getOrCreateDummyBiosphereActCopy(act[1])
+        else:
+            act = getActByCode(*act)
+        pureTechActBySymbol[name] = act
+
+    # List of activities, ordered
+    acts = pureTechActBySymbol.values()
+
+    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
+    actsWithAmount = [{act: 1} for act in acts]
+
+    # Compute LCA for all background activities and methods
+    lca = _multiLCA(actsWithAmount, methods)
+
+    # For each method, compute an algebric expression with activities replaced by their values
+    lambdas = []
+    for imethod, method in enumerate(methods):
+        # print("Generating lamba function for %s / %s" % (model, method))
+
+        # Replace activities by their value in expression for this method
+        sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
+        method_expr = expr.xreplace(sub)
+
+        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
+        lambd = lambdify(param_names, method_expr, 'numpy')
+        lambdas.append(lambd)
+
+    return lambdas
+
+def postMultiLCAAlgebric(methods, lambdas, **params):
+    '''
+        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+        You may use is and pass the result to
+
+        Parameters
+        ----------
+        methodAndLambdas : Output of preMultiLCAAlgebric
+        **params : Parameters of the model
+
+    '''
 
     # Check and expand params
     params = completeParamValues(params)
@@ -848,76 +933,51 @@ def multiLCAAlgebric(models, methods, **params):
             val = list([val] * param_length)
         params[key] = np.array(val)
 
+
+    res = np.zeros((len(methods), param_length))
+
+    # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
+    for imethod, lambd in enumerate(lambdas):
+        res[imethod, :] = lambd(**params)
+
+    return pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
+
+def multiLCAAlgebric(models, methods, **params):
+    """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    Then, compute 'static' inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
+
+    Parameters
+    ----------
+    models : Single model or list of models : if list of models, you cannot use param lists
+    methods : List of methods / impacts to consider
+    params : You should provide named values of all the parameters declared in the model. \
+             Values can be single value or list of samples, all of the same size
+    """
+    dfs = dict()
+
+    if not isinstance(models, list):
+        models = [models]
+
     for model in models:
 
-        #print("computing model to expression for %s" % model)
-        expr, actBySymbolName = actToExpression(model)
+        lambdas = preMultiLCAAlgebric(model, methods)
 
-        # Check missing parameters
-        param_names = set([str(symb) for symb in expr.free_symbols])
-        act_names = set([str(symb) for symb in actBySymbolName.keys()])
-        remaining = param_names - act_names - params.keys()
-        if remaining:
-            raise Exception("Some model parameters are not set : %s" % remaining)
-
-        # Create dummy reference to biosphere
-        # We cannot run LCA to biosphere activities
-        # We create a technosphere activity mapping exactly to 1 biosphere item
-        pureTechActBySymbol = OrderedDict()
-        for name, act in actBySymbolName.items():
-            if act[0] == BIOSPHERE3_DB_NAME:
-                act = _getOrCreateDummyBiosphereActCopy(act[1])
-            else:
-                act = getActByCode(*act)
-            pureTechActBySymbol[name] = act
-
-        # List of activities, ordered
-        acts = pureTechActBySymbol.values()
-
-        # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
-        actsWithAmount = [{act: 1} for act in acts]
-
-        #print("Computing full LCA of background activities for '%s'" % model)
-
-        # Compute LCA for all background activities and methods
-        lca = _multiLCA(actsWithAmount, methods)
-
-        # For each method, compute an algebric expression with activities replaced by their values
-        lambdas = []
-        for imethod, method in enumerate(methods):
-
-            #print("Generating lamba function for %s / %s" % (model, method))
-
-            # Replace activities by their value in expression for this method
-            sub = [(symbol, lca.iloc[imethod, iact]) for iact, symbol in enumerate(pureTechActBySymbol.keys())]
-            method_expr = expr.subs(sub)
-
-            # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
-            lambd = lambdify(params.keys(), method_expr, 'numpy')
-            lambdas.append(lambd)
-
-        res = np.zeros((len(methods), param_length))
-
-        # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-        for imethod, lambd in enumerate(lambdas):
-            #print("Computing results for %s / %s" % (model, methods[imethod]))
-            res[imethod, :] = lambd(**params)
+        postMultiLCAAlgebric(methods, lambdas, params)
 
         model_name = actName(model)
-        df = pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
+        dfs[model_name] = df
 
         # Single params ? => give the single row the name of the model activity
         if df.shape[0] == 1:
             df = df.rename(index={0: model_name})
 
-        dfs[model_name] = df
-
     if len(dfs) == 1:
         df = list(dfs.values())[0]
-        display(df)
+        return df
     else:
         # Concat several dataframes for several models
-        display(pd.concat(list(dfs.values())))
+        return pd.concat(list(dfs.values()))
 
 
 def _getOrCreateDummyBiosphereActCopy(code):
@@ -1009,25 +1069,71 @@ def reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
+def param_analysis(modelOrLambdas, impacts, param: ParamDef, n=10) :
+    '''
+    Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
 
-# ---   Graphviz tools -------
+    Parameters
+    ----------
+    model : activity, or lambdas as precomputed by preMultiLCAAlgebric, for faster computation
+    impacts : set of methods
+    param: parameter to analyse
+    n: number of samples of the parameter
+    '''
 
-from graphviz import Digraph
+    params = {param.name : param.default for param in param_registry().values()}
 
-def graph(act:ActivityExtended) :
-    g = Digraph(node_attr=dict(
-        shape ='plaintext',
-        rankdir='LR'))
+    params[param.name] = param.range(n)
 
-    aName = actName(act)
+    if isinstance(modelOrLambdas, Activity) :
+        df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+    else :
+        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
-    lines = ['<tr><td colspan="2" > %s </td></tr>' % aName]
+    # add X values
+    pname = "%s [%s]" % (param.name, param.unit)
+    df.insert(0, pname, param.range(n))
 
-    for exch in act.exchanges() :
-        amount = getAmountOrFormula(exch)
-        name = exch["name"]
-        lines.append('<tr><td>%s</td><td label="foo" port="%s">%s</td></tr>' % (name, name, str(amount)))
+    graph = widgets.Output()
+    table = widgets.Output()
 
-    g.node(aName, "<<table>%s</table>>" % "\n".join(lines))
+    with table :
+        display(df)
 
-    display(g)
+    with graph :
+        with warnings.catch_warnings():
+            
+            warnings.simplefilter("ignore")
+
+            nb_rows = len(impacts) // 3 + 1
+
+            fig, axes = plt.subplots(figsize=(15, 15))
+
+            axes = df.plot(
+                ax=axes, sharex=True, subplots=True,
+                x=pname, layout=(nb_rows, 3),
+                kind = 'line' if param.type == ParamType.FLOAT else 'bar')
+
+            axes = axes.flatten()
+
+            units = [bw.Method(m).metadata['unit'] for m in impacts]
+            for ax, unit in zip(axes, units) :
+                ax.set_ylabel(unit)
+
+            plt.show(fig)
+
+    tabs = widgets.Tab(children=[graph, table])
+    tabs.set_title(0, "graphs")
+    tabs.set_title(1, "data")
+    display(tabs)
+
+
+def interactive_param_analysis(model, methods) :
+
+    lambdas = preMultiLCAAlgebric(model, methods)
+
+    def process_func(param) :
+        param_analysis(lambdas, methods, param_registry()[param])
+
+    paramlist = list(param_registry().keys())
+    interact(process_func, param=paramlist)

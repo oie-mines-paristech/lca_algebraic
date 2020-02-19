@@ -1975,8 +1975,6 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
     
     #Diamond Wiring for cutting process; TiC = 0, TEG is replaced by water with additional 98.94 tap water as per KBOB:2016
     for exc in wafer_adjusted.exchanges():
-        SiC_recycled_share = 0
-        TEG_recycled_share = 0
         if exc['name'] == 'triethylene glycol' :
             exc['amount'] = 0 if DW else 2.16548 * (1 - TEG_recycled_share)
             exc.save()
@@ -2000,8 +1998,11 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
 
         if exc['name'] == 'triethylene glycol, recycled production':
             exc['amount'] = 0 if DW else 2.16548 * TEG_recycled_share
+            print("been there : ", DW, TEG_recycled_share)
             exc.save()
-    print("By selecting diamond wiring: it is advised to consider 15% less silicon used (translated into 15% less kerf loss) when compared to the traditional cutting process")
+            
+    if DW : 
+        print("By selecting diamond wiring: it is advised to consider 15% less silicon used (translated into 15% less kerf loss) when compared to the traditional cutting process")
 
 
 
@@ -2039,17 +2040,19 @@ def generate_wafer_dataset(SiC_recycled_share=0.694, TEG_recycled_share = 0.899,
 ```
 
 ```{python}
-wafer_adjusted = generate_wafer_dataset(SiC_recycled_share=0, 
-                                        TEG_recycled_share = 0, 
-                                        DW= True, 
+wafer_adjusted = generate_wafer_dataset(SiC_recycled_share=0.694, 
+                                        TEG_recycled_share = 0.899, 
+                                        DW= False, 
                                         manufacturing_efficiency_gains = 0, 
-                                        kerf_loss = 0.50, 
-                                        wafer_thickness = 240, 
+                                        kerf_loss = 0.44, 
+                                        wafer_thickness = 200, 
                                         elec_dataset = None,
                                         Silicon_dataset = Silicon_adjusted)
 ```
 
 ```{python}
+wafer_adjusted = [act for act in eidb if 'multi-Si wafer production adjusted' == act['name'] and 'RER' in act['location']][0]
+
 print_data(wafer_adjusted)
 ```
 
@@ -2947,7 +2950,11 @@ system_adjusted
 
 ```{python}
 list_methods = set_of_methods
-bw.calculation_setups['B_system'] = {'inv': [{system_adjusted:1}], 'ia': list_methods}
+bw.calculation_setups['B_system'] = {'inv': [
+    {system_adjusted:1},
+    {panel_adjusted:1},
+    {wafer_adjusted:1},
+], 'ia': list_methods}
 myMultiLCA = bw.MultiLCA('B_system')
 df_impact = pd.DataFrame(columns = list_methods, data = myMultiLCA.results)
 df_impact 
@@ -2955,6 +2962,7 @@ df_impact
 
 ```{python}
 12878/10
+
 ```
 
 ```{python}
