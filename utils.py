@@ -25,6 +25,9 @@ import matplotlib.pyplot as plt
 from ipywidgets import interact, interactive, fixed, interact_manual
 import ipywidgets as widgets
 import warnings
+from SALib.sample import saltelli
+import math
+from SALib.analyze import sobol
 
 # -- Constants
 DEBUG=False
@@ -90,11 +93,18 @@ class ParamDef(Symbol):
         return list(i * step + self.min for i in range(0, n))
 
 
+    def rand(self, alpha):
+        return self.min + alpha * (self.max - self.min)
+
     # Expand parameter (usefull for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
         if value == None:
             value = self.default
         return {self.name: value}
+
+    # Useful for enum param, having several names
+    def names(self) :
+        return [self.name]
 
     def __repr__(self):
         return self.name
@@ -105,11 +115,16 @@ class BooleanDef(ParamDef):
     It is not itself a Sympy symbol. use #symbol("value") to access it"""
 
     def __init__(self, name, **argv):
-        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=None, max=None, **argv)
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
 
     def range(self, n):
         return [0, 1]
 
+    def rand(self, alpha):
+        return round(alpha)
+
+    def round(self, alpha):
+        return round(alpha)
 
 
 class EnumParam(ParamDef):
@@ -135,6 +150,13 @@ class EnumParam(ParamDef):
         if not enumValue in self.values:
             raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
         return Symbol(self.name + '_' + enumValue)
+
+    def names(self) :
+        return ["%s_%s" % (self.name, value) for value in (self.values + ["default"]) ]
+
+    def rand(self, alpha):
+        i = math.ceil(alpha * (len(self.values))) -1
+        return self.values[int(i)]
 
     def range(self, n):
         return self.values
@@ -848,7 +870,7 @@ def multiLCA(model, methods, **params):
 
 
 
-def preMultiLCAAlgebric(model, methods) :
+def preMultiLCAAlgebric(model, methods, param_names=None) :
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change
@@ -857,10 +879,13 @@ def preMultiLCAAlgebric(model, methods) :
     # print("computing model to expression for %s" % model)
     expr, actBySymbolName = actToExpression(model)
 
-    # List params required by the model
-    free_names = set([str(symb) for symb in expr.free_symbols])
-    act_names = set([str(symb) for symb in actBySymbolName.keys()])
-    param_names = free_names - act_names
+    # If param names not provided, infer them from the expression of the model
+    if param_names is None :
+        free_names = set([str(symb) for symb in expr.free_symbols])
+        act_names = set([str(symb) for symb in actBySymbolName.keys()])
+        param_names = free_names - act_names
+
+    debug(param_names)
 
     #for name in param_names :
     #    if name not in param_registry() :
@@ -959,11 +984,13 @@ def multiLCAAlgebric(models, methods, **params):
     if not isinstance(models, list):
         models = [models]
 
+    param_names = [name for key in params.keys() for name in param_registry()[key].names() ]
+
     for model in models:
 
-        lambdas = preMultiLCAAlgebric(model, methods)
+        lambdas = preMultiLCAAlgebric(model, methods, param_names)
 
-        postMultiLCAAlgebric(methods, lambdas, params)
+        df = postMultiLCAAlgebric(methods, lambdas, **params)
 
         model_name = actName(model)
         dfs[model_name] = df
@@ -1069,7 +1096,7 @@ def reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
-def param_analysis(modelOrLambdas, impacts, param: ParamDef, n=10) :
+def one_at_a_time(modelOrLambdas, impacts, param: ParamDef, n=10) :
     '''
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
 
@@ -1093,16 +1120,18 @@ def param_analysis(modelOrLambdas, impacts, param: ParamDef, n=10) :
     # add X values
     pname = "%s [%s]" % (param.name, param.unit)
     df.insert(0, pname, param.range(n))
+    df = df.set_index(pname)
 
     graph = widgets.Output()
     table = widgets.Output()
+    change = widgets.Output()
 
     with table :
         display(df)
 
     with graph :
         with warnings.catch_warnings():
-            
+
             warnings.simplefilter("ignore")
 
             nb_rows = len(impacts) // 3 + 1
@@ -1111,29 +1140,69 @@ def param_analysis(modelOrLambdas, impacts, param: ParamDef, n=10) :
 
             axes = df.plot(
                 ax=axes, sharex=True, subplots=True,
-                x=pname, layout=(nb_rows, 3),
+                layout=(nb_rows, 3),
                 kind = 'line' if param.type == ParamType.FLOAT else 'bar')
 
             axes = axes.flatten()
 
             units = [bw.Method(m).metadata['unit'] for m in impacts]
             for ax, unit in zip(axes, units) :
+                ax.set_ylim(ymin=0)
                 ax.set_ylabel(unit)
 
             plt.show(fig)
 
-    tabs = widgets.Tab(children=[graph, table])
+    with change :
+
+        ch = (df.max() - df.min()) / df.median() * 100
+        fig, ax = plt.subplots(figsize=(9, 6))
+        plt.title('Relative change for %s' % df.index.name)
+        ch.plot(kind='barh', rot=30)
+        ax.set_xlabel('Relative change of the median value (%)')
+        plt.tight_layout()
+        plt.show(fig)
+
+    tabs = widgets.Tab(children=[graph, table, change])
     tabs.set_title(0, "graphs")
     tabs.set_title(1, "data")
+    tabs.set_title(2, "change")
     display(tabs)
 
 
-def interactive_param_analysis(model, methods) :
+def one_at_a_time_interactive(model, methods) :
 
     lambdas = preMultiLCAAlgebric(model, methods)
 
     def process_func(param) :
-        param_analysis(lambdas, methods, param_registry()[param])
+        one_at_a_time(lambdas, methods, param_registry()[param])
 
     paramlist = list(param_registry().keys())
     interact(process_func, param=paramlist)
+
+
+
+def stochastic(model, method) :
+
+    n_vars = len(param_registry())
+    param_names = list(param_registry().keys())
+    problem = {
+        'num_vars': n_vars,
+        'names': param_names,
+        'bounds': [[0, 1]]*n_vars
+    }
+
+    norm_values = saltelli.sample(problem, 10000, calc_second_order=True)
+
+    # Map normalized 0-1 random values into real values
+    params = dict()
+    for i, param_name in enumerate(param_names) :
+        param = param_registry()[param_name]
+        vals = list(map(lambda v : param.rand(v), norm_values[:, i]))
+        params[param_name] = vals
+
+    res = multiLCAAlgebric(model, [method], **params)
+    Y = res[res.columns[0]].to_numpy()
+
+    return sobol.analyze(problem, Y, calc_second_order=True)
+
+

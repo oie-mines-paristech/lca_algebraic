@@ -26,6 +26,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import brightway2 as bw
+import SALib
 from sympy import *
 
 # Custom utils defined for inter-acv
@@ -1061,8 +1062,46 @@ printAct(
         heat_recycling = 76)
 ```
 
+## PV Production
+
+We do not compute PV production here. Just take it as a parameter, together with performance factor of the panel.
+
+
 ```{python}
-interactive_param_analysis(pvModel, impacts)
+productible = newFloatParam(
+    "productible", 
+    default=1200, min=800, max=1600, 
+    description="PV productible for one year",  
+    unit="kWh per kWc per year")
+
+performance_ratio = newFloatParam(
+    "performance_ratio", 
+    default=0.8, min=0.6, max=1, 
+    description="Performance of PV installation, accounting  for setup conditions and decay of performances over lifetime",  
+    unit="kWh per kWc per year")
+
+# productible over lifetime
+productible_life = performance_ratio * productible * pv_lifetime
+
+impact_model = newActivity("impact model per kWh produced over lifetime", unit="unit per kWh", exchanges={
+    pvModel: 1 / (performance_ratio * productible * P * pv_lifetime)
+})
+```
+
+# Statistics : One at a time
+
+```{python}
+interactive_param_analysis(impact_model, impacts)
+```
+
+# Statistics : Stochastics
+
+```{python}
+res = stochastic(impact_model, impacts[1])
+```
+
+```{python}
+res
 ```
 
 ```{python}
