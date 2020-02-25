@@ -28,9 +28,11 @@ import numpy as np
 import brightway2 as bw
 import SALib
 from sympy import *
+from scipy.stats import binned_statistic
+import seaborn as sns
 
 # Custom utils defined for inter-acv
-from utils import *
+from lib.utils import *
 
 from IPython.core.display import display, HTML
 display(HTML("<style>.container { width:70% !important; }</style>"))
@@ -675,13 +677,17 @@ cell_adjusted = copyActivity(cell_init, 'photovoltaic cell production, multi-Si 
 #The amount of copper is calculated considering the difference of conductivity between Ag and Cu
 #Conductiviy of Ag = 6.3e7 S/m, Cu = 5.96e7 S/m at 20°C
 
+# Define Max with abs() for later vector processing in numpy (sympy.Max is badly transformed)
+def Max(a, b) :
+    return (a + b + abs(a - b)) / 2
+
 # FIXME removing Min/Max 
-#front_silver_amount = Max(7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), zero)
-front_silver_amount = 7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3)
+front_silver_amount = Max(7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), 0)
+#front_silver_amount = 7.4e-3 * (silver_amount - 0.7)  / (6.2 + 3.3)
 new_front_silver_amount = 0.84 * front_silver_amount
 
-#back_silver_amount = Max(4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), zero)
-back_silver_amount = 4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3)
+back_silver_amount = Max(4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3), 0)
+#back_silver_amount = 4.9e-3 * (silver_amount - 0.7)  / (6.2 + 3.3)
 new_back_silver_amount = 0.67 * back_silver_amount
 
 #copper_amount = Max(1/0.67 * 6.3e7 / 5.96e7 * ( 9.6e-3 -(new_front_silver_amount + new_back_silver_amount)), zero)
@@ -1083,25 +1089,55 @@ performance_ratio = newFloatParam(
 # productible over lifetime
 productible_life = performance_ratio * productible * pv_lifetime
 
-impact_model = newActivity("impact model per kWh produced over lifetime", unit="unit per kWh", exchanges={
+impact_model_per_kWh = newActivity("impact model per kWh produced over lifetime", unit="unit per kWh", exchanges={
     pvModel: 1 / (performance_ratio * productible * P * pv_lifetime)
+})
+
+impact_model_per_kWp = newActivity("impact model per kWp installed", unit="unit per kWh", exchanges={
+    pvModel: 1 / P
 })
 ```
 
 # Statistics : One at a time
 
 ```{python}
-interactive_param_analysis(impact_model, impacts)
+parametric_oat_interact(impact_model_per_kWp, impacts)
+```
+
+```{python}
+incer_heatmap_oat(impact_model_per_kWp, impacts)
 ```
 
 # Statistics : Stochastics
 
 ```{python}
-res = stochastic(impact_model, impacts[1])
+incer_heatmap_stochastic(impact_model_per_kWp, impacts)
 ```
 
 ```{python}
-res
+X, Y = res
+median = binned_statistic(X[:, 4], Y, 'median', bins=10)
+q10 = binned_statistic(X[:, 4], Y, lambda x : np.percentile(x, 10), bins=10)
+q30 = binned_statistic(X[:, 4], Y, lambda x : np.percentile(x, 30), bins=10)
+q70 = binned_statistic(X[:, 4], Y, lambda x : np.percentile(x, 70), bins=10)
+q90 = binned_statistic(X[:, 4], Y, lambda x : np.percentile(x, 90), bins=10)
+
+bincenters = np.mean(np.vstack([std.bin_edges[0:-1],std.bin_edges[1:]]), axis=0)
+
+plt.fill_between(bincenters, q10.statistic, q90.statistic, color="blue", alpha=0.2)
+plt.fill_between(bincenters, q30.statistic, q70.statistic, color="blue", alpha=0.3)
+plt.plot(bincenters, median.statistic)
+```
+
+```{python}
+plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor='w', edgecolor='k')
+plt.bar(np.arange(len(param_names)), res["ST"], 0.8)
+plt.bar(np.arange(len(param_names)), res["S1"], 0.8)
+plt.xticks(np.arange(len(param_names)), param_names, rotation=90)
+```
+
+```{python}
+incer_violin_stochastic(impact_model_per_kWh, impacts)
 ```
 
 ```{python}

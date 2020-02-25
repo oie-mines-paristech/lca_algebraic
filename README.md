@@ -31,4 +31,9 @@
 * Module efficiency : unité ? Kw / m2 ? Dans modele final, la surface par module nintervient pas. 
   0.15 à 0.22 semble très grand (8m2 par kWc -> 0.12)
 * 
+
+# TODO 
+
+Setup back Min/Max to work with numpy
+Investigate negative impacts for large power
  

@@ -28,6 +28,11 @@ import warnings
 from SALib.sample import saltelli
 import math
 from SALib.analyze import sobol
+from scipy.stats import binned_statistic
+import seaborn as sns
+from sys import stderr
+from .timer import Timer
+import math
 
 # -- Constants
 DEBUG=False
@@ -35,6 +40,9 @@ DEBUG=False
 def debug(*args, **kwargs) :
     if DEBUG :
         print(*args, **kwargs)
+
+def error(*args, **kwargs):
+    print(*args, **kwargs, file=stderr)
 
 # DB names
 ECOINVENT_DB_NAME = 'ecoinvent 3.4 cut off'
@@ -807,7 +815,7 @@ def _multiLCA(activities, methods):
     bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
     lca = bw.MultiLCA('process')
     cols = [actName(act) for act_amount in activities for act, amount in act_amount.items()]
-    return pd.DataFrame(lca.results.T, index=[method[2] for method in methods], columns=cols)
+    return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
 
 
 def listOfDictToDictOflist(LD):
@@ -884,6 +892,8 @@ def preMultiLCAAlgebric(model, methods, param_names=None) :
         free_names = set([str(symb) for symb in expr.free_symbols])
         act_names = set([str(symb) for symb in actBySymbolName.keys()])
         param_names = free_names - act_names
+    else :
+        param_names = expand_param_names(param_names)
 
     debug(param_names)
 
@@ -926,6 +936,9 @@ def preMultiLCAAlgebric(model, methods, param_names=None) :
 
     return lambdas
 
+def method_name(method) :
+    return method[1] + " - " + method[2]
+
 def postMultiLCAAlgebric(methods, lambdas, **params):
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -965,7 +978,11 @@ def postMultiLCAAlgebric(methods, lambdas, **params):
     for imethod, lambd in enumerate(lambdas):
         res[imethod, :] = lambd(**params)
 
-    return pd.DataFrame(res, index=[method[2] for method in methods]).transpose()
+    return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
+
+def expand_param_names(param_names) :
+    '''Expand parameters names (with enum params) '''
+    return [name for key in param_names for name in param_registry()[key].names()]
 
 def multiLCAAlgebric(models, methods, **params):
     """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
@@ -984,11 +1001,9 @@ def multiLCAAlgebric(models, methods, **params):
     if not isinstance(models, list):
         models = [models]
 
-    param_names = [name for key in params.keys() for name in param_registry()[key].names() ]
-
     for model in models:
 
-        lambdas = preMultiLCAAlgebric(model, methods, param_names)
+        lambdas = preMultiLCAAlgebric(model, methods, params.keys())
 
         df = postMultiLCAAlgebric(methods, lambdas, **params)
 
@@ -1096,7 +1111,43 @@ def reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
-def one_at_a_time(modelOrLambdas, impacts, param: ParamDef, n=10) :
+def heatmap(df, title, vmax, ints=False):
+    fig, ax = plt.subplots(figsize=(17, 30))
+    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else None)
+    plt.title(title, fontsize=26)
+    ax.tick_params(axis="x", labelsize=18)
+    ax.tick_params(axis="y", labelsize=18)
+
+
+def incer_heatmap_oat(model, impacts, n=10) :
+    '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time'''
+
+    # Compile model into lambda functions for fast LCA
+    lambdas = preMultiLCAAlgebric(model, impacts, param_registry().keys())
+
+    change = np.zeros((len(param_registry()), len(impacts)))
+
+    for iparam, param in enumerate(param_registry().values()) :
+        params = {param.name: param.default for param in param_registry().values()}
+
+        # Compute range of values for given param
+        params[param.name] = param.range(n)
+
+        # Compute LCA
+        df = postMultiLCAAlgebric(impacts, lambdas, **params)
+
+        # Compute change
+        change[iparam] =  (df.max() - df.min()) / df.median() * 100
+
+    # Build final heatmap
+    change = pd.DataFrame(change, index=param_registry().keys(), columns=[imp[2] for imp in impacts])
+    heatmap(change.transpose(), 'Change of impacts per variability of the input parameters (%)', 100, ints=True)
+
+
+def method_unit(method) :
+    return bw.Method(method).metadata['unit']
+
+def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
     '''
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
 
@@ -1110,14 +1161,16 @@ def one_at_a_time(modelOrLambdas, impacts, param: ParamDef, n=10) :
 
     params = {param.name : param.default for param in param_registry().values()}
 
+    # Compute range of values for given param
     params[param.name] = param.range(n)
 
     if isinstance(modelOrLambdas, Activity) :
         df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else :
-        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+        with Timer("postLCA") :
+            df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
-    # add X values
+    # Add X values in the table
     pname = "%s [%s]" % (param.name, param.unit)
     df.insert(0, pname, param.range(n))
     df = df.set_index(pname)
@@ -1130,6 +1183,7 @@ def one_at_a_time(modelOrLambdas, impacts, param: ParamDef, n=10) :
         display(df)
 
     with graph :
+
         with warnings.catch_warnings():
 
             warnings.simplefilter("ignore")
@@ -1145,10 +1199,9 @@ def one_at_a_time(modelOrLambdas, impacts, param: ParamDef, n=10) :
 
             axes = axes.flatten()
 
-            units = [bw.Method(m).metadata['unit'] for m in impacts]
-            for ax, unit in zip(axes, units) :
+            for ax, impact in zip(axes, impacts) :
                 ax.set_ylim(ymin=0)
-                ax.set_ylabel(unit)
+                ax.set_ylabel(method_unit(impact))
 
             plt.show(fig)
 
@@ -1169,19 +1222,18 @@ def one_at_a_time(modelOrLambdas, impacts, param: ParamDef, n=10) :
     display(tabs)
 
 
-def one_at_a_time_interactive(model, methods) :
+def parametric_oat_interact(model, methods):
 
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = preMultiLCAAlgebric(model, methods, param_registry().keys())
 
     def process_func(param) :
-        one_at_a_time(lambdas, methods, param_registry()[param])
+        parametric_oat(lambdas, methods, param_registry()[param])
 
     paramlist = list(param_registry().keys())
     interact(process_func, param=paramlist)
 
 
-
-def stochastic(model, method) :
+def stochastics(modelOrLambdas, methods, n=1000) :
 
     n_vars = len(param_registry())
     param_names = list(param_registry().keys())
@@ -1191,18 +1243,79 @@ def stochastic(model, method) :
         'bounds': [[0, 1]]*n_vars
     }
 
-    norm_values = saltelli.sample(problem, 10000, calc_second_order=True)
+    print("Generating samples ...")
+    X = saltelli.sample(problem, n, calc_second_order=True)
 
     # Map normalized 0-1 random values into real values
+    print("Transforming samples ...")
     params = dict()
     for i, param_name in enumerate(param_names) :
         param = param_registry()[param_name]
-        vals = list(map(lambda v : param.rand(v), norm_values[:, i]))
+        vals = list(map(lambda v : param.rand(v), X[:, i]))
         params[param_name] = vals
 
-    res = multiLCAAlgebric(model, [method], **params)
-    Y = res[res.columns[0]].to_numpy()
 
-    return sobol.analyze(problem, Y, calc_second_order=True)
+    print("Processing LCA ...")
+    if isinstance(modelOrLambdas, Activity):
+        Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
+    else:
+        Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
+
+    return problem, X, Y,
 
 
+def incer_heatmap_stochastic(modelOrLambdas, methods, n=1000) :
+
+    problem, X, Y = stochastics(modelOrLambdas, methods, n)
+    param_names = problem['names']
+
+    print("Processing Sobol indices ...")
+    sobols = np.zeros((len(param_names), len(methods)))
+
+    for i, method in enumerate(methods) :
+
+        try:
+            y = Y[Y.columns[i]]
+            sobols[:, i] = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)["ST"]
+
+        except Exception as e:
+            error("Sobol failed on %s" % method[2], e)
+
+
+    def draw(mode) :
+
+        if mode == 'sobol' :
+            data = sobols
+        else :
+            # If percent, express result as percentage of standard deviation / mean
+            data = np.zeros((len(param_names), len(methods)))
+            for i, method in enumerate(methods):
+                # Total variance
+                var = np.var(Y[Y.columns[i]])
+                mean = np.mean(Y[Y.columns[i]])
+                if mean != 0 :
+                    data[:, i] = np.sqrt((sobols[:, i] * var)) / mean * 100
+
+
+        df = pd.DataFrame(data, index=param_names, columns=[method_name(method) for method in methods])
+        heatmap(
+            df.transpose(),
+            title="Variance of impacts (%)" if mode == 'percent' else "Sobol indices (part of variability)",
+            vmax=100 if mode == 'percent' else 1)
+
+    interact(draw, mode=[('Raw sobol indices', 'sobol'), ('Deviation / mean', 'percent')])
+
+
+def incer_violin_stochastic(modelOrLambdas, methods, n=1000) :
+
+    problem, X, Y = stochastics(modelOrLambdas, methods, n)
+    param_names = problem['names']
+
+    nb_rows = math.ceil(len(methods) / 3)
+    fig, axes = plt.subplots(nb_rows, 3, figsize=(15, 15), sharex=True)
+
+    for imethod, method, ax in zip(range(len(methods)), methods, axes.flatten()) :
+        ax.violinplot(Y[Y.columns[imethod]], showmedians=True)
+        ax.title.set_text(method_name(method))
+        # ax.set_ylim(ymin=0)
+        ax.set_ylabel(method_unit(method))
