@@ -16,11 +16,12 @@ jupyter:
 ```{python}
 #pandas is a library for data manipulation and analysis.
 import pandas as pd
-import utils
+
 #matplotlib is a plotting library and its numerical mathematics extension NumPy;
 #matplotlib.pyplot is mainly intended for interactive plots and simple cases of programmatic plot
 import matplotlib.pyplot as plt
 import numpy as np
+import lib.utils
 #brightway2 is a open source framework for life cycle assessment (LCA). 
 import brightway2 as bw
 #SciPy contains modules for optimization, linear algebra, integration, interpolation,
@@ -3441,6 +3442,10 @@ DF_impact
 ```
 
 ```{python}
+print_data(act)
+```
+
+```{python}
 P = 3
 P_module = 280
 elec_dataset = elec_dataset_row
@@ -4167,7 +4172,7 @@ for i in [3, 10, 36, 500, 3000]:
     myMultiLCA = bw.MultiLCA('SA')
     DF_impact[i] = myMultiLCA.results.T
 
-DF_impact.to_pickle('FINAL_PV_IMPACT/SA_system_power.pkl')
+#DF_impact.to_pickle('FINAL_PV_IMPACT/SA_system_power.pkl')
 DF_impact
 ```
 
@@ -4406,13 +4411,13 @@ for i in [True, False]:
     myMultiLCA = bw.MultiLCA('SA')
     DF_impact[i] = myMultiLCA.results.T
 
-DF_impact.to_pickle('FINAL_PV_IMPACT/SA_roof_ground.pkl')
+##DF_impact.to_pickle('FINAL_PV_IMPACT/SA_roof_ground.pkl')
 DF_impact
 ```
 
 ```{python}
-df_impact = pd.read_pickle('FINAL_PV_IMPACT/SA_roof_ground.pkl')
-df_impact = df_impact.T
+#df_impact = pd.read_pickle('FINAL_PV_IMPACT/SA_roof_ground.pkl')
+df_impact = DF_impact.T
 
 df_impact = df_impact[methods_no_LT]
 df_impact.columns = [m[2] for m in df_impact.columns]

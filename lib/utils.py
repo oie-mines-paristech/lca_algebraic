@@ -86,7 +86,7 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
 
-    def __init__(self, name, type: str, default, min, max, unit="", description=""):
+    def __init__(self, name, type: str, default, min, max, unit="", description="", label=None, label_fr=None, group=None):
         self.name = name
         self.type = type
         self.default = default
@@ -94,6 +94,15 @@ class ParamDef(Symbol):
         self.min = min
         self.max = max
         self.unit = unit
+        self.label = label
+        self.label_fr = label_fr
+        self.group=group
+
+    def label(self):
+        if self.label is not None :
+            return self.label
+        else :
+            return self.name.replace("_", " ")
 
     def range(self, n) :
         '''Used for parametric analysis'''
@@ -102,6 +111,7 @@ class ParamDef(Symbol):
 
 
     def rand(self, alpha):
+        """Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter"""
         return self.min + alpha * (self.max - self.min)
 
     # Expand parameter (usefull for enum param)
@@ -131,8 +141,7 @@ class BooleanDef(ParamDef):
     def rand(self, alpha):
         return round(alpha)
 
-    def round(self, alpha):
-        return round(alpha)
+
 
 
 class EnumParam(ParamDef):
@@ -181,7 +190,9 @@ class ActivityExtended(Activity):
         Parameters
         ----------
         name : name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
-            It can also be suffised by '*' to match on exchange starting with this name (Default value = None)
+            It can also be suffised by '*' to match on exchange starting with this name. Location can be a negative match '!'
+            Exampple : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
+
         single :True if a single match is expected. Otherwize, a list of result is returned
 
         Returns
@@ -190,18 +201,21 @@ class ActivityExtended(Activity):
             raise Exception if not matching exchange found
         """
 
-        _single=single
-
         def single_match(name, exch) :
-            nonlocal _single
+
             # Name can be "Elecricity#RER"
             if "#" in name:
                 name, loc = name.split("#")
+                negative = False
+                if loc.startswith("!") :
+                    negative = True
+                    loc = loc[1:]
                 act = getActByCode(*exch['input'])
-                if not 'location' in act or not act['location'] == loc :
+
+                if not 'location' in act or (negative and act['location'] == loc) or (not negative and act['location'] != loc) :
                     return False
+
             if '*' in name :
-                _single=False
                 name = name.replace('*', '')
                 return name in exch['name']
             else :
@@ -222,9 +236,9 @@ class ActivityExtended(Activity):
         if len(exchs) == 0:
             raise Exception("Found no exchange matching name : %s" % name)
 
-        if _single and len(exchs) != 1:
+        if single and len(exchs) != 1:
             raise Exception("Expected 1 exchange with name '%s' found %d" % (name, len(exchs)))
-        if _single:
+        if single:
             return exchs[0]
         else:
             return exchs
@@ -245,7 +259,7 @@ class ActivityExtended(Activity):
         # Update exchanges
         for name, attrs in updates.items():
 
-            exchs = self.getExchange(name)
+            exchs = self.getExchange(name, single=not '*' in name)
             if not isinstance(exchs, list):
                 exchs = [exchs]
             for exch in exchs:
@@ -271,6 +285,17 @@ class ActivityExtended(Activity):
                 # We have a formula now ? => register it to parametrized exchange
                 if 'formula' in attrs:
                     bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+
+    def deleteExchanges(self, name, single=True):
+        exchs = self.getExchange(name, single=single)
+        if not isinstance(exchs, list):
+            exchs = [exchs]
+        if len(exchs) == 0 :
+            raise Exception("No exchange found for '%s'" % name)
+        for ex in exchs :
+            ex.delete()
+            ex.save()
+        self.save()
 
     def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
 
@@ -878,7 +903,7 @@ def multiLCA(model, methods, **params):
 
 
 
-def preMultiLCAAlgebric(model, methods, param_names=None) :
+def preMultiLCAAlgebric(model, methods, param_names=None, amount=1) :
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change
@@ -887,19 +912,23 @@ def preMultiLCAAlgebric(model, methods, param_names=None) :
     # print("computing model to expression for %s" % model)
     expr, actBySymbolName = actToExpression(model)
 
-    # If param names not provided, infer them from the expression of the model
-    if param_names is None :
-        free_names = set([str(symb) for symb in expr.free_symbols])
-        act_names = set([str(symb) for symb in actBySymbolName.keys()])
-        param_names = free_names - act_names
-    else :
-        param_names = expand_param_names(param_names)
+    param_names = expand_param_names(param_names)
+
+    # Check missing params
+    free_names = set([str(symb) for symb in expr.free_symbols])
+    act_names = set([str(symb) for symb in actBySymbolName.keys()])
+    expected_names  = free_names - act_names
+    missing_names = expected_names - set(param_names)
+
+    if len(missing_names) > 0 :
+        raise Exception('Missing parameter of the model : %s' % str(missing_names))
 
     debug(param_names)
 
-    #for name in param_names :
-    #    if name not in param_registry() :
-    #        raise Exception('Model refers to unknown param "%s"' % name)
+    for name in param_names :
+        registry_names = expand_param_names(param_registry())
+        if name not in registry_names :
+            raise Exception('Model refers to unknown param "%s"' % name)
 
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
@@ -939,7 +968,7 @@ def preMultiLCAAlgebric(model, methods, param_names=None) :
 def method_name(method) :
     return method[1] + " - " + method[2]
 
-def postMultiLCAAlgebric(methods, lambdas, **params):
+def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to
@@ -948,7 +977,6 @@ def postMultiLCAAlgebric(methods, lambdas, **params):
         ----------
         methodAndLambdas : Output of preMultiLCAAlgebric
         **params : Parameters of the model
-
     '''
 
     # Check and expand params
@@ -976,7 +1004,7 @@ def postMultiLCAAlgebric(methods, lambdas, **params):
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     for imethod, lambd in enumerate(lambdas):
-        res[imethod, :] = lambd(**params)
+        res[imethod, :] = alpha * lambd(**params)
 
     return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
 
@@ -991,7 +1019,7 @@ def multiLCAAlgebric(models, methods, **params):
 
     Parameters
     ----------
-    models : Single model or list of models : if list of models, you cannot use param lists
+    models : Single model or list of models or dict of model:amount : if list of models, you cannot use param lists
     methods : List of methods / impacts to consider
     params : You should provide named values of all the parameters declared in the model. \
              Values can be single value or list of samples, all of the same size
@@ -1003,16 +1031,21 @@ def multiLCAAlgebric(models, methods, **params):
 
     for model in models:
 
+        alpha = 1
+        if type(model) is tuple :
+            model, alpha=model
+
         lambdas = preMultiLCAAlgebric(model, methods, params.keys())
 
-        df = postMultiLCAAlgebric(methods, lambdas, **params)
+        df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
         model_name = actName(model)
-        dfs[model_name] = df
 
         # Single params ? => give the single row the name of the model activity
         if df.shape[0] == 1:
             df = df.rename(index={0: model_name})
+
+        dfs[model_name] = df
 
     if len(dfs) == 1:
         df = list(dfs.values())[0]
@@ -1113,13 +1146,13 @@ def reverse_dict(dic):
 
 def heatmap(df, title, vmax, ints=False):
     fig, ax = plt.subplots(figsize=(17, 30))
-    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else None)
+    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else 'f')
     plt.title(title, fontsize=26)
     ax.tick_params(axis="x", labelsize=18)
     ax.tick_params(axis="y", labelsize=18)
 
 
-def incer_heatmap_oat(model, impacts, n=10) :
+def oat_matrix(model, impacts, n=10) :
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time'''
 
     # Compile model into lambda functions for fast LCA
@@ -1147,7 +1180,26 @@ def incer_heatmap_oat(model, impacts, n=10) :
 def method_unit(method) :
     return bw.Method(method).metadata['unit']
 
-def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
+
+def display_tabs(titlesAndContentF) :
+    '''Generate tabs'''
+    tabs = []
+    titles= []
+    for title, content_f in titlesAndContentF :
+        titles.append(title)
+
+        tab = widgets.Output()
+        with tab :
+            content_f()
+        tabs.append(tab)
+
+    res = widgets.Tab(children=tabs)
+    for i, title in enumerate(titles) :
+        res.set_title(i, title)
+    display(res)
+
+
+def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
     '''
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
 
@@ -1164,6 +1216,9 @@ def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
     # Compute range of values for given param
     params[param.name] = param.range(n)
 
+
+    #print("Params: ", params)
+
     if isinstance(modelOrLambdas, Activity) :
         df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else :
@@ -1171,18 +1226,17 @@ def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
             df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
     # Add X values in the table
-    pname = "%s [%s]" % (param.name, param.unit)
+    pname = param.name
+    if param.unit :
+        pname = '%s [%s]' % (pname, param.unit)
     df.insert(0, pname, param.range(n))
     df = df.set_index(pname)
 
-    graph = widgets.Output()
-    table = widgets.Output()
-    change = widgets.Output()
 
-    with table :
+    def table() :
         display(df)
 
-    with graph :
+    def graph() :
 
         with warnings.catch_warnings():
 
@@ -1195,6 +1249,7 @@ def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
             axes = df.plot(
                 ax=axes, sharex=True, subplots=True,
                 layout=(nb_rows, 3),
+                legend=None,
                 kind = 'line' if param.type == ParamType.FLOAT else 'bar')
 
             axes = axes.flatten()
@@ -1205,7 +1260,7 @@ def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
 
             plt.show(fig)
 
-    with change :
+    def change() :
 
         ch = (df.max() - df.min()) / df.median() * 100
         fig, ax = plt.subplots(figsize=(9, 6))
@@ -1215,26 +1270,27 @@ def parametric_oat(modelOrLambdas, impacts, param: ParamDef, n=10) :
         plt.tight_layout()
         plt.show(fig)
 
-    tabs = widgets.Tab(children=[graph, table, change])
-    tabs.set_title(0, "graphs")
-    tabs.set_title(1, "data")
-    tabs.set_title(2, "change")
-    display(tabs)
+    display_tabs([
+        ("Graphs", graph),
+        ("Data", table),
+        ("Variation", change)
+    ])
 
 
-def parametric_oat_interact(model, methods):
+def oat_dashboard_interact(model, methods):
 
     lambdas = preMultiLCAAlgebric(model, methods, param_registry().keys())
 
     def process_func(param) :
-        parametric_oat(lambdas, methods, param_registry()[param])
+        oat_dasboard(lambdas, methods, param_registry()[param])
 
     paramlist = list(param_registry().keys())
     interact(process_func, param=paramlist)
 
 
-def stochastics(modelOrLambdas, methods, n=1000) :
+def _stochastics(modelOrLambdas, methods, n=1000) :
 
+    ''' Compute stochastic impacts for later analysis of incertitude '''
     n_vars = len(param_registry())
     param_names = list(param_registry().keys())
     problem = {
@@ -1261,13 +1317,12 @@ def stochastics(modelOrLambdas, methods, n=1000) :
     else:
         Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
 
-    return problem, X, Y,
+    return problem, X, Y
 
 
-def incer_heatmap_stochastic(modelOrLambdas, methods, n=1000) :
+def _incer_stochastic_matrix(methods, param_names, problem, Y):
 
-    problem, X, Y = stochastics(modelOrLambdas, methods, n)
-    param_names = problem['names']
+    ''' Internal method computing matrix of parameter importance '''
 
     print("Processing Sobol indices ...")
     sobols = np.zeros((len(param_names), len(methods)))
@@ -1301,15 +1356,23 @@ def incer_heatmap_stochastic(modelOrLambdas, methods, n=1000) :
         heatmap(
             df.transpose(),
             title="Variance of impacts (%)" if mode == 'percent' else "Sobol indices (part of variability)",
-            vmax=100 if mode == 'percent' else 1)
+            vmax=100 if mode == 'percent' else 1,
+            ints= mode == 'percent')
 
     interact(draw, mode=[('Raw sobol indices', 'sobol'), ('Deviation / mean', 'percent')])
 
 
-def incer_violin_stochastic(modelOrLambdas, methods, n=1000) :
+def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
+    ''' Method computing matrix of parameter importance '''
 
-    problem, X, Y = stochastics(modelOrLambdas, methods, n)
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
     param_names = problem['names']
+
+    _incer_stochastic_matrix(methods, param_names, problem, Y)
+
+
+def _incer_stochastic_violin(methods, Y) :
+    ''' Internal method for computing violin graph of impacts '''
 
     nb_rows = math.ceil(len(methods) / 3)
     fig, axes = plt.subplots(nb_rows, 3, figsize=(15, 15), sharex=True)
@@ -1317,5 +1380,53 @@ def incer_violin_stochastic(modelOrLambdas, methods, n=1000) :
     for imethod, method, ax in zip(range(len(methods)), methods, axes.flatten()) :
         ax.violinplot(Y[Y.columns[imethod]], showmedians=True)
         ax.title.set_text(method_name(method))
-        # ax.set_ylim(ymin=0)
+        ax.set_ylim(ymin=0)
         ax.set_ylabel(method_unit(method))
+
+    plt.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+    plt.show(fig)
+
+def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
+
+    ''' Method for computing violin graph of impacts '''
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+
+    _incer_stochastic_violin(methods, Y)
+
+def _incer_stochastic_variations(methods, Y):
+
+    ''' Method for computing violin graph of impacts '''
+    method_names=[method_name(method) for method in methods]
+
+    std = np.std(Y)
+    mean = np.mean(Y)
+
+    fig = plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor='w', edgecolor='k')
+    plt.bar(np.arange(len(method_names)), std / mean, 0.8)
+    plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
+    plt.show(fig)
+
+
+
+
+def incer_stochastic_dasboard(model, methods, n=1000) :
+    '''Generates a dasboard with several statistics : matrix of parameter incertitude, violin diagrams, ...'''
+
+    problem, X, Y = _stochastics(model, methods, n)
+    param_names = problem['names']
+
+    def matrix() :
+        _incer_stochastic_matrix(methods, param_names, problem, Y)
+
+    def violin() :
+        _incer_stochastic_violin(methods, Y)
+
+    def variation():
+        _incer_stochastic_variations(methods, Y)
+
+    display_tabs([
+        ("Impact incertitude vs parameter matrix", matrix),
+        ("Violin graphs", violin),
+        ("Impact variations", variation)
+    ])
