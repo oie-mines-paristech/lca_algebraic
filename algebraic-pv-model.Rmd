@@ -55,10 +55,11 @@ bw.bw2setup()
 importDb(ECOINVENT_DB_NAME, './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 
 # We use a separate DB for defining our model, reset it beforehand
-resetDb(ACV_DB_NAME)
+USER_DB='incer-acv'
+resetDb(USER_DB)
 
 # Parameters are stored at project level : reset them
-resetParams()
+resetParams(USER_DB)
 ```
 
 # Select the impacts to consider
@@ -86,6 +87,7 @@ elec_switch = newEnumParam(
 ```{python}
 ELEC_NAME = 'market for electricity, medium voltage'
 ELEC_GROUP_NAME = 'market group for electricity, medium voltage'
+
 elec_us = findTechAct(ELEC_GROUP_NAME, "US")
 elec_eu = findTechAct(ELEC_GROUP_NAME, "ENTSO-E")
 elec_fr = findTechAct(ELEC_NAME, "FR")
@@ -95,7 +97,7 @@ elec_row = findTechAct(ELEC_NAME, "RoW")
 
 ```{python}
 # Virtual activity corresponding to switch upon elec mixes
-elec = newSwitchAct("elec", elec_switch, {
+elec = newSwitchAct(USER_DB, "elec", elec_switch, {
     "us" : elec_us,
     "eu" : elec_eu,
     "fr" : elec_fr,
@@ -126,7 +128,7 @@ share_recycled_aluminium = newFloatParam(
 ```
 
 ```{python}
-alu_adjusted = copyActivity(alu, "Alu adjusted")
+alu_adjusted = copyActivity(USER_DB, alu, "Alu adjusted")
 
 alu_adjusted.updateExchanges( 
     {"aluminium, cast alloy": alu_cast_amount * (1 - share_recycled_aluminium)}) 
@@ -155,7 +157,7 @@ is_roof_system = newBoolParam(
 
 mounting_system_weight = newFloatParam(
     "mounting_system_weight", 
-    default=0.45, min=0.1, max=0.45, 
+    default=3, min=3, max=11.5, 
     group="installation",
     label="mounting system weigth",
     label_fr="masse du systeme de montage",
@@ -164,9 +166,9 @@ mounting_system_weight = newFloatParam(
 ground_coverage_ratio = newFloatParam(
     "ground_coverage_ratio", 
     default=0.45, min=0.1, max=0.45, 
-    group="production",
+    group="installation",
     label="ground coverage ratio",
-    label_fr="rtio de couverture au sol",
+    label_fr="ratio de couverture au sol",
     unit="fraction")
 
 pv_lifetime = newFloatParam(
@@ -193,7 +195,7 @@ waste_concrete_amount =  ground_system.getAmount('waste reinforced concrete*', s
 ```
 
 ```{python}
-mounting_system_modified = copyActivity(ground_system, "mounting system adjusted")
+mounting_system_modified = copyActivity(USER_DB, ground_system, "mounting system adjusted")
 
 # Mounting system weight compared to original inventory
 weight_ratio = mounting_system_weight / 11.5
@@ -280,7 +282,7 @@ printAct(inverter_500kW, inverter_2500W)
 
 ```{python}
 # Generate a dataset for 1kG of inverter, based on the power
-inverter_per_kg = newInterpolatedAct(
+inverter_per_kg = newInterpolatedAct(USER_DB,
     "Inverter production, P kW per kg",
     inverter_2500W, 
     inverter_500kW,
@@ -335,7 +337,7 @@ metal_paste = findTechAct("metallization paste production, back side", "RER")
 copper = findTechAct('copper production, primary', "RoW")
 
 # Copy and update mateal paste with copper
-metal_paste_copper = copyActivity(metal_paste, 'metal paste, copper')
+metal_paste_copper = copyActivity(USER_DB, metal_paste, 'metal paste, copper')
 metal_paste_copper.updateExchanges({'silver' : dict(input=copper, name="copper")})
 ```
 
@@ -359,7 +361,7 @@ silicon_elec_intensity = newFloatParam(
 
 ```{python}
 silicon = findTechAct('silicon production, solar grade, modified Siemens process', 'RER')
-silicon_adjusted = copyActivity(silicon, "silicon production adjusted")
+silicon_adjusted = copyActivity(USER_DB, silicon, "silicon production adjusted")
 
 # Delete hydroelectricy, for not counting it twice
 silicon_adjusted.updateExchanges(
@@ -387,7 +389,7 @@ As a consequence, only chemicals, the factory and ceramic will be left and this 
 ```{python}
 silicon_casting = findTechAct('silicon production, multi-Si, casted', 'RoW')
 
-silicon_casting_adjusted = copyActivity(silicon_casting, 'silicon casting adjusted')
+silicon_casting_adjusted = copyActivity(USER_DB, silicon_casting, 'silicon casting adjusted')
 
 silicon_casting_adjusted.updateExchanges({
     'silicon,*' : None,
@@ -415,7 +417,7 @@ On another hand, the 4 new datasets are created to represent 1 meter of wire use
 
 ```{python}
 silicon_carbide = findTechAct('silicon carbide production', 'RER')
-silicon_carbide_recycled = copyActivity(silicon_carbide, 'silicon carbid adjusted', withExchanges=False)
+silicon_carbide_recycled = copyActivity(USER_DB, silicon_carbide, 'silicon carbid adjusted', withExchanges=False)
 silicon_carbide_recycled.addExchanges({
     findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 0.78571,
     findTechAct('market for transport, freight, lorry, unspecified', 'GLO') : 0.2625,
@@ -441,7 +443,7 @@ FIXME : This model is wrong, it is a pure copy-paste of SiC recycled.
 
 ```{python}
 teg = findTechAct(code='85c5a45f05a8e40c76aebf8a4dbdc3ad')
-teg_recycled = copyActivity(teg, "TEG recycled", withExchanges=False)
+teg_recycled = copyActivity(USER_DB, teg, "TEG recycled", withExchanges=False)
 
 teg_recycled.addExchanges({
     findTechAct('market group for electricity, medium voltage', 'ENTSO-E') : 0.78571,
@@ -465,7 +467,7 @@ All the following datasets are based on Isabella Bianco thesis (2018) in which s
 #### Tungstene
 
 ```{python}
-tungstene_carbide = copyActivity(silicon_carbide, "tungstene carbide", withExchanges=False)
+tungstene_carbide = copyActivity(USER_DB, silicon_carbide, "tungstene carbide", withExchanges=False)
 
 tungstene_carbide.addExchanges({
     findTechAct('market for sodium hydroxide*') : 1.49,
@@ -501,7 +503,7 @@ multiLCAAlgebric(tungstene_carbide, impacts)
 
 ```{python}
 diamond_powder_ori = findTechAct('sodium percarbonate production, powder', 'RER')
-diamond_powder = copyActivity(diamond_powder_ori, "Diamond powder",  withExchanges=False)
+diamond_powder = copyActivity(USER_DB, diamond_powder_ori, "Diamond powder",  withExchanges=False)
 diamond_powder.addExchanges({
     findTechAct("market for electricity, medium voltage", "RoW") : 840,
     findTechAct("graphite production", "RER") : 1,
@@ -523,7 +525,7 @@ multiLCAAlgebric(diamond_powder, impacts)
 ```{python}
 sintered_diamond_ori = findTechAct("polymethyl methacrylate production, beads", "RER")
 
-sintered_diamond = copyActivity(sintered_diamond_ori, "sintered diamond bead, for quarrying", withExchanges=False)
+sintered_diamond = copyActivity(USER_DB, sintered_diamond_ori, "sintered diamond bead, for quarrying", withExchanges=False)
 sintered_diamond.addExchanges({
     findTechAct("market group for electricity, medium voltage", "ENTSO-E") : 0.1,
     findTechAct("market for steel, unalloyed") : 0.003,
@@ -555,7 +557,7 @@ multiLCAAlgebric(sintered_diamond, impacts)
 
 ```{python}
 act_ori = findTechAct('wire drawing, steel', 'RER')
-sintered_diamond_wire = copyActivity(act_ori, "sintered diamond wire, steel", withExchanges=False)
+sintered_diamond_wire = copyActivity(USER_DB, act_ori, "sintered diamond wire, steel", withExchanges=False)
 
 sintered_diamond_wire.addExchanges({
     sintered_diamond : 0.0427,
@@ -612,7 +614,7 @@ wafer_thickness = newFloatParam(
     unit="µm")
 
 kerf_loss = newFloatParam(
-    "kerf_loss", 0.44, min=0.20, max=0.50,
+    "kerf_loss", 0.44, min=0.40, max=0.50,
     group="manufacturing", 
     label="kerf loss", 
     label_fr="perte de découpe", 
@@ -646,13 +648,16 @@ manufacturing_efficiency = newFloatParam(
 natural_gas = findTechAct(in_name="heat production, natural gas, at industrial furnace >100kW", loc="Europe without Switzerland")
 
 # Formulas 
-sili_casting_amount = wafer_thickness * 1e-6 * 2328 / (1 - kerf_loss)
+
+# Integrate gain in kerf loss for diamond wiring
+kerf_loss_adapted = kerf_loss - 0.15 * diamond_wiring
+sili_casting_amount = wafer_thickness * 1e-6 * 2328 / (1 - kerf_loss_adapted)
 non_diamond_wiring = 1 - diamond_wiring
 
 
 # Copy Wafer
 wafer = findTechAct("multi-Si wafer production", "RER")
-wafer_adjusted = copyActivity(wafer, "Wafer adjusted")
+wafer_adjusted = copyActivity(USER_DB, wafer, "Wafer adjusted")
 
 # Update wafer
 wafer_adjusted.updateExchanges({
@@ -761,7 +766,7 @@ silver_amount = newFloatParam(
     description="Silver amount for PV cell", unit="g/m²")
 
 cell_init = findTechAct('photovoltaic cell production, multi-Si wafer', 'RER')
-cell_adjusted = copyActivity(cell_init, 'photovoltaic cell production, multi-Si wafer - adjusted')
+cell_adjusted = copyActivity(USER_DB, cell_init, 'photovoltaic cell production, multi-Si wafer - adjusted')
 
 #Adapting the amount of Silver used for the metallic contact
 #By default, for the front side : 7.4 g/m² Silver based paste corresponding to 6.2 g/m² of Ag (84% Silver)
@@ -844,7 +849,7 @@ recycling_rate_alu = newFloatParam(
 
 recycling_rate_cu = newFloatParam(
     "recycling_rate_cu", 
-    0.75, min=0.44, max=1, 
+    0.75, min=0.44, max=0.96, 
     group="recycling",
     label="recycling rate for copper",
     label_fr="taux de recyclage cuivre",
@@ -860,7 +865,7 @@ recycling_rate_glass = newFloatParam(
 
 electricity_recycling = newFloatParam(
     "electricity_recycling", 
-    50, min=50, max=100, 
+    50, min=50, max=250, 
     group="recycling",
     label="electricity recycling",
     label_fr="électricité recyclage",
@@ -897,7 +902,7 @@ amount_glass = panel_init.getAmount('solar glass, low-iron')
 amount_alu =  cell_adjusted.getAmount('Aluminium') + panel_init.getAmount('aluminium alloy, AlMg3')
 
 # Copy / update activity
-panel_adjusted = copyActivity(panel_init, 'photovoltaic panel production, multi-Si wafer - adjusted')
+panel_adjusted = copyActivity(USER_DB, panel_init, 'photovoltaic panel production, multi-Si wafer - adjusted')
 
 panel_adjusted.addExchanges({
     scrapAlu : amount_alu * recycling_rate_alu,
@@ -1012,8 +1017,8 @@ d_lorry = newFloatParam(
     label_fr="distance en camion")
 
 d_train = newFloatParam(
-    "d_train", 
-    default=350, min=0, max=600,
+    "d_train",
+    default=350, min=100, max=600,
     unit="km",
     group="transport", 
     label="distance by train",
@@ -1021,7 +1026,7 @@ d_train = newFloatParam(
 
 d_sea = newFloatParam(
     "d_sea", 
-    default=4000, min=0, max=6000,
+    default=4000, min=2000, max=6000,
     unit="km",
     group="transport", 
     label="distance by ships",
@@ -1038,7 +1043,7 @@ surface  = P*1e3 / P_module * surface_module
 ```
 
 ```{python}
-pvInstall = newActivity("Full pv installation", "unit")
+pvInstall = newActivity(USER_DB, "Full pv installation", "unit")
 
 inverter_weight = inverter_weight_per_p * P
 
@@ -1163,14 +1168,16 @@ printAct(
         recycling_rate_cu = 0.75,
         recycling_rate_glass = 0.9,
         electricity_recycling = 50,
-        heat_recycling = 76)
+        heat_recycling = 76,
+        mounting_system_weight=5,
+        ground_coverage_ratio=0.4)
 ```
 
 # Comparison with Ecoinvent model
 
 ```{python}
 # Impact model, per kWp
-impact_model_per_kWp = newActivity("impact model per kWp installed", unit="unit per kWh", exchanges={
+impact_model_per_kWp = newActivity(USER_DB, "impact model per kWp installed", unit="unit per kWh", exchanges={
     pvInstall: 1 / P
 })
 ```
@@ -1184,6 +1191,8 @@ res=multiLCAAlgebric(
     [(pvInstall, 1/3), (pv_roof_init, 1/3)], 
     impacts, 
         P = 3, 
+        mounting_system_weight=11.5,
+        ground_coverage_ratio=0.1,
         module_efficiency = 0.1312, # Corresponds to module of 210 w 
         is_roof_system = 1,
         share_recycled_aluminium = 0, 
@@ -1216,6 +1225,8 @@ res.transpose()
 res=printAct(
     pvInstall,
         P = 3, 
+        mounting_system_weight=11.5,
+        ground_coverage_ratio=0.1,
         module_efficiency = 0.1312, # Corresponds to module of 210 w 
         is_roof_system = 1,
         share_recycled_aluminium = 0, 
@@ -1268,16 +1279,21 @@ degradation_rate = newFloatParam(
 # productible over lifetime
 productible_life = productible * (1 - (1-degradation_rate)**pv_lifetime) / degradation_rate
 
-impact_model_per_kWh = newActivity("impact model per kWh produced over lifetime", unit="unit per kWh", exchanges={
-    pvInstall: 1 / (performance_ratio * productible * P * pv_lifetime)
+impact_model_per_kWh = newActivity(USER_DB, "impact model per kWh produced over lifetime", unit="unit per kWh", exchanges={
+    pvInstall: 1 / productible_life * P
 })
 
 
 ```
 
+
 # List of all parameters
 
 Display a table of all parameters defined above
+
+```{python active="", eval=FALSE}
+
+```
 
 ```{python}
 params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in param_registry().values()]
@@ -1294,26 +1310,13 @@ oat_dashboard_interact(impact_model_per_kWp, impacts)
 ```
 
 ```{python}
-params = [[param.group, param.name, param.default, param.min, param.max, param.unit] for param in param_registry().values()]
-groups=['manufacturing', 'transport', 'installation', 'production', 'recycling']
-sorted_params=sorted(params, key=lambda p : groups.index(p[0]))
-HTML((tabulate(sorted_params, tablefmt
-               ="html", headers=["Phase", "param", "default", "min", "max", "unit"])))
-
-```
-
-```{python}
-multiLCAAlgebric(impact_model_per_kWp, impacts, **{'elec_switch': 'row', 'share_recycled_aluminium': 0.27, 'P': 10, 'recycling_rate': 0.9, 'silicon_elec_intensity': 40, 'diamond_wiring': False, 'wafer_thickness': 200, 'kerf_loss': 0.44, 'sic_recycled_share': 0.694, 'teg_recycled_share': 0.899, 'manufacturing_efficiency': 0, 'silver_amount': 9.6, 'recycling_rate_alu': 0.92, 'recycling_rate_cu': 0.75, 'recycling_rate_glass': 0.9, 'electricity_recycling': 50, 'heat_recycling': 76, 'glass_thickness': 4, 'module_efficiency': 0.175, 'is_roof_system': 0, 'pv_lifetime': 30, 'inverter_lifetime': 15, 'inverter_weight_per_p': 2, 'd_lorry': 1020, 'd_train': 350, 'd_sea': 4000, 'productible': 1200, 'performance_ratio': 0.8})
-```
-
-```{python}
 oat_matrix(impact_model_per_kWh, impacts)
 ```
 
 # Statistics : Stochastics
 
 ```{python}
-incer_stochastic_dasboard(impact_model_per_kWp, impacts)
+incer_stochastic_dasboard(impact_model_per_kWh, impacts)
 ```
 
 ```{python}

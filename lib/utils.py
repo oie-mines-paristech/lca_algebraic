@@ -33,6 +33,9 @@ import seaborn as sns
 from sys import stderr
 from .timer import Timer
 import math
+from enum import Enum
+from scipy.stats import triang
+from scipy.stats import truncnorm
 
 # -- Constants
 DEBUG=False
@@ -47,16 +50,18 @@ def error(*args, **kwargs):
 # DB names
 ECOINVENT_DB_NAME = 'ecoinvent 3.4 cut off'
 BIOSPHERE3_DB_NAME = 'biosphere3'
-ACV_DB_NAME = 'incer-acv'
+
+USER_DB_NAME = None
 
 DEFAULT_PARAM_GROUP = "acv"
 
-
 # Global
 def param_registry() :
-    """ """
+
+    # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:
         builtins.param_registry = dict()
+
     return builtins.param_registry
 
 
@@ -69,11 +74,16 @@ NumOrExpression = Union[float, Basic]
 
 
 # Type of parameters
-class ParamType:
+class ParamType(Enum):
     ENUM = "enum"
     BOOL = "bool"
     FLOAT = "float"
 
+
+class DistributionType(Enum) :
+    LINEAR = "linear"
+    NORMAL = "normal"
+    TRIANGLE = "triangle"
 
 class ParamDef(Symbol):
     """Generic definition of a parameter, with name, bound, type, distribution
@@ -86,7 +96,7 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
 
-    def __init__(self, name, type: str, default, min, max, unit="", description="", label=None, label_fr=None, group=None):
+    def __init__(self, name, type: str, default, min, max, unit="", description="", label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
         self.name = name
         self.type = type
         self.default = default
@@ -97,6 +107,10 @@ class ParamDef(Symbol):
         self.label = label
         self.label_fr = label_fr
         self.group=group
+        self.distrib = distrib
+        if distrib == DistributionType.NORMAL and std is None :
+            raise Exception("Standard deviation is mandatory for normal distribution")
+        self.std = std
 
     def label(self):
         if self.label is not None :
@@ -112,9 +126,33 @@ class ParamDef(Symbol):
 
     def rand(self, alpha):
         """Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter"""
-        return self.min + alpha * (self.max - self.min)
+        if self.distrib == DistributionType.LINEAR :
+            return self.min + alpha * (self.max - self.min)
 
-    # Expand parameter (usefull for enum param)
+        elif self.distrib == DistributionType.TRIANGLE :
+            if not hasattr(self, "_distrib") :
+                scale = self.max - self.min
+                c = (self.default - self.min) / scale
+                self._distrib = triang(c, loc=self.min, scale=scale)
+
+            return self._distrib.ppf(alpha)
+
+        elif self.distrib == DistributionType.NORMAL :
+            if not hasattr(self, "_distrib") :
+                self._distrib = truncnorm(
+                    (self.min - self.default) / self.std,
+                    (self.max - self.min) / self.std,
+                    loc=self.default,
+                    scale=self.std)
+
+            return self._distrib.ppf(alpha)
+
+        else :
+            raise Exception("Unknowk distribution type " + self.distrib)
+
+
+
+    # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
         if value == None:
             value = self.default
@@ -190,7 +228,7 @@ class ActivityExtended(Activity):
         Parameters
         ----------
         name : name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
-            It can also be suffised by '*' to match on exchange starting with this name. Location can be a negative match '!'
+            It can also be suffised by '*' to match an exchange starting with this name. Location can be a negative match '!'
             Exampple : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
 
         single :True if a single match is expected. Otherwize, a list of result is returned
@@ -251,9 +289,15 @@ class ActivityExtended(Activity):
 
         Parameters
         ----------
-        updates : Dict of exchange name => either single value (float or SympPy expression or new target activity) for updating only amount, \
-            or dict of attributes, for updating several at a time. The sympy expression can reference the symbol 'old_amount' \
-            that will be replaced with the current value.
+        updates : Dict of "<exchange name>" => <new value>
+
+            <exchange name> can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
+            It can also be suffixed by '*' to match an exchange starting with this name. Location can be a negative match '!'
+            Exampple : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
+
+            <New Value>  : either single value (float or SympPy expression) for updating only amount, or activity for updating only input,
+            or dict of attributes, for updating both at once, or any other attribute.
+            The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
         """
 
         # Update exchanges
@@ -410,9 +454,9 @@ def printAct(*activities,  **params):
 
             name = exc['name']
             if 'location' in input and input['location'] != "GLO":
-                name += "[%s]" % input['location']
-            if exc.input.key[0] == ACV_DB_NAME :
-                name += " {incer}"
+                name += "#%s" % input['location']
+            if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME] :
+                name += " {user-db}"
 
             iname = name
             i=1
@@ -453,12 +497,12 @@ def printAct(*activities,  **params):
 
 
 
-def resetDb(db_name=ACV_DB_NAME):
+def resetDb(db_name):
     """ Create or cleanup DB """
     if db_name in bw.databases:
         eprint("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
-    db = bw.Database(ACV_DB_NAME)
+    db = bw.Database(db_name)
     db.write(dict())
 
 
@@ -483,7 +527,7 @@ def getDb(dbname) -> bw.Database:
     return dbs[dbname]
 
 
-def resetParams(db_name=ACV_DB_NAME):
+def resetParams(db_name):
     """Reset project and activity parameters"""
     param_registry().clear()
     ProjectParameter.delete().execute()
@@ -601,7 +645,7 @@ def interpolate(x, x1, x2, y1, y2):
     return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
 
 
-def newInterpolatedAct(name: str, act1: ActivityExtended, act2: ActivityExtended, x1, x2, x, alpha1=1, alpha2=1, **kwargs):
+def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: ActivityExtended, x1, x2, x, alpha1=1, alpha2=1, **kwargs):
 
     """Creates a new activity made of interpolation of two similar activities.
     For each exchange :
@@ -619,7 +663,7 @@ def newInterpolatedAct(name: str, act1: ActivityExtended, act2: ActivityExtended
     alpha2 : Ratio for act2 (Default value = 1)
     kwargs : Any other param will be added as attributes of new activity
     """
-    res = copyActivity(act1, name, withExchanges=False, **kwargs)
+    res = copyActivity(dbname, act1, name, withExchanges=False, **kwargs)
 
     exch1_by_input = dict({exch['input']: exch for exch in act1.exchangesNp()})
     exch2_by_input = dict({exch['input']: exch for exch in act2.exchangesNp()})
@@ -724,7 +768,7 @@ def getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
 
 
 
-def _newAct(code, db_name=ACV_DB_NAME):
+def _newAct(db_name, code):
 
     db = getDb(db_name)
     # Already present : delete it ?
@@ -737,10 +781,8 @@ def _newAct(code, db_name=ACV_DB_NAME):
 
 
 
-def newActivity(
-        name, unit,
+def newActivity(db_name, name, unit,
         exchanges: Dict[Activity, Union[float, str]] = dict(),
-        db_name=ACV_DB_NAME,
         code=None,
         **argv):
     """Creates a new activity
@@ -752,7 +794,7 @@ def newActivity(
     exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
     argv : extra params passed as properties of the new activity
     """
-    act = _newAct(code if code else name , db_name)
+    act = _newAct(db_name, code if code else name)
     act['name'] = name
     act['type'] = 'process'
     act['unit'] = unit
@@ -764,10 +806,10 @@ def newActivity(
     return act
 
 
-def copyActivity(activity: ActivityExtended, code=None, db_name=ACV_DB_NAME, withExchanges=True, **kwargs) -> ActivityExtended:
+def copyActivity(db_name, activity: ActivityExtended, code=None , withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy activity into a new DB"""
 
-    res = _newAct(code, db_name)
+    res = _newAct(db_name, code)
 
     for key, value in activity.items():
         if key not in ['database', 'code']:
@@ -791,7 +833,7 @@ def copyActivity(activity: ActivityExtended, code=None, db_name=ACV_DB_NAME, wit
 
 
 
-def newSwitchAct(name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
+def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
     """Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
     Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
@@ -805,6 +847,7 @@ def newSwitchAct(name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
     # Transform map of enum values to correspoding formulas <param_name>_<enum_value>
     exch = {act: paramDef.symbol(key) for key, act in acts_dict.items()}
     res = newActivity(
+        dbname,
         name,
         unit=list(acts_dict.values())[0]['unit'],
         exchanges=exch)
@@ -903,7 +946,7 @@ def multiLCA(model, methods, **params):
 
 
 
-def preMultiLCAAlgebric(model, methods, param_names=None, amount=1) :
+def preMultiLCAAlgebric(model:ActivityExtended, methods, param_names=None, amount=1) :
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change
@@ -911,6 +954,8 @@ def preMultiLCAAlgebric(model, methods, param_names=None, amount=1) :
 
     # print("computing model to expression for %s" % model)
     expr, actBySymbolName = actToExpression(model)
+
+    dbname = model.key[0]
 
     param_names = expand_param_names(param_names)
 
@@ -936,7 +981,7 @@ def preMultiLCAAlgebric(model, methods, param_names=None, amount=1) :
     pureTechActBySymbol = OrderedDict()
     for name, act in actBySymbolName.items():
         if act[0] == BIOSPHERE3_DB_NAME:
-            act = _getOrCreateDummyBiosphereActCopy(act[1])
+            act = _getOrCreateDummyBiosphereActCopy(dbname, act[1])
         else:
             act = getActByCode(*act)
         pureTechActBySymbol[name] = act
@@ -1055,19 +1100,19 @@ def multiLCAAlgebric(models, methods, **params):
         return pd.concat(list(dfs.values()))
 
 
-def _getOrCreateDummyBiosphereActCopy(code):
+def _getOrCreateDummyBiosphereActCopy(dbname, code):
     """
         We cannot reference directly biosphere in the model, since LCA can only be applied to products
-        We create a dummy activity in our DB, with same code, and single exchange of '1'
+        We create a dummy activity in our DB, with same code, and single exchange of amount '1'
     """
 
     code_to_find = code + "#asTech"
     try:
-        return getDb(ACV_DB_NAME).get(code_to_find)
+        return getDb(dbname).get(code_to_find)
     except:
         bioAct = getDb(BIOSPHERE3_DB_NAME).get(code)
         name = bioAct['name'] + ' # asTech'
-        res = newActivity(name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
+        res = newActivity(dbname, name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
         return res
 
 
@@ -1117,7 +1162,7 @@ def actToExpression(act: Activity):
                 continue
 
             # Background DB => reference it as a symbol
-            if input_db != ACV_DB_NAME:
+            if input_db in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME]:
                 if not (input_db, input_code) in act_symbols:
                     act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
                 act_expr = act_symbols[(input_db, input_code)]
