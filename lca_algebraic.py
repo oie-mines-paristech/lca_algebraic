@@ -31,7 +31,6 @@ from SALib.analyze import sobol
 from scipy.stats import binned_statistic
 import seaborn as sns
 from sys import stderr
-from .timer import Timer
 import math
 from enum import Enum
 from scipy.stats import triang
@@ -48,6 +47,7 @@ def error(*args, **kwargs):
     print(*args, **kwargs, file=stderr)
 
 # DB names
+
 ECOINVENT_DB_NAME = 'ecoinvent 3.4 cut off'
 BIOSPHERE3_DB_NAME = 'biosphere3'
 
@@ -56,7 +56,7 @@ USER_DB_NAME = None
 DEFAULT_PARAM_GROUP = "acv"
 
 # Global
-def param_registry() :
+def _param_registry() :
 
     # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:
@@ -66,32 +66,31 @@ def param_registry() :
 
 
 # Sympy symbols
-old_amount = symbols(
-    "old_amount")  # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
-
+old_amount = symbols("old_amount")  # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
 
 NumOrExpression = Union[float, Basic]
 
 
-# Type of parameters
-class ParamType(Enum):
+
+class ParamType:
+    '''Type of parameters'''
     ENUM = "enum"
     BOOL = "bool"
     FLOAT = "float"
 
-
-class DistributionType(Enum) :
+class DistributionType :
+    '''Type of distribution'''
     LINEAR = "linear"
     NORMAL = "normal"
     TRIANGLE = "triangle"
 
 class ParamDef(Symbol):
-    """Generic definition of a parameter, with name, bound, type, distribution
+    '''Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
 
     This class inherits sympy Symbol, making it possible to use in standard arithmetic python
     while keeping it as a symbolic expression (delayed evaluation).
-    """
+    '''
 
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
@@ -167,8 +166,7 @@ class ParamDef(Symbol):
 
 
 class BooleanDef(ParamDef):
-    """Enum param is a facility representing a choice / switch as many 0/1 parameters.
-    It is not itself a Sympy symbol. use #symbol("value") to access it"""
+    """Parameter with discrete value 0 or 1"""
 
     def __init__(self, name, **argv):
         super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
@@ -183,7 +181,7 @@ class BooleanDef(ParamDef):
 
 
 class EnumParam(ParamDef):
-    """Enum param is a facility representing a choice / switch as many 0/1 parameters.
+    """Enum param is a facility representing a choice / switch as many boolean parameters.
     It is not itself a Sympy symbol. use #symbol("value") to access it"""
 
     def __init__(self, name, values: List[str], **argv):
@@ -282,6 +280,7 @@ class ActivityExtended(Activity):
             return exchs
 
     def setOutputAmount(self, amount):
+        '''Set the amount for the single output exchange (1 by default)'''
         self.addExchanges({self : amount})
 
     def updateExchanges(self, updates: Dict[str, any] = dict()):
@@ -321,7 +320,7 @@ class ActivityExtended(Activity):
                         attrs = dict(amount=attrs)
 
                 if 'amount' in attrs:
-                    attrs.update(amountToFormula(attrs['amount'], exch['amount']))
+                    attrs.update(_amountToFormula(attrs['amount'], exch['amount']))
 
                 exch.update(attrs)
                 exch.save()
@@ -331,6 +330,7 @@ class ActivityExtended(Activity):
                     bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
     def deleteExchanges(self, name, single=True):
+        ''' Remove matching exchanges '''
         exchs = self.getExchange(name, single=single)
         if not isinstance(exchs, list):
             exchs = [exchs]
@@ -346,6 +346,7 @@ class ActivityExtended(Activity):
         """Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
         For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by '<param_name>_default',
         making it null as soon as one enum value is set.
+
         This is useful for changing electricty mix, leaving the default one if needed
 
         Parameters
@@ -358,7 +359,7 @@ class ActivityExtended(Activity):
 
         current_exch = self.getExchange(exchange_name)
 
-        prev_amount = amount if amount else getAmountOrFormula(current_exch)
+        prev_amount = amount if amount else _getAmountOrFormula(current_exch)
 
         self.addExchanges({switch_act: prev_amount})
         self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
@@ -387,7 +388,7 @@ class ActivityExtended(Activity):
                 type='production' if self == sub_act else 'biosphere' if sub_act['database'] == BIOSPHERE3_DB_NAME else 'technosphere')
 
             exch.update(attrs)
-            exch.update(amountToFormula(amount))
+            exch.update(_amountToFormula(amount))
             if 'formula' in exch:
                 parametrized = True
 
@@ -398,7 +399,7 @@ class ActivityExtended(Activity):
 
     def getAmount(self, *args, sum=False, **kargs):
         """
-        Get the amount of one or several exchanges, selected by name or input. See #get_dict_as_exchange()
+        Get the amount of one or several exchanges, selected by name or input. See #getExchange()
         """
         exchs = self.getExchange(*args, single=not sum, **kargs)
         if sum:
@@ -406,13 +407,13 @@ class ActivityExtended(Activity):
             if len(exchs) == 0:
                 raise Exception("No exchange found")
             for exch in exchs:
-                res += getAmountOrFormula(exch)
+                res += _getAmountOrFormula(exch)
             return res
         else:
-            return getAmountOrFormula(exchs)
+            return _getAmountOrFormula(exchs)
 
     def exchangesNp(self):
-        """ """
+        """ List of exchange, except production (output) one."""
         for exch in self.exchanges():
             if exch['input'] != exch['output']:
                 yield exch
@@ -424,11 +425,11 @@ for name, item in ActivityExtended.__dict__.items():
         setattr(Activity, name, item)
 
 
-def eprint(*args, **kwargs):
+def _eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-def isnumber(value):
+def _isnumber(value):
     return isinstance(value, int) or isinstance(value, float)
 
 
@@ -445,11 +446,11 @@ def printAct(*activities,  **params):
         data = dict()
         for (i, exc) in enumerate(act.exchanges()):
             input = bw.get_activity(exc.input.key)
-            amount = getAmountOrFormula(exc)
+            amount = _getAmountOrFormula(exc)
 
             # Params provided ? Evaluate formulas
             if len(params) > 0 and isinstance(amount, Basic):
-                new_params = [(name, value) for name, value in completeParamValues(params).items()]
+                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                 amount = amount.subs(new_params)
 
             name = exc['name']
@@ -470,7 +471,7 @@ def printAct(*activities,  **params):
             df[key] = values
 
         tables.append(df.T)
-        names.append(actDesc(act))
+        names.append(_actDesc(act))
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 
@@ -498,18 +499,19 @@ def printAct(*activities,  **params):
 
 
 def resetDb(db_name):
-    """ Create or cleanup DB """
+    """ Create or cleanup a user DB"""
     if db_name in bw.databases:
-        eprint("Db %s was here. Reseting it" % db_name)
+        _eprint("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
     db = bw.Database(db_name)
     db.write(dict())
 
 
 def importDb(dbname, path):
+    '''Import eco invent DB'''
 
     if dbname in bw.databases:
-        eprint("Database '%s' has already been imported " % dbname)
+        _eprint("Database '%s' has already been imported " % dbname)
     else:
         ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
         ei34.apply_strategies()
@@ -519,8 +521,7 @@ def importDb(dbname, path):
 
 dbs = dict()
 
-
-def getDb(dbname) -> bw.Database:
+def _getDb(dbname) -> bw.Database:
     """Pool of Database instances"""
     if not dbname in dbs:
         dbs[dbname] = bw.Database(dbname)
@@ -529,7 +530,7 @@ def getDb(dbname) -> bw.Database:
 
 def resetParams(db_name):
     """Reset project and activity parameters"""
-    param_registry().clear()
+    _param_registry().clear()
     ProjectParameter.delete().execute()
     ActivityParameter.delete().execute()
     DatabaseParameter.delete().execute()
@@ -559,7 +560,7 @@ def _build_index(db):
 
 def _get_indexed_db(db_name):
     if not db_name in db_index:
-        db_index[db_name] = _build_index(getDb(db_name))
+        db_index[db_name] = _build_index(_getDb(db_name))
     return db_index[db_name]
 
 
@@ -576,8 +577,8 @@ def _find_candidates(db_name, name):
 
 
 def getActByCode(db_name, code):
-    """Get activity by code"""
-    return getDb(db_name).get(code)
+    """ Get activity by code """
+    return _getDb(db_name).get(code)
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
@@ -700,9 +701,9 @@ def newParamDef(name, type, **kwargs):
         param = ParamDef(name, type=type, **kwargs)
 
     # Put it in local registry (in memory)
-    if name in param_registry():
-        eprint("Param %s was already defined : overriding" % name)
-    param_registry()[name] = param
+    if name in _param_registry():
+        _eprint("Param %s was already defined : overriding" % name)
+    _param_registry()[name] = param
 
     # Save in brightway2 project
     bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
@@ -721,7 +722,7 @@ def newEnumParam(name, default, **kwargs):
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
 
 
-def amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
+def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
     """Transform amount in exchange to either simple amount or formula"""
     res = dict()
     if isinstance(amount, Basic):
@@ -730,7 +731,7 @@ def amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
             amount = amount.subs(old_amount, currentAmount)
 
         # Check the expression does not reference undefined params
-        all_symbols = list([key for param in param_registry().values() for key, val in param.expandParams().items()])
+        all_symbols = list([key for param in _param_registry().values() for key, val in param.expandParams().items()])
         for symbol in amount.free_symbols:
             if not str(symbol) in all_symbols:
                 raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
@@ -747,20 +748,13 @@ def amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
 
 
 
-
-
-
-
-
-
-
-def getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
+def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """ Return either a fixed float value or an expression for the amount of this exchange"""
     if 'formula' in ex:
         try:
             return parse_expr(ex['formula'])
         except:
-            eprint("Error while parsing formula '%s' : backing to amount" % ex['formula'])
+            _eprint("Error while parsing formula '%s' : backing to amount" % ex['formula'])
 
     return ex['amount']
 
@@ -770,11 +764,11 @@ def getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
 
 def _newAct(db_name, code):
 
-    db = getDb(db_name)
+    db = _getDb(db_name)
     # Already present : delete it ?
     for act in db:
         if act['code'] == code:
-            eprint("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
+            _eprint("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
             act.delete()
 
     return db.new_activity(code)
@@ -861,16 +855,16 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def actName(act: Activity):
+def _actName(act: Activity):
     """Generate pretty name for activity, appending location if not 'GLO' """
     res = act['name']
     if act['location'] != 'GLO':
         res += "[%s]" % act["location"]
     return res
 
-def actDesc(act: Activity):
+def _actDesc(act: Activity):
     """Generate pretty name for activity + basic information """
-    name = actName(act)
+    name = _actName(act)
     amount = 1
     for ex in act.exchanges() :
         if ex['type'] == 'production' :
@@ -882,15 +876,15 @@ def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
     bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
     lca = bw.MultiLCA('process')
-    cols = [actName(act) for act_amount in activities for act, amount in act_amount.items()]
+    cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
     return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
 
 
-def listOfDictToDictOflist(LD):
+def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
 
-def completeParamValues(params):
+def _completeParamValues(params):
     """Check parameters and expand enum params.
 
     Returns
@@ -904,14 +898,14 @@ def completeParamValues(params):
 
     res = dict()
     for key, val in params.items():
-        if key in param_registry():
-            param = param_registry()[key]
+        if key in _param_registry():
+            param = _param_registry()[key]
         else:
-            raise Exception("Parameter not found : %s. Valid parameters : %s" % (key, list(param_registry().keys())))
+            raise Exception("Parameter not found : %s. Valid parameters : %s" % (key, list(_param_registry().keys())))
 
         if isinstance(val, list):
             newvals = [param.expandParams(val) for val in val]
-            res.update(listOfDictToDictOflist(newvals))
+            res.update(_listOfDictToDictOflist(newvals))
         else:
             res.update(param.expandParams(val))
     return res
@@ -928,7 +922,7 @@ def multiLCA(model, methods, **params):
     """
 
     # Check and expand params
-    params = completeParamValues(params)
+    params = _completeParamValues(params)
 
     # Update brightway parameters
     bwParams = [dict(name=key, amount=value) for key, value in params.items()]
@@ -949,7 +943,9 @@ def multiLCA(model, methods, **params):
 def preMultiLCAAlgebric(model:ActivityExtended, methods, param_names=None, amount=1) :
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
-        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change
+        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+
+        This method is used by multiLCAAlgebric
     '''
 
     # print("computing model to expression for %s" % model)
@@ -957,7 +953,7 @@ def preMultiLCAAlgebric(model:ActivityExtended, methods, param_names=None, amoun
 
     dbname = model.key[0]
 
-    param_names = expand_param_names(param_names)
+    param_names = _expand_param_names(param_names)
 
     # Check missing params
     free_names = set([str(symb) for symb in expr.free_symbols])
@@ -971,7 +967,7 @@ def preMultiLCAAlgebric(model:ActivityExtended, methods, param_names=None, amoun
     debug(param_names)
 
     for name in param_names :
-        registry_names = expand_param_names(param_registry())
+        registry_names = _expand_param_names(_param_registry())
         if name not in registry_names :
             raise Exception('Model refers to unknown param "%s"' % name)
 
@@ -1015,8 +1011,8 @@ def method_name(method) :
 
 def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     '''
-        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
-        You may use is and pass the result to
+        Compute LCA for a given set of parameters and pre-compiled lambda functions.
+        This function is used by **multiLCAAlgebric**
 
         Parameters
         ----------
@@ -1025,7 +1021,7 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     '''
 
     # Check and expand params
-    params = completeParamValues(params)
+    params = _completeParamValues(params)
 
     # Expand parameters as list of parameters
     param_length = 1
@@ -1053,9 +1049,9 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
 
     return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
 
-def expand_param_names(param_names) :
+def _expand_param_names(param_names) :
     '''Expand parameters names (with enum params) '''
-    return [name for key in param_names for name in param_registry()[key].names()]
+    return [name for key in param_names for name in _param_registry()[key].names()]
 
 def multiLCAAlgebric(models, methods, **params):
     """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
@@ -1084,7 +1080,7 @@ def multiLCAAlgebric(models, methods, **params):
 
         df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
-        model_name = actName(model)
+        model_name = _actName(model)
 
         # Single params ? => give the single row the name of the model activity
         if df.shape[0] == 1:
@@ -1108,9 +1104,9 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
 
     code_to_find = code + "#asTech"
     try:
-        return getDb(dbname).get(code_to_find)
+        return _getDb(dbname).get(code_to_find)
     except:
-        bioAct = getDb(BIOSPHERE3_DB_NAME).get(code)
+        bioAct = _getDb(BIOSPHERE3_DB_NAME).get(code)
         name = bioAct['name'] + ' # asTech'
         res = newActivity(dbname, name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
         return res
@@ -1128,7 +1124,7 @@ def actToExpression(act: Activity):
 
     def act_to_symbol(db_name, code):
 
-        act = getDb(db_name).get(code)
+        act = _getDb(db_name).get(code)
         name = act['name']
         base_slug = slugify(name, separator='_')
 
@@ -1147,7 +1143,7 @@ def actToExpression(act: Activity):
 
         for exch in act.exchanges():
 
-            formula = getAmountOrFormula(exch)
+            formula = _getAmountOrFormula(exch)
 
             if isinstance(formula, types.FunctionType):
                 # Some amounts in EIDB are functions ... we ignore them
@@ -1173,7 +1169,7 @@ def actToExpression(act: Activity):
                 if input_db == act['database'] and input_code == act['code']:
                     raise Exception("Recursive exchange : %s" % (act.__dict__))
 
-                sub_act = getDb(input_db).get(input_code)
+                sub_act = _getDb(input_db).get(input_code)
                 act_expr = rec_func(sub_act)
 
             res += formula * act_expr
@@ -1182,31 +1178,32 @@ def actToExpression(act: Activity):
 
     expr = rec_func(act)
 
-    return (expr, reverse_dict(act_symbols))
+    return (expr, _reverse_dict(act_symbols))
 
 
-def reverse_dict(dic):
+def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
-def heatmap(df, title, vmax, ints=False):
-    fig, ax = plt.subplots(figsize=(17, 30))
-    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else 'f')
-    plt.title(title, fontsize=26)
+def _heatmap(df, title, vmax, ints=False):
+    ''' Produce heatmap of a dataframe'''
+    fig, ax = plt.subplots(figsize=(17, 17))
+    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else 'f', square=True)
+    plt.title(title, fontsize=20)
     ax.tick_params(axis="x", labelsize=18)
     ax.tick_params(axis="y", labelsize=18)
 
 
 def oat_matrix(model, impacts, n=10) :
-    '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time'''
+    '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
-    lambdas = preMultiLCAAlgebric(model, impacts, param_registry().keys())
+    lambdas = preMultiLCAAlgebric(model, impacts, _param_registry().keys())
 
-    change = np.zeros((len(param_registry()), len(impacts)))
+    change = np.zeros((len(_param_registry()), len(impacts)))
 
-    for iparam, param in enumerate(param_registry().values()) :
-        params = {param.name: param.default for param in param_registry().values()}
+    for iparam, param in enumerate(_param_registry().values()) :
+        params = {param.name: param.default for param in _param_registry().values()}
 
         # Compute range of values for given param
         params[param.name] = param.range(n)
@@ -1218,15 +1215,15 @@ def oat_matrix(model, impacts, n=10) :
         change[iparam] =  (df.max() - df.min()) / df.median() * 100
 
     # Build final heatmap
-    change = pd.DataFrame(change, index=param_registry().keys(), columns=[imp[2] for imp in impacts])
-    heatmap(change.transpose(), 'Change of impacts per variability of the input parameters (%)', 100, ints=True)
+    change = pd.DataFrame(change, index=_param_registry().keys(), columns=[imp[2] for imp in impacts])
+    _heatmap(change.transpose(), 'Change of impacts per variability of the input parameters (%)', 100, ints=True)
 
 
-def method_unit(method) :
+def _method_unit(method) :
     return bw.Method(method).metadata['unit']
 
 
-def display_tabs(titlesAndContentF) :
+def _display_tabs(titlesAndContentF) :
     '''Generate tabs'''
     tabs = []
     titles= []
@@ -1256,7 +1253,7 @@ def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
     n: number of samples of the parameter
     '''
 
-    params = {param.name : param.default for param in param_registry().values()}
+    params = {param.name : param.default for param in _param_registry().values()}
 
     # Compute range of values for given param
     params[param.name] = param.range(n)
@@ -1267,8 +1264,7 @@ def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
     if isinstance(modelOrLambdas, Activity) :
         df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else :
-        with Timer("postLCA") :
-            df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
     # Add X values in the table
     pname = param.name
@@ -1294,14 +1290,14 @@ def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
             axes = df.plot(
                 ax=axes, sharex=True, subplots=True,
                 layout=(nb_rows, 3),
-                legend=None,
+                #legend=None,
                 kind = 'line' if param.type == ParamType.FLOAT else 'bar')
 
             axes = axes.flatten()
 
             for ax, impact in zip(axes, impacts) :
                 ax.set_ylim(ymin=0)
-                ax.set_ylabel(method_unit(impact))
+                ax.set_ylabel(_method_unit(impact))
 
             plt.show(fig)
 
@@ -1315,7 +1311,7 @@ def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
         plt.tight_layout()
         plt.show(fig)
 
-    display_tabs([
+    _display_tabs([
         ("Graphs", graph),
         ("Data", table),
         ("Variation", change)
@@ -1323,21 +1319,22 @@ def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
 
 
 def oat_dashboard_interact(model, methods):
+    '''Interative dashboard, with a dropdown for selecting parameter'''
 
-    lambdas = preMultiLCAAlgebric(model, methods, param_registry().keys())
+    lambdas = preMultiLCAAlgebric(model, methods, _param_registry().keys())
 
     def process_func(param) :
-        oat_dasboard(lambdas, methods, param_registry()[param])
+        oat_dasboard(lambdas, methods, _param_registry()[param])
 
-    paramlist = list(param_registry().keys())
+    paramlist = list(_param_registry().keys())
     interact(process_func, param=paramlist)
 
 
 def _stochastics(modelOrLambdas, methods, n=1000) :
 
     ''' Compute stochastic impacts for later analysis of incertitude '''
-    n_vars = len(param_registry())
-    param_names = list(param_registry().keys())
+    n_vars = len(_param_registry())
+    param_names = list(_param_registry().keys())
     problem = {
         'num_vars': n_vars,
         'names': param_names,
@@ -1351,7 +1348,7 @@ def _stochastics(modelOrLambdas, methods, n=1000) :
     print("Transforming samples ...")
     params = dict()
     for i, param_name in enumerate(param_names) :
-        param = param_registry()[param_name]
+        param = _param_registry()[param_name]
         vals = list(map(lambda v : param.rand(v), X[:, i]))
         params[param_name] = vals
 
@@ -1398,9 +1395,9 @@ def _incer_stochastic_matrix(methods, param_names, problem, Y):
 
 
         df = pd.DataFrame(data, index=param_names, columns=[method_name(method) for method in methods])
-        heatmap(
+        _heatmap(
             df.transpose(),
-            title="Variance of impacts (%)" if mode == 'percent' else "Sobol indices (part of variability)",
+            title="Relative deviation of impacts (%)" if mode == 'percent' else "Sobol indices (part of variability)",
             vmax=100 if mode == 'percent' else 1,
             ints= mode == 'percent')
 
@@ -1426,7 +1423,7 @@ def _incer_stochastic_violin(methods, Y) :
         ax.violinplot(Y[Y.columns[imethod]], showmedians=True)
         ax.title.set_text(method_name(method))
         ax.set_ylim(ymin=0)
-        ax.set_ylabel(method_unit(method))
+        ax.set_ylabel(_method_unit(method))
 
     plt.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
     plt.show(fig)
@@ -1448,15 +1445,17 @@ def _incer_stochastic_variations(methods, Y):
     mean = np.mean(Y)
 
     fig = plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor='w', edgecolor='k')
-    plt.bar(np.arange(len(method_names)), std / mean, 0.8)
+    plt.bar(np.arange(len(method_names)), std / mean * 100, 0.8)
     plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
+    plt.title("standard deviation / mean (%)")
     plt.show(fig)
 
 
 
 
+
 def incer_stochastic_dasboard(model, methods, n=1000) :
-    '''Generates a dasboard with several statistics : matrix of parameter incertitude, violin diagrams, ...'''
+    ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...'''
 
     problem, X, Y = _stochastics(model, methods, n)
     param_names = problem['names']
@@ -1470,7 +1469,7 @@ def incer_stochastic_dasboard(model, methods, n=1000) :
     def variation():
         _incer_stochastic_variations(methods, Y)
 
-    display_tabs([
+    _display_tabs([
         ("Impact incertitude vs parameter matrix", matrix),
         ("Violin graphs", violin),
         ("Impact variations", variation)

@@ -16,23 +16,21 @@ jupyter:
 <!-- #region -->
 # Introduction
 
-This notebook presents **lca-algebraic** a small layer above **brightay2**, designed for the definition of **parametric inventories** with super fast computation of LCA impacts, suitable for **monte-carlo** analyis.
+This notebook presents **lca-algebraic** a small layer above **brightay2**, designed for the definition of **parametric inventories** with fast computation of LCA impacts, suitable for **monte-carlo** analyis.
 
-**lca-algebraic** provides 3 main functions :
-* **helpers** : Provides a set of  **helper functions**, for **compact** & **human readable** definition of activites :  
-  * search background (tech and biosphere) activities 
-  * create new foreground activites with parametrized amounts
-  * parametrize / update existing background activities
-* **params** : 
-  * Adds definition of parameters and methods for fast computation of LCA
-* **stats** :
-  * provides functions for statistics analysis of parametric models
+**lca-algebraic** provides a set of  **helper functions** for : 
+* **compact** & **human readable** definition of activites :  
+    * search background (tech and biosphere) activities 
+    * create new foreground activites with parametrized amounts
+    * parametrize / update existing background activities (extending the class **Activity**)
+* definition 
+
   
 # Principles 
 
-The main idea of this libray is to move from **procedural definition** of models (slow and prone to errors) to a **declarative / purely functionnal** definition of parametric models (models as static functions). 
+The main idea of this libray is to move from **procedural definition** of models (slow and prone to errors) to a **declarative / purely functionnal** definition of parametric models (models as **pure functions**). 
 
-This enables fast computation of LCA impacts. 
+This enables **fast computation of LCA impacts**. 
 We leverage the **power of symbolic calculus** provided by the great libary [SymPy](https://www.sympy.org/en/index.html).
 
 We define our model in a **separate DB**, as a nested combination of : 
@@ -43,7 +41,9 @@ We define our model in a **separate DB**, as a nested combination of :
     
 The **amounts** in exchanges are expressed either as **static amounts**, or **symbolic expressions** of pre-defined **parameters**.
 
-When computing LCA for foreground models, the library computes **once for all** the impact of **background activities** and compiles a **fast numpy** (vectorial) function for each impact, replacing each background activity by the static value of the impact.
+Each activity of our **root model** is defined as a **parametrized combination** of the **foreground activities**, which can themselves be expressed by the **background activities**.
+
+When computing LCA for foreground models, the library develops the model as a combination of **only background activities**. It computes **once for all** the impact of **background activities** and compiles a **fast numpy** (vectorial) function for each impact, replacing each background activity by the **static value of the corresponding impact**.
 
 By providing **large vectors** of **parameter values** to those numpy functions, we can compute LCA for **thousands of values** at a time.
 
@@ -53,17 +53,40 @@ By providing **large vectors** of **parameter values** to those numpy functions,
 # Compatiblity with brightway2 
 
 Under the hood, the activities we define with **lca-algebraic** are standard **brightway2** activities. 
-The amounts are stored as **float values** or **serialized as string** in the attribute **formula**. 
+The amounts of exchanges are stored as **float values** or **serialized as string** in the property **formula**.
 
 Parameters are also stored in the **brightay2** projets, making it fully compatible with **brightway**.
 
 Thus, a model defined with **lca-algebraic** is stored as a regular **bw2** projet. We can use **bw2** native support for [parametrized dataset](https://2.docs.brightway.dev/intro.html#parameterized-datasets) for computing LCAs, even if much more slower than the method explain here.
 
+# Doc
+
+The folliwng notepad explore the main functions.
+Full doc is [available here](./doc/doc.html)
 <!-- #endregion -->
+
+# Install extra libraries
+
+We need to install 3 extra libraries beforehand.<br/>
+Type the following commands into your anaconda shell prompt.
+
+**Sympy**
+    
+    conda install -c anaconda sympy
+    
+**SALib**
+
+    conda install -c conda-forge salib
+    
+**slugify**
+
+    conda install python-slugify
+    
+
 
 # Imports
 
-Besides external libraries, we import several function from the local file : `utils.py`
+Besides external libraries, we import several function from the local file : `lca-algebraic.py`
 
 ```{python}
 # %load_ext autoreload
@@ -75,24 +98,28 @@ import numpy as np
 import brightway2 as bw
 
 # Custom utils defined for inter-acv
-from lib.utils import *
+from lca_algebraic import *
+import lca_algebraic
 ```
 
 # Init brightway2 and databases
 
 ```{python}
 # Setup bw2
-bw.projects.set_current('B_Publication')
+bw.projects.set_current('bw2_seminar_2017')
 bw.bw2setup()
 
 # Import Ecoinvent DB (if not already done)
 # Update the PATH to suit your installation
-importDb(ECOINVENT_DB_NAME, './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
+# importDb(ECOINVENT_DB_NAME, './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
+
+# Set your version of ecoinvent
+lca_algebraic.ECOINVENT_DB_NAME = 'ecoinvent 3.6 cut-off'
 
 # We use a separate DB for defining our foreground model / activities
-USER_DB = 'incer-acv'
+USER_DB = 'Geothermal database'
 
-# This is better to cleanup the whole foreground each time, 
+# This is better to cleanup the whole foreground model each time, 
 # instead of relying on a state or previous run of model.
 # Any persistent state is prone to errors.
 resetDb(USER_DB)
@@ -138,7 +165,7 @@ In practice, you don't need to care about Sympy. Just remember that :
 
 We define the parameters of the model.
 
-The numeric parameters are **instances of sympy' 'Symbol'**. 
+The numeric parameters are **instances of sympy 'Symbol'**. 
 
 Thus, any python arithmetic expression composed of parameters will result in a **symbolic expression** for later evaluation, instead of a numeric result.
 
@@ -157,18 +184,30 @@ b = newFloatParam(
 
 share_recycled_aluminium = newFloatParam(
     'share_recycled_aluminium',  
-    default=0.6, min=0, max=2, std=0.2, distrib=DistributionType.TRIANGLE, # Normal distrib, with std dev
+    default=0.6, min=0, max=1, std=0.2, distrib=DistributionType.TRIANGLE, # Normal distrib, with std dev
     description="Share of reycled aluminium")
+
+# Yuo can define boolean parameters, taking only discrete values 0 or 1
+bool_param = newBoolParam(
+    'bool_param', 
+    default=1)
 
 # Example 'enum' parameter, acting like a switch between several possibilities
 # Enum parameters are not Symbol themselves
-# They are a facility to represent many parameters at once '<paramName>_<enumValue>' 
+# They are a facility to represent many boolean parameters at once '<paramName>_<enumValue>' 
 # and should be used with the 'newSwitchAct' method 
 elec_switch_param = newEnumParam(
     'elec_switch_param', 
     values=["us", "eu"], 
     default="us", 
     description="Switch on electricty mix")
+
+# Another example enum param
+techno_param = newEnumParam(
+    'techno_param', 
+    values=["technoA", "technoB", "technoC"], 
+    default="technoA", 
+    description="Choice of techonoly")
 ```
 
 # Get references to background activities
@@ -248,7 +287,7 @@ alu2.updateExchanges({
     "aluminium, cast alloy": old_amount * (1 - share_recycled_aluminium),
     
     # Update input activity. Note also that you can use '*' wildcard in exchange name
-    "electricity, high voltage*": elec_mix,
+    "electricity*": elec_mix,
     
     # Update both input activity and amount. 
     # Note that you can use '#' for specifying the location of exchange (useful for duplicate exchange names)
@@ -263,13 +302,10 @@ alu2.addExchanges({alu_scrap :  12})
 The final model is just the root foreground activity referencing the others
 
 ```{python}
-model = newActivity(USER_DB, 
-        "model", "kg", 
-        {
-            activity1 : b * 5 + a + 1, # Reference the activity we just created
-            heat: 3,
-            alu:0.4 * a
-        }) 
+model = newActivity(USER_DB, "model", "kg", {
+    activity1 : b * 5 + a + 1, # Reference the activity we just created
+    heat: 3,
+    alu:0.4 * a}) 
 ```
 
 ## Display activities
@@ -367,30 +403,73 @@ multiLCAAlgebric(
  
  ## One at a time 
  
- We provide several functions for computing statistics for local variations of parameters (one at a time).
- Those functions can be called separately or shown as an interactive dashboard
+ We provide several functions for computing **statistics** for **local variations** of parameters (one at a time).
+ 
+ ### oat_matrix(model, impacts)
+ 
+ Shows a **matrix of impacts x parameters** colored according to the variation of the impact in the bounds of the parameter.
+
+ 
+
+
+```{python}
+oat_matrix(model, impacts)
+```
+
+### oat_dashboard_matrix
+
+This functions draws a dashboard showing :
+* A dropdown list, for choosing a parameter
+* Several graphs of evolution of impacts for this parameter
+* Full table of data
+* A graph of "bars" representing the variation of each impact for this parameter (similar to the information given in oat_matrix) 
 
 ```{python}
 oat_dashboard_interact(model, impacts)
 ```
 
-```{python}
-# Display a matrix of variation of impacts for each parameter
-oat_matrix(model, impacts)
-```
-
+<!-- #region -->
 ## Monte-carlo methods & Sobol indices
 
-Here we leverage fast computation of monte-carlo apparoches. Displayed in a unique dashboard.
+Here we leverage fast computation of monte-carlo approches. 
+
+We compute **global sensivity analysis** (GSA).
+Not only local ones.
 
 
-```{python}
-incer_stochastic_dasboard(model, impacts)
-```
+### Sobol Matrix 
+
+Similar to OAT matrix, we compute Sobol indices. they represent the ratio between the variance due to a given parameter and the total variance.
+
+for easier comparison, we translate those relative sobol indices into "deviation / mean" importance :
+
+  **relative_deviation** = **sqrt**(**sobol**(param) * **total_variance**(**impact**)) / **mean**(**impact**) 
+
+
+
+<!-- #endregion -->
 
 ```{python}
 # Show sobol indices 
 incer_stochastic_matrix(model, impacts)
+```
+
+### Violin graphs
+
+We provide a dashboard showing **violin graphs** : the exact probabilistic distribution for each impact. Together with medians of the impacts.
+
+```{python}
+incer_stochastic_violin(model, impacts)
+```
+
+### Full dashboard
+
+A dashboard groups all this information in a single interface with tabs.
+
+It also shows total variation of impacts. This last graph could be improved by showing stacked colored bars with the contribution of each parameter to this variation, according to Sobol indices. 
+
+```{python}
+incer_stochastic_dasboard(model, impacts)
 ```
 
 ```{python}

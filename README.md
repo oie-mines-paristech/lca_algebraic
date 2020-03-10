@@ -36,4 +36,7 @@
 
 Setup back Min/Max to work with numpy
 Investigate negative impacts for large power
- 
+
+# Make doc 
+
+	pdoc3 --html lca_algebraic.py --force 
