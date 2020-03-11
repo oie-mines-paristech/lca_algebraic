@@ -35,6 +35,7 @@ import math
 from enum import Enum
 from scipy.stats import triang
 from scipy.stats import truncnorm
+from math import sqrt
 
 # -- Constants
 DEBUG=False
@@ -1362,27 +1363,30 @@ def _stochastics(modelOrLambdas, methods, n=1000) :
     return problem, X, Y
 
 
-def _incer_stochastic_matrix(methods, param_names, problem, Y):
-
-    ''' Internal method computing matrix of parameter importance '''
-
-    print("Processing Sobol indices ...")
-    sobols = np.zeros((len(param_names), len(methods)))
+def _sobols(methods, problem, Y) :
+    ''' Computes sobols indices'''
+    s1 = np.zeros((len(problem['names']), len(methods)))
+    st = np.zeros((len(problem['names']), len(methods)))
 
     for i, method in enumerate(methods) :
 
         try:
             y = Y[Y.columns[i]]
-            sobols[:, i] = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)["ST"]
+            res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
+            st[:, i] = res["ST"]
+            s1[:, i] = res["S1"]
 
         except Exception as e:
             error("Sobol failed on %s" % method[2], e)
+    return (s1, st)
 
+def _incer_stochastic_matrix(methods, param_names, Y, st):
 
+    ''' Internal method computing matrix of parameter importance '''
     def draw(mode) :
 
         if mode == 'sobol' :
-            data = sobols
+            data = st
         else :
             # If percent, express result as percentage of standard deviation / mean
             data = np.zeros((len(param_names), len(methods)))
@@ -1391,7 +1395,7 @@ def _incer_stochastic_matrix(methods, param_names, problem, Y):
                 var = np.var(Y[Y.columns[i]])
                 mean = np.mean(Y[Y.columns[i]])
                 if mean != 0 :
-                    data[:, i] = np.sqrt((sobols[:, i] * var)) / mean * 100
+                    data[:, i] = np.sqrt((st[:, i] * var)) / mean * 100
 
 
         df = pd.DataFrame(data, index=param_names, columns=[method_name(method) for method in methods])
@@ -1401,16 +1405,18 @@ def _incer_stochastic_matrix(methods, param_names, problem, Y):
             vmax=100 if mode == 'percent' else 1,
             ints= mode == 'percent')
 
-    interact(draw, mode=[('Raw sobol indices', 'sobol'), ('Deviation / mean', 'percent')])
+    interact(draw, mode=[('Raw sobol indices (ST)', 'sobol'), ('Deviation (ST) / mean', 'percent')])
 
 
 def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
     ''' Method computing matrix of parameter importance '''
 
     problem, X, Y = _stochastics(modelOrLambdas, methods, n)
-    param_names = problem['names']
 
-    _incer_stochastic_matrix(methods, param_names, problem, Y)
+    print("Processing Sobol indices ...")
+    s1, st = _sobols(methods, problem, Y)
+
+    _incer_stochastic_matrix(methods, problem['names'], Y, st)
 
 
 def _incer_stochastic_violin(methods, Y) :
@@ -1436,7 +1442,7 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
 
     _incer_stochastic_violin(methods, Y)
 
-def _incer_stochastic_variations(methods, Y):
+def _incer_stochastic_variations(methods, Y, param_names, sobols1):
 
     ''' Method for computing violin graph of impacts '''
     method_names=[method_name(method) for method in methods]
@@ -1445,7 +1451,21 @@ def _incer_stochastic_variations(methods, Y):
     mean = np.mean(Y)
 
     fig = plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor='w', edgecolor='k')
-    plt.bar(np.arange(len(method_names)), std / mean * 100, 0.8)
+    totplt = plt.bar(np.arange(len(method_names)), std / mean * 100, 0.8)
+
+    sum = np.zeros(len(methods))
+
+    plots =  [totplt[0]]
+
+    for i_param, param_name in enumerate(param_names) :
+        s1 = sobols1[i_param, :]
+        curr_bar = np.sqrt(s1) * std / mean * 100
+        curr_plt = plt.bar(np.arange(len(method_names)), curr_bar, 0.8, bottom=sum)
+        sum += curr_bar
+        plots.append(curr_plt[0])
+
+
+    plt.legend(plots, ['Higher order'] + param_names)
     plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
     plt.title("standard deviation / mean (%)")
     plt.show(fig)
@@ -1460,17 +1480,21 @@ def incer_stochastic_dasboard(model, methods, n=1000) :
     problem, X, Y = _stochastics(model, methods, n)
     param_names = problem['names']
 
-    def matrix() :
-        _incer_stochastic_matrix(methods, param_names, problem, Y)
+    print("Processing Sobol indices ...")
+    s1, st = _sobols(methods, problem, Y)
+
 
     def violin() :
         _incer_stochastic_violin(methods, Y)
 
     def variation():
-        _incer_stochastic_variations(methods, Y)
+        _incer_stochastic_variations(methods, Y, param_names, s1)
+
+    def matrix() :
+        _incer_stochastic_matrix(methods, problem['names'], Y, st)
 
     _display_tabs([
-        ("Impact incertitude vs parameter matrix", matrix),
         ("Violin graphs", violin),
-        ("Impact variations", variation)
+        ("Impact variations", variation),
+        ("Sobol matrix", matrix)
     ])
