@@ -34,7 +34,7 @@ import seaborn as sns
 from IPython.display import HTML, display
 
 # Custom utils defined for inter-acv
-from lib.utils import *
+from lca_algebraic import *
 
 from IPython.core.display import display, HTML
 display(HTML("<style>.container { width:70% !important; }</style>"))
@@ -76,7 +76,7 @@ impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in s
 # Switch parameter for electricity mix
 elec_switch = newEnumParam(
     'elec_switch',
-    values=["us", "eu", "row", "cn", "fr" ], 
+    values=["us", "eu", "glo", "cn", "fr" ], 
     default="eu",
     label='Electricty mix',
     label_fr='Mix électrique',
@@ -92,7 +92,7 @@ elec_us = findTechAct(ELEC_GROUP_NAME, "US")
 elec_eu = findTechAct(ELEC_GROUP_NAME, "ENTSO-E")
 elec_fr = findTechAct(ELEC_NAME, "FR")
 elec_cn = findTechAct(ELEC_NAME, "CN-CSG")
-elec_row = findTechAct(ELEC_NAME, "RoW")
+elec_glo = findTechAct(ELEC_GROUP_NAME, "GLO")
 ```
 
 ```{python}
@@ -102,7 +102,7 @@ elec = newSwitchAct(USER_DB, "elec", elec_switch, {
     "eu" : elec_eu,
     "fr" : elec_fr,
     "cn" : elec_cn,
-    "row" : elec_row})
+    "glo" : elec_glo})
 ```
 
 ```{python}
@@ -1296,7 +1296,7 @@ Display a table of all parameters defined above
 ```
 
 ```{python}
-params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in param_registry().values()]
+params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in param_registry.values()]
 groups=['manufacturing', 'transport', 'installation', 'production', 'recycling']
 sorted_params=sorted(params, key=lambda p : groups.index(p[0]))
 HTML((tabulate(sorted_params, tablefmt="html", headers=["Phase", "param", "default", "min", "max", "unit"])))
@@ -1316,7 +1316,7 @@ oat_matrix(impact_model_per_kWh, impacts)
 # Statistics : Stochastics
 
 ```{python}
-incer_stochastic_dasboard(impact_model_per_kWh, impacts)
+incer_stochastic_dasboard(impact_model_per_kWp, impacts)
 ```
 
 ```{python}

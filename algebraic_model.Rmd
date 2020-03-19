@@ -174,12 +174,12 @@ Thus, any python arithmetic expression composed of parameters will result in a *
 
 a = newFloatParam(
     'a', 
-    default=0.5, min=0, max=2, # We define a distribution, linear by default
+    default=0.5, min=0, max=2,  distrib=DistributionType.TRIANGLE, # Distribution type, linear by default
     description="hello world")
 
 b = newFloatParam(
     'b',
-    default=0.5, min=0.2, max=4, distrib=DistributionType.TRIANGLE, # Triangular distribution 
+    default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
 share_recycled_aluminium = newFloatParam(
@@ -269,10 +269,6 @@ elec_mix = newSwitchAct(USER_DB,
 You can copy and update an existing background activity.
 
 Several new helper methods have been added to the class **Activity** for easy update of exchanges.
-
-```{python}
-printAct(alu)
-```
 
 ```{python}
 alu2 = copyActivity(
@@ -473,6 +469,10 @@ It also shows total variation of impacts. This last graph could be improved by s
 
 ```{python}
 incer_stochastic_dasboard(model, impacts)
+```
+
+```{python}
+
 ```
 
 ```{python}

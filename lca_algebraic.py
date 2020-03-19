@@ -84,6 +84,7 @@ class DistributionType :
     LINEAR = "linear"
     NORMAL = "normal"
     TRIANGLE = "triangle"
+    FIXED = "fixed"
 
 class ParamDef(Symbol):
     '''Generic definition of a parameter, with name, bound, type, distribution
@@ -96,7 +97,7 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
 
-    def __init__(self, name, type: str, default, min, max, unit="", description="", label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
+    def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
         self.name = name
         self.type = type
         self.default = default
@@ -108,6 +109,10 @@ class ParamDef(Symbol):
         self.label_fr = label_fr
         self.group=group
         self.distrib = distrib
+
+        if type == ParamType.FLOAT and self.min is None :
+            self.distrib = DistributionType.FIXED
+
         if distrib == DistributionType.NORMAL and std is None :
             raise Exception("Standard deviation is mandatory for normal distribution")
         self.std = std
@@ -1201,9 +1206,9 @@ def oat_matrix(model, impacts, n=10) :
     # Compile model into lambda functions for fast LCA
     lambdas = preMultiLCAAlgebric(model, impacts, _param_registry().keys())
 
-    change = np.zeros((len(_param_registry()), len(impacts)))
+    change = np.zeros((len(_variable_params()), len(impacts)))
 
-    for iparam, param in enumerate(_param_registry().values()) :
+    for iparam, param in enumerate(_variable_params().values()) :
         params = {param.name: param.default for param in _param_registry().values()}
 
         # Compute range of values for given param
@@ -1216,7 +1221,7 @@ def oat_matrix(model, impacts, n=10) :
         change[iparam] =  (df.max() - df.min()) / df.median() * 100
 
     # Build final heatmap
-    change = pd.DataFrame(change, index=_param_registry().keys(), columns=[imp[2] for imp in impacts])
+    change = pd.DataFrame(change, index=_variable_params().keys(), columns=[imp[2] for imp in impacts])
     _heatmap(change.transpose(), 'Change of impacts per variability of the input parameters (%)', 100, ints=True)
 
 
@@ -1327,19 +1332,20 @@ def oat_dashboard_interact(model, methods):
     def process_func(param) :
         oat_dasboard(lambdas, methods, _param_registry()[param])
 
-    paramlist = list(_param_registry().keys())
+    paramlist = list(_variable_params().keys())
     interact(process_func, param=paramlist)
 
 
 def _stochastics(modelOrLambdas, methods, n=1000) :
 
     ''' Compute stochastic impacts for later analysis of incertitude '''
-    n_vars = len(_param_registry())
-    param_names = list(_param_registry().keys())
+
+    # Extract variable names
+    param_names = list(_variable_params().keys())
     problem = {
-        'num_vars': n_vars,
+        'num_vars': len(param_names),
         'names': param_names,
-        'bounds': [[0, 1]]*n_vars
+        'bounds': [[0, 1]] * len(param_names)
     }
 
     print("Generating samples ...")
@@ -1353,6 +1359,9 @@ def _stochastics(modelOrLambdas, methods, n=1000) :
         vals = list(map(lambda v : param.rand(v), X[:, i]))
         params[param_name] = vals
 
+    # Add static parameters
+    for param in _fixed_params().values() :
+        params[param.name] = param.default
 
     print("Processing LCA ...")
     if isinstance(modelOrLambdas, Activity):
@@ -1362,6 +1371,12 @@ def _stochastics(modelOrLambdas, methods, n=1000) :
 
     return problem, X, Y
 
+
+def _variable_params():
+    return {key : param for key, param in _param_registry().items() if param.distrib != DistributionType.FIXED}
+
+def _fixed_params():
+    return {key : param for key, param in _param_registry().items() if param.distrib == DistributionType.FIXED}
 
 def _sobols(methods, problem, Y) :
     ''' Computes sobols indices'''
@@ -1451,15 +1466,28 @@ def _incer_stochastic_variations(methods, Y, param_names, sobols1):
     mean = np.mean(Y)
 
     fig = plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor='w', edgecolor='k')
-    totplt = plt.bar(np.arange(len(method_names)), std / mean * 100, 0.8)
+    ax = plt.gca()
+    tab20b = plt.get_cmap('tab20b')
+    tab20c = plt.get_cmap('tab20c')
+    ax.set_prop_cycle('color', [tab20b(k) if k < 1 else tab20c(k-1) for k in np.linspace(0, 2, 40)])
+
+    relative_variance_pct =  std*std / (mean*mean) * 100
+    totplt = plt.bar(np.arange(len(method_names)), relative_variance_pct, 0.8)
 
     sum = np.zeros(len(methods))
 
-    plots =  [totplt[0]]
+    plots = [totplt[0]]
+
+    data = np.zeros((len(param_names) + 2, len(methods)))
+    data[0, :] = mean
+    data[1, :] = std
+
 
     for i_param, param_name in enumerate(param_names) :
         s1 = sobols1[i_param, :]
-        curr_bar = np.sqrt(s1) * std / mean * 100
+        data[i_param+2, :] = s1
+
+        curr_bar = s1 * relative_variance_pct
         curr_plt = plt.bar(np.arange(len(method_names)), curr_bar, 0.8, bottom=sum)
         sum += curr_bar
         plots.append(curr_plt[0])
@@ -1467,9 +1495,13 @@ def _incer_stochastic_variations(methods, Y, param_names, sobols1):
 
     plt.legend(plots, ['Higher order'] + param_names)
     plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
-    plt.title("standard deviation / mean (%)")
+    plt.title("variance / mean² (%)")
     plt.show(fig)
 
+    # Show raw data
+    rows = ["mean", "std"] + ["s1(%s)" % param for param in param_names]
+    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
+    display(df)
 
 
 
