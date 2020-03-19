@@ -49,7 +49,8 @@ def error(*args, **kwargs):
 
 # DB names
 
-ECOINVENT_DB_NAME = 'ecoinvent 3.4 cut off'
+# Set by detect_ecoinvent
+ECOINVENT_DB_NAME = None
 BIOSPHERE3_DB_NAME = 'biosphere3'
 
 USER_DB_NAME = None
@@ -511,6 +512,20 @@ def resetDb(db_name):
         del bw.databases[db_name]
     db = bw.Database(db_name)
     db.write(dict())
+
+def initDb(project_name) :
+    global ECOINVENT_DB_NAME
+    '''Init brightway and detect version of existing installation of ecoinvent'''
+    bw.projects.set_current(project_name)
+    bw.bw2setup()
+
+    for key in bw.databases.keys() :
+        if 'ecoinvent' in key :
+            ECOINVENT_DB_NAME = key
+            print("Found ecoinvent DB : %s" % key)
+            return
+
+    _eprint("No ecoinvent DB found")
 
 
 def importDb(dbname, path):

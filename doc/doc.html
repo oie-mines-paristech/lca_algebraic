@@ -61,6 +61,7 @@ import math
 from enum import Enum
 from scipy.stats import triang
 from scipy.stats import truncnorm
+from math import sqrt
 
 # -- Constants
 DEBUG=False
@@ -98,17 +99,18 @@ NumOrExpression = Union[float, Basic]
 
 
 
-class ParamType(Enum):
+class ParamType:
     &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
     ENUM = &#34;enum&#34;
     BOOL = &#34;bool&#34;
     FLOAT = &#34;float&#34;
 
-class DistributionType(Enum) :
+class DistributionType :
     &#39;&#39;&#39;Type of distribution&#39;&#39;&#39;
     LINEAR = &#34;linear&#34;
     NORMAL = &#34;normal&#34;
     TRIANGLE = &#34;triangle&#34;
+    FIXED = &#34;fixed&#34;
 
 class ParamDef(Symbol):
     &#39;&#39;&#39;Generic definition of a parameter, with name, bound, type, distribution
@@ -121,7 +123,7 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
 
-    def __init__(self, name, type: str, default, min, max, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
+    def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
         self.name = name
         self.type = type
         self.default = default
@@ -133,6 +135,10 @@ class ParamDef(Symbol):
         self.label_fr = label_fr
         self.group=group
         self.distrib = distrib
+
+        if type == ParamType.FLOAT and self.min is None :
+            self.distrib = DistributionType.FIXED
+
         if distrib == DistributionType.NORMAL and std is None :
             raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
         self.std = std
@@ -1213,9 +1219,9 @@ def _reverse_dict(dic):
 
 def _heatmap(df, title, vmax, ints=False):
     &#39;&#39;&#39; Produce heatmap of a dataframe&#39;&#39;&#39;
-    fig, ax = plt.subplots(figsize=(17, 30))
-    sns.heatmap(df.transpose(), cmap=&#34;gist_heat_r&#34;, vmax=vmax, annot=True, fmt=&#39;.0f&#39; if ints else &#39;f&#39;)
-    plt.title(title, fontsize=26)
+    fig, ax = plt.subplots(figsize=(17, 17))
+    sns.heatmap(df.transpose(), cmap=&#34;gist_heat_r&#34;, vmax=vmax, annot=True, fmt=&#39;.0f&#39; if ints else &#39;f&#39;, square=True)
+    plt.title(title, fontsize=20)
     ax.tick_params(axis=&#34;x&#34;, labelsize=18)
     ax.tick_params(axis=&#34;y&#34;, labelsize=18)
 
@@ -1226,9 +1232,9 @@ def oat_matrix(model, impacts, n=10) :
     # Compile model into lambda functions for fast LCA
     lambdas = preMultiLCAAlgebric(model, impacts, _param_registry().keys())
 
-    change = np.zeros((len(_param_registry()), len(impacts)))
+    change = np.zeros((len(_variable_params()), len(impacts)))
 
-    for iparam, param in enumerate(_param_registry().values()) :
+    for iparam, param in enumerate(_variable_params().values()) :
         params = {param.name: param.default for param in _param_registry().values()}
 
         # Compute range of values for given param
@@ -1241,7 +1247,7 @@ def oat_matrix(model, impacts, n=10) :
         change[iparam] =  (df.max() - df.min()) / df.median() * 100
 
     # Build final heatmap
-    change = pd.DataFrame(change, index=_param_registry().keys(), columns=[imp[2] for imp in impacts])
+    change = pd.DataFrame(change, index=_variable_params().keys(), columns=[imp[2] for imp in impacts])
     _heatmap(change.transpose(), &#39;Change of impacts per variability of the input parameters (%)&#39;, 100, ints=True)
 
 
@@ -1316,7 +1322,7 @@ def oat_dasboard(modelOrLambdas, impacts, param: ParamDef, n=10) :
             axes = df.plot(
                 ax=axes, sharex=True, subplots=True,
                 layout=(nb_rows, 3),
-                legend=None,
+                #legend=None,
                 kind = &#39;line&#39; if param.type == ParamType.FLOAT else &#39;bar&#39;)
 
             axes = axes.flatten()
@@ -1352,19 +1358,20 @@ def oat_dashboard_interact(model, methods):
     def process_func(param) :
         oat_dasboard(lambdas, methods, _param_registry()[param])
 
-    paramlist = list(_param_registry().keys())
+    paramlist = list(_variable_params().keys())
     interact(process_func, param=paramlist)
 
 
 def _stochastics(modelOrLambdas, methods, n=1000) :
 
     &#39;&#39;&#39; Compute stochastic impacts for later analysis of incertitude &#39;&#39;&#39;
-    n_vars = len(_param_registry())
-    param_names = list(_param_registry().keys())
+
+    # Extract variable names
+    param_names = list(_variable_params().keys())
     problem = {
-        &#39;num_vars&#39;: n_vars,
+        &#39;num_vars&#39;: len(param_names),
         &#39;names&#39;: param_names,
-        &#39;bounds&#39;: [[0, 1]]*n_vars
+        &#39;bounds&#39;: [[0, 1]] * len(param_names)
     }
 
     print(&#34;Generating samples ...&#34;)
@@ -1378,6 +1385,9 @@ def _stochastics(modelOrLambdas, methods, n=1000) :
         vals = list(map(lambda v : param.rand(v), X[:, i]))
         params[param_name] = vals
 
+    # Add static parameters
+    for param in _fixed_params().values() :
+        params[param.name] = param.default
 
     print(&#34;Processing LCA ...&#34;)
     if isinstance(modelOrLambdas, Activity):
@@ -1388,27 +1398,36 @@ def _stochastics(modelOrLambdas, methods, n=1000) :
     return problem, X, Y
 
 
-def _incer_stochastic_matrix(methods, param_names, problem, Y):
+def _variable_params():
+    return {key : param for key, param in _param_registry().items() if param.distrib != DistributionType.FIXED}
 
-    &#39;&#39;&#39; Internal method computing matrix of parameter importance &#39;&#39;&#39;
+def _fixed_params():
+    return {key : param for key, param in _param_registry().items() if param.distrib == DistributionType.FIXED}
 
-    print(&#34;Processing Sobol indices ...&#34;)
-    sobols = np.zeros((len(param_names), len(methods)))
+def _sobols(methods, problem, Y) :
+    &#39;&#39;&#39; Computes sobols indices&#39;&#39;&#39;
+    s1 = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
+    st = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
 
     for i, method in enumerate(methods) :
 
         try:
             y = Y[Y.columns[i]]
-            sobols[:, i] = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)[&#34;ST&#34;]
+            res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
+            st[:, i] = res[&#34;ST&#34;]
+            s1[:, i] = res[&#34;S1&#34;]
 
         except Exception as e:
             error(&#34;Sobol failed on %s&#34; % method[2], e)
+    return (s1, st)
 
+def _incer_stochastic_matrix(methods, param_names, Y, st):
 
+    &#39;&#39;&#39; Internal method computing matrix of parameter importance &#39;&#39;&#39;
     def draw(mode) :
 
         if mode == &#39;sobol&#39; :
-            data = sobols
+            data = st
         else :
             # If percent, express result as percentage of standard deviation / mean
             data = np.zeros((len(param_names), len(methods)))
@@ -1417,26 +1436,28 @@ def _incer_stochastic_matrix(methods, param_names, problem, Y):
                 var = np.var(Y[Y.columns[i]])
                 mean = np.mean(Y[Y.columns[i]])
                 if mean != 0 :
-                    data[:, i] = np.sqrt((sobols[:, i] * var)) / mean * 100
+                    data[:, i] = np.sqrt((st[:, i] * var)) / mean * 100
 
 
         df = pd.DataFrame(data, index=param_names, columns=[method_name(method) for method in methods])
         _heatmap(
             df.transpose(),
-            title=&#34;Variance of impacts (%)&#34; if mode == &#39;percent&#39; else &#34;Sobol indices (part of variability)&#34;,
+            title=&#34;Relative deviation of impacts (%)&#34; if mode == &#39;percent&#39; else &#34;Sobol indices (part of variability)&#34;,
             vmax=100 if mode == &#39;percent&#39; else 1,
             ints= mode == &#39;percent&#39;)
 
-    interact(draw, mode=[(&#39;Raw sobol indices&#39;, &#39;sobol&#39;), (&#39;Deviation / mean&#39;, &#39;percent&#39;)])
+    interact(draw, mode=[(&#39;Raw sobol indices (ST)&#39;, &#39;sobol&#39;), (&#39;Deviation (ST) / mean&#39;, &#39;percent&#39;)])
 
 
 def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
     &#39;&#39;&#39; Method computing matrix of parameter importance &#39;&#39;&#39;
 
     problem, X, Y = _stochastics(modelOrLambdas, methods, n)
-    param_names = problem[&#39;names&#39;]
 
-    _incer_stochastic_matrix(methods, param_names, problem, Y)
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
 
 
 def _incer_stochastic_violin(methods, Y) :
@@ -1462,7 +1483,7 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
 
     _incer_stochastic_violin(methods, Y)
 
-def _incer_stochastic_variations(methods, Y):
+def _incer_stochastic_variations(methods, Y, param_names, sobols1):
 
     &#39;&#39;&#39; Method for computing violin graph of impacts &#39;&#39;&#39;
     method_names=[method_name(method) for method in methods]
@@ -1471,9 +1492,42 @@ def _incer_stochastic_variations(methods, Y):
     mean = np.mean(Y)
 
     fig = plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor=&#39;w&#39;, edgecolor=&#39;k&#39;)
-    plt.bar(np.arange(len(method_names)), std / mean, 0.8)
+    ax = plt.gca()
+    tab20b = plt.get_cmap(&#39;tab20b&#39;)
+    tab20c = plt.get_cmap(&#39;tab20c&#39;)
+    ax.set_prop_cycle(&#39;color&#39;, [tab20b(k) if k &lt; 1 else tab20c(k-1) for k in np.linspace(0, 2, 40)])
+
+    relative_variance_pct =  std*std / (mean*mean) * 100
+    totplt = plt.bar(np.arange(len(method_names)), relative_variance_pct, 0.8)
+
+    sum = np.zeros(len(methods))
+
+    plots = [totplt[0]]
+
+    data = np.zeros((len(param_names) + 2, len(methods)))
+    data[0, :] = mean
+    data[1, :] = std
+
+
+    for i_param, param_name in enumerate(param_names) :
+        s1 = sobols1[i_param, :]
+        data[i_param+2, :] = s1
+
+        curr_bar = s1 * relative_variance_pct
+        curr_plt = plt.bar(np.arange(len(method_names)), curr_bar, 0.8, bottom=sum)
+        sum += curr_bar
+        plots.append(curr_plt[0])
+
+
+    plt.legend(plots, [&#39;Higher order&#39;] + param_names)
     plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
+    plt.title(&#34;variance / mean² (%)&#34;)
     plt.show(fig)
+
+    # Show raw data
+    rows = [&#34;mean&#34;, &#34;std&#34;] + [&#34;s1(%s)&#34; % param for param in param_names]
+    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
+    display(df)
 
 
 
@@ -1484,19 +1538,23 @@ def incer_stochastic_dasboard(model, methods, n=1000) :
     problem, X, Y = _stochastics(model, methods, n)
     param_names = problem[&#39;names&#39;]
 
-    def matrix() :
-        _incer_stochastic_matrix(methods, param_names, problem, Y)
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
 
     def violin() :
         _incer_stochastic_violin(methods, Y)
 
     def variation():
-        _incer_stochastic_variations(methods, Y)
+        _incer_stochastic_variations(methods, Y, param_names, s1)
+
+    def matrix() :
+        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
 
     _display_tabs([
-        (&#34;Impact incertitude vs parameter matrix&#34;, matrix),
         (&#34;Violin graphs&#34;, violin),
-        (&#34;Impact variations&#34;, variation)
+        (&#34;Impact variations&#34;, variation),
+        (&#34;Sobol matrix&#34;, matrix)
     ])</code></pre>
 </details>
 </section>
@@ -1788,19 +1846,23 @@ Uses index for fast fetching</p></section>
     problem, X, Y = _stochastics(model, methods, n)
     param_names = problem[&#39;names&#39;]
 
-    def matrix() :
-        _incer_stochastic_matrix(methods, param_names, problem, Y)
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
 
     def violin() :
         _incer_stochastic_violin(methods, Y)
 
     def variation():
-        _incer_stochastic_variations(methods, Y)
+        _incer_stochastic_variations(methods, Y, param_names, s1)
+
+    def matrix() :
+        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
 
     _display_tabs([
-        (&#34;Impact incertitude vs parameter matrix&#34;, matrix),
         (&#34;Violin graphs&#34;, violin),
-        (&#34;Impact variations&#34;, variation)
+        (&#34;Impact variations&#34;, variation),
+        (&#34;Sobol matrix&#34;, matrix)
     ])</code></pre>
 </details>
 </dd>
@@ -1817,9 +1879,11 @@ Uses index for fast fetching</p></section>
     &#39;&#39;&#39; Method computing matrix of parameter importance &#39;&#39;&#39;
 
     problem, X, Y = _stochastics(modelOrLambdas, methods, n)
-    param_names = problem[&#39;names&#39;]
 
-    _incer_stochastic_matrix(methods, param_names, problem, Y)</code></pre>
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.incer_stochastic_violin"><code class="name flex">
@@ -2280,7 +2344,7 @@ Internally, this will create a linear sum of other activities controlled by <par
             axes = df.plot(
                 ax=axes, sharex=True, subplots=True,
                 layout=(nb_rows, 3),
-                legend=None,
+                #legend=None,
                 kind = &#39;line&#39; if param.type == ParamType.FLOAT else &#39;bar&#39;)
 
             axes = axes.flatten()
@@ -2325,7 +2389,7 @@ Internally, this will create a linear sum of other activities controlled by <par
     def process_func(param) :
         oat_dasboard(lambdas, methods, _param_registry()[param])
 
-    paramlist = list(_param_registry().keys())
+    paramlist = list(_variable_params().keys())
     interact(process_func, param=paramlist)</code></pre>
 </details>
 </dd>
@@ -2344,9 +2408,9 @@ Internally, this will create a linear sum of other activities controlled by <par
     # Compile model into lambda functions for fast LCA
     lambdas = preMultiLCAAlgebric(model, impacts, _param_registry().keys())
 
-    change = np.zeros((len(_param_registry()), len(impacts)))
+    change = np.zeros((len(_variable_params()), len(impacts)))
 
-    for iparam, param in enumerate(_param_registry().values()) :
+    for iparam, param in enumerate(_variable_params().values()) :
         params = {param.name: param.default for param in _param_registry().values()}
 
         # Compute range of values for given param
@@ -2359,7 +2423,7 @@ Internally, this will create a linear sum of other activities controlled by <par
         change[iparam] =  (df.max() - df.min()) / df.median() * 100
 
     # Build final heatmap
-    change = pd.DataFrame(change, index=_param_registry().keys(), columns=[imp[2] for imp in impacts])
+    change = pd.DataFrame(change, index=_variable_params().keys(), columns=[imp[2] for imp in impacts])
     _heatmap(change.transpose(), &#39;Change of impacts per variability of the input parameters (%)&#39;, 100, ints=True)</code></pre>
 </details>
 </dd>
@@ -3217,7 +3281,6 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 </dd>
 <dt id="lca_algebraic.DistributionType"><code class="flex name class">
 <span>class <span class="ident">DistributionType</span></span>
-<span>(</span><span>value, names=None, *, module=None, qualname=None, type=None, start=1)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Type of distribution</p></section>
@@ -3225,29 +3288,62 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class DistributionType(Enum) :
+<pre><code class="python">class DistributionType :
     &#39;&#39;&#39;Type of distribution&#39;&#39;&#39;
     LINEAR = &#34;linear&#34;
     NORMAL = &#34;normal&#34;
-    TRIANGLE = &#34;triangle&#34;</code></pre>
+    TRIANGLE = &#34;triangle&#34;
+    FIXED = &#34;fixed&#34;</code></pre>
 </details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>enum.Enum</li>
-</ul>
 <h3>Class variables</h3>
 <dl>
+<dt id="lca_algebraic.DistributionType.FIXED"><code class="name">var <span class="ident">FIXED</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
 <dt id="lca_algebraic.DistributionType.LINEAR"><code class="name">var <span class="ident">LINEAR</span></code></dt>
 <dd>
-<section class="desc"><p>Type of distribution</p></section>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
 </dd>
 <dt id="lca_algebraic.DistributionType.NORMAL"><code class="name">var <span class="ident">NORMAL</span></code></dt>
 <dd>
-<section class="desc"><p>Type of distribution</p></section>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
 </dd>
 <dt id="lca_algebraic.DistributionType.TRIANGLE"><code class="name">var <span class="ident">TRIANGLE</span></code></dt>
 <dd>
-<section class="desc"><p>Type of distribution</p></section>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
 </dd>
 </dl>
 </dd>
@@ -3394,7 +3490,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     def __new__(cls, name, *karg, **kargs):
         return Symbol.__new__(cls, name)
 
-    def __init__(self, name, type: str, default, min, max, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
+    def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None, group=None, distrib=DistributionType.LINEAR, std=None):
         self.name = name
         self.type = type
         self.default = default
@@ -3406,6 +3502,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         self.label_fr = label_fr
         self.group=group
         self.distrib = distrib
+
+        if type == ParamType.FLOAT and self.min is None :
+            self.distrib = DistributionType.FIXED
+
         if distrib == DistributionType.NORMAL and std is None :
             raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
         self.std = std
@@ -3587,7 +3687,6 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 </dd>
 <dt id="lca_algebraic.ParamType"><code class="flex name class">
 <span>class <span class="ident">ParamType</span></span>
-<span>(</span><span>value, names=None, *, module=None, qualname=None, type=None, start=1)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Type of parameters</p></section>
@@ -3595,29 +3694,49 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ParamType(Enum):
+<pre><code class="python">class ParamType:
     &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
     ENUM = &#34;enum&#34;
     BOOL = &#34;bool&#34;
     FLOAT = &#34;float&#34;</code></pre>
 </details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>enum.Enum</li>
-</ul>
 <h3>Class variables</h3>
 <dl>
 <dt id="lca_algebraic.ParamType.BOOL"><code class="name">var <span class="ident">BOOL</span></code></dt>
 <dd>
-<section class="desc"><p>Type of parameters</p></section>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
 </dd>
 <dt id="lca_algebraic.ParamType.ENUM"><code class="name">var <span class="ident">ENUM</span></code></dt>
 <dd>
-<section class="desc"><p>Type of parameters</p></section>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
 </dd>
 <dt id="lca_algebraic.ParamType.FLOAT"><code class="name">var <span class="ident">FLOAT</span></code></dt>
 <dd>
-<section class="desc"><p>Type of parameters</p></section>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
 </dd>
 </dl>
 </dd>
@@ -3686,6 +3805,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <li>
 <h4><code><a title="lca_algebraic.DistributionType" href="#lca_algebraic.DistributionType">DistributionType</a></code></h4>
 <ul class="">
+<li><code><a title="lca_algebraic.DistributionType.FIXED" href="#lca_algebraic.DistributionType.FIXED">FIXED</a></code></li>
 <li><code><a title="lca_algebraic.DistributionType.LINEAR" href="#lca_algebraic.DistributionType.LINEAR">LINEAR</a></code></li>
 <li><code><a title="lca_algebraic.DistributionType.NORMAL" href="#lca_algebraic.DistributionType.NORMAL">NORMAL</a></code></li>
 <li><code><a title="lca_algebraic.DistributionType.TRIANGLE" href="#lca_algebraic.DistributionType.TRIANGLE">TRIANGLE</a></code></li>

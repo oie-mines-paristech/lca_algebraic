@@ -105,16 +105,12 @@ import lca_algebraic
 # Init brightway2 and databases
 
 ```{python}
-# Setup bw2
-bw.projects.set_current('bw2_seminar_2017')
-bw.bw2setup()
-
 # Import Ecoinvent DB (if not already done)
 # Update the PATH to suit your installation
 # importDb(ECOINVENT_DB_NAME, './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 
-# Set your version of ecoinvent
-lca_algebraic.ECOINVENT_DB_NAME = 'ecoinvent 3.6 cut-off'
+# Setup bw2 and detect version of ecoinvent
+initDb('bw2_seminar_2017')
 
 # We use a separate DB for defining our foreground model / activities
 USER_DB = 'Geothermal database'
