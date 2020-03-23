@@ -662,10 +662,19 @@ def findTechAct(name=None, loc=None, **kwargs):
     return findActivity(name=name, loc=loc, db_name=ECOINVENT_DB_NAME, **kwargs)
 
 
-def interpolate(x, x1, x2, y1, y2):
-    """Build an expression for linear interpolation between two points"""
-    return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+def Max(a, b) :
+    """Max define as algrebraic forumal with 'abs' for proper computation on vectors """
+    return (a + b + abs(a - b)) / 2
 
+def Min(a, b) :
+    """Max define as algrebraic forumal with 'abs' for proper computation on vectors """
+    return (a + b - abs(b - a)) / 2
+
+def interpolate(x, x1, x2, y1, y2):
+    """Build an expression for linear interpolation between two points.
+    If x is not within [x1, x2] the corresponding bound Y values are returned"""
+    x = Min(Max(x, x1), x2)
+    return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
 
 def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: ActivityExtended, x1, x2, x, alpha1=1, alpha2=1, **kwargs):
 
