@@ -16,7 +16,7 @@ setup(
     description = ("This library provides helper functions for defining parametric models and runing super fast LCA for monte carlo analysis."),
     license = "BSD",
     keywords = "LCA brightway2 monte-carlo parametric",
-    url = "http://packages.python.org/an_example_pypi_project",
+    url = "https://github.com/oie-mines-paristech/lca_algebraic/",
     packages=['lca_algebraic'],
     long_description=read('README.md'),
     long_description_content_type='text/markdown',
