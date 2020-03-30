@@ -11,9 +11,9 @@ def read(fname):
 setup(
     name = "lca_algebraic",
     version = "0.0.1",
-    author = "Raphael Jolivet",
+    author = "OIE - Mines ParisTech",
     author_email = "raphael.jolivet@mines-paristech.fr",
-    description = ("This library provides helper functions for defining parametric models and runing super fast LCA for monte carlo analysis."),
+    description = ("This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."),
     license = "BSD",
     keywords = "LCA brightway2 monte-carlo parametric",
     url = "https://github.com/oie-mines-paristech/lca_algebraic/",
@@ -36,6 +36,6 @@ setup(
         'brightway2>=2.3',
         'ipython>=7.13.0',
         'SALib>=1.3.8',
-        'python-slugify>=1.2.6'
+        'python-slugify>=4.0.0'
     ]
 )
