@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.7.4" />
+<title>lca_algebraic.params API documentation</title>
+<meta name="description" content="" />
+<link href='https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.0/normalize.min.css' rel='stylesheet'>
+<link href='https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/8.0.0/sanitize.min.css' rel='stylesheet'>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css" rel="stylesheet">
+<style>.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{font-weight:bold}#index h4 + ul{margin-bottom:.6em}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>lca_algebraic.params</code></h1>
+</header>
+<section id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">import builtins
+import math
+from typing import Dict, List
+
+import brightway2 as bw
+from tabulate import tabulate
+from IPython.core.display import HTML
+from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
+from scipy.stats import triang, truncnorm
+from sympy import Symbol
+
+from .base_utils import _eprint
+
+DEFAULT_PARAM_GROUP = &#34;acv&#34;
+
+
+def _param_registry():
+    # Prevent reset upon auto reload in jupyter notebook
+    if not &#39;param_registry&#39; in builtins.__dict__:
+        builtins.param_registry = dict()
+
+    return builtins.param_registry
+
+
+class ParamType:
+    &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
+    ENUM = &#34;enum&#34;
+    BOOL = &#34;bool&#34;
+    FLOAT = &#34;float&#34;
+
+
+class DistributionType:
+    &#39;&#39;&#39;Type of distribution&#39;&#39;&#39;
+    LINEAR = &#34;linear&#34;
+    NORMAL = &#34;normal&#34;
+    TRIANGLE = &#34;triangle&#34;
+    FIXED = &#34;fixed&#34;
+
+
+class ParamDef(Symbol):
+    &#39;&#39;&#39;Generic definition of a parameter, with name, bound, type, distribution
+    This definition will serve both to generate brightway2 parameters and to evaluate.
+
+    This class inherits sympy Symbol, making it possible to use in standard arithmetic python
+    while keeping it as a symbolic expression (delayed evaluation).
+    &#39;&#39;&#39;
+
+    def __new__(cls, name, *karg, **kargs):
+        return Symbol.__new__(cls, name)
+
+    def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None,
+                 group=None, distrib=DistributionType.LINEAR, std=None):
+        self.name = name
+        self.type = type
+        self.default = default
+        self.description = description
+        self.min = min
+        self.max = max
+        self.unit = unit
+        self.label = label
+        self.label_fr = label_fr
+        self.group = group
+        self.distrib = distrib
+
+        if type == ParamType.FLOAT and self.min is None:
+            self.distrib = DistributionType.FIXED
+
+        if distrib == DistributionType.NORMAL and std is None:
+            raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
+        self.std = std
+
+    def label(self):
+        if self.label is not None:
+            return self.label
+        else:
+            return self.name.replace(&#34;_&#34;, &#34; &#34;)
+
+    def range(self, n):
+        &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
+        step = (self.max - self.min) / (n - 1)
+        return list(i * step + self.min for i in range(0, n))
+
+    def rand(self, alpha):
+        &#34;&#34;&#34;Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter&#34;&#34;&#34;
+        if self.distrib == DistributionType.LINEAR:
+            return self.min + alpha * (self.max - self.min)
+
+        elif self.distrib == DistributionType.TRIANGLE:
+            if not hasattr(self, &#34;_distrib&#34;):
+                scale = self.max - self.min
+                c = (self.default - self.min) / scale
+                self._distrib = triang(c, loc=self.min, scale=scale)
+
+            return self._distrib.ppf(alpha)
+
+        elif self.distrib == DistributionType.NORMAL:
+            if not hasattr(self, &#34;_distrib&#34;):
+                self._distrib = truncnorm(
+                    (self.min - self.default) / self.std,
+                    (self.max - self.min) / self.std,
+                    loc=self.default,
+                    scale=self.std)
+
+            return self._distrib.ppf(alpha)
+
+        else:
+            raise Exception(&#34;Unknowk distribution type &#34; + self.distrib)
+
+    # Expand parameter (useful for enum param)
+    def expandParams(self, value=None) -&gt; Dict[str, float]:
+        if value == None:
+            value = self.default
+        return {self.name: value}
+
+    # Useful for enum param, having several names
+    def names(self):
+        return [self.name]
+
+    def __repr__(self):
+        return self.name
+
+
+class BooleanDef(ParamDef):
+    &#34;&#34;&#34;Parameter with discrete value 0 or 1&#34;&#34;&#34;
+
+    def __init__(self, name, **argv):
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
+
+    def range(self, n):
+        return [0, 1]
+
+    def rand(self, alpha):
+        return round(alpha)
+
+
+class EnumParam(ParamDef):
+    &#34;&#34;&#34;Enum param is a facility representing a choice / switch as many boolean parameters.
+    It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it&#34;&#34;&#34;
+
+    def __init__(self, name, values: List[str], **argv):
+        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
+        self.values = values
+
+    def expandParams(self, currValue=None):
+        values = self.values + [None]
+        res = dict()
+        for enum_val in values:
+            var_name = &#34;%s_%s&#34; % (self.name, enum_val if enum_val is not None else &#34;default&#34;)
+            res[var_name] = 1.0 if enum_val == currValue else 0.0
+        return res
+
+    def symbol(self, enumValue):
+        &#34;&#34;&#34;Access parameter for each enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
+        if enumValue is None:
+            return Symbol(self.name + &#39;_default&#39;)
+        if not enumValue in self.values:
+            raise Exception(&#34;enumValue should be one of %s. Was %s&#34; % (str(self.values), enumValue))
+        return Symbol(self.name + &#39;_&#39; + enumValue)
+
+    def names(self):
+        return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]
+
+    def rand(self, alpha):
+        i = math.ceil(alpha * (len(self.values))) - 1
+        return self.values[int(i)]
+
+    def range(self, n):
+        return self.values
+
+
+def newParamDef(name, type, **kwargs):
+    &#34;&#34;&#34;Creates a param and register it into a global registry and as a brightway parameter&#34;&#34;&#34;
+    if type == ParamType.ENUM:
+        param = EnumParam(name, **kwargs)
+    elif type == ParamType.BOOL:
+        param = BooleanDef(name, **kwargs)
+    else:
+        param = ParamDef(name, type=type, **kwargs)
+
+    # Put it in local registry (in memory)
+    if name in _param_registry():
+        _eprint(&#34;Param %s was already defined : overriding&#34; % name)
+    _param_registry()[name] = param
+
+    # Save in brightway2 project
+    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
+    bw.parameters.new_project_parameters(bwParams)
+
+    return param
+
+
+def newFloatParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
+
+
+def newBoolParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
+
+
+def newEnumParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
+
+
+def _variable_params(param_names=None):
+    if param_names is None :
+        param_names =  _param_registry().keys()
+    params = {key : _param_registry()[key] for key in param_names}
+    return {key: param for key, param in params.items() if param.distrib != DistributionType.FIXED}
+
+
+def _fixed_params(param_names=None):
+    if param_names is None :
+        param_names =  _param_registry().keys()
+    params = {key : _param_registry()[key] for key in param_names}
+    return {key: param for key, param in params.items() if param.distrib == DistributionType.FIXED}
+
+
+def _listOfDictToDictOflist(LD):
+    return {k: [dic[k] for dic in LD] for k in LD[0]}
+
+
+def _completeParamValues(params):
+    &#34;&#34;&#34;Check parameters and expand enum params.
+
+    Returns
+    -------
+        Dict of param_name =&gt; float value
+    &#34;&#34;&#34;
+
+    # undef_params = param_registry.keys() - params.keys()
+    # if undef_params :
+    #    raise Exception(&#34;Some model parameters are not set : %s&#34; % undef_params)
+
+    res = dict()
+    for key, val in params.items():
+        if key in _param_registry():
+            param = _param_registry()[key]
+        else:
+            raise Exception(&#34;Parameter not found : %s. Valid parameters : %s&#34; % (key, list(_param_registry().keys())))
+
+        if isinstance(val, list):
+            newvals = [param.expandParams(val) for val in val]
+            res.update(_listOfDictToDictOflist(newvals))
+        else:
+            res.update(param.expandParams(val))
+    return res
+
+
+def resetParams(db_name):
+    &#34;&#34;&#34;Reset project and activity parameters&#34;&#34;&#34;
+    _param_registry().clear()
+    ProjectParameter.delete().execute()
+    ActivityParameter.delete().execute()
+    DatabaseParameter.delete().execute()
+    Group.delete().execute()
+
+
+def list_parameters():
+    &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
+    params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in
+              _param_registry().values()]
+    groups = list({p[0] for p in params})
+    sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
+    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;unit&#34;])))</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="lca_algebraic.params.list_parameters"><code class="name flex">
+<span>def <span class="ident">list_parameters</span></span>(<span>)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Print a pretty list of all defined parameters</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def list_parameters():
+    &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
+    params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in
+              _param_registry().values()]
+    groups = list({p[0] for p in params})
+    sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
+    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;unit&#34;])))</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.newBoolParam"><code class="name flex">
+<span>def <span class="ident">newBoolParam</span></span>(<span>name, default, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def newBoolParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.BOOL, default=default, **kwargs)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.newEnumParam"><code class="name flex">
+<span>def <span class="ident">newEnumParam</span></span>(<span>name, default, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def newEnumParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.ENUM, default=default, **kwargs)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.newFloatParam"><code class="name flex">
+<span>def <span class="ident">newFloatParam</span></span>(<span>name, default, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def newFloatParam(name, default, **kwargs):
+    return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.newParamDef"><code class="name flex">
+<span>def <span class="ident">newParamDef</span></span>(<span>name, type, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Creates a param and register it into a global registry and as a brightway parameter</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def newParamDef(name, type, **kwargs):
+    &#34;&#34;&#34;Creates a param and register it into a global registry and as a brightway parameter&#34;&#34;&#34;
+    if type == ParamType.ENUM:
+        param = EnumParam(name, **kwargs)
+    elif type == ParamType.BOOL:
+        param = BooleanDef(name, **kwargs)
+    else:
+        param = ParamDef(name, type=type, **kwargs)
+
+    # Put it in local registry (in memory)
+    if name in _param_registry():
+        _eprint(&#34;Param %s was already defined : overriding&#34; % name)
+    _param_registry()[name] = param
+
+    # Save in brightway2 project
+    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
+    bw.parameters.new_project_parameters(bwParams)
+
+    return param</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.resetParams"><code class="name flex">
+<span>def <span class="ident">resetParams</span></span>(<span>db_name)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Reset project and activity parameters</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def resetParams(db_name):
+    &#34;&#34;&#34;Reset project and activity parameters&#34;&#34;&#34;
+    _param_registry().clear()
+    ProjectParameter.delete().execute()
+    ActivityParameter.delete().execute()
+    DatabaseParameter.delete().execute()
+    Group.delete().execute()</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="lca_algebraic.params.BooleanDef"><code class="flex name class">
+<span>class <span class="ident">BooleanDef</span></span>
+<span>(</span><span>name, *karg, **kargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Parameter with discrete value 0 or 1</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class BooleanDef(ParamDef):
+    &#34;&#34;&#34;Parameter with discrete value 0 or 1&#34;&#34;&#34;
+
+    def __init__(self, name, **argv):
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
+
+    def range(self, n):
+        return [0, 1]
+
+    def rand(self, alpha):
+        return round(alpha)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></li>
+<li>sympy.core.symbol.Symbol</li>
+<li>sympy.core.expr.AtomicExpr</li>
+<li>sympy.core.basic.Atom</li>
+<li>sympy.core.expr.Expr</li>
+<li>sympy.logic.boolalg.Boolean</li>
+<li>sympy.core.basic.Basic</li>
+<li>sympy.core.evalf.EvalfMixin</li>
+</ul>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></b></code>:
+<ul class="hlist">
+<li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="lca_algebraic.params.DistributionType"><code class="flex name class">
+<span>class <span class="ident">DistributionType</span></span>
+</code></dt>
+<dd>
+<section class="desc"><p>Type of distribution</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class DistributionType:
+    &#39;&#39;&#39;Type of distribution&#39;&#39;&#39;
+    LINEAR = &#34;linear&#34;
+    NORMAL = &#34;normal&#34;
+    TRIANGLE = &#34;triangle&#34;
+    FIXED = &#34;fixed&#34;</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.params.DistributionType.FIXED"><code class="name">var <span class="ident">FIXED</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.DistributionType.LINEAR"><code class="name">var <span class="ident">LINEAR</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.DistributionType.NORMAL"><code class="name">var <span class="ident">NORMAL</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.DistributionType.TRIANGLE"><code class="name">var <span class="ident">TRIANGLE</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+</dl>
+</dd>
+<dt id="lca_algebraic.params.EnumParam"><code class="flex name class">
+<span>class <span class="ident">EnumParam</span></span>
+<span>(</span><span>name, *karg, **kargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Enum param is a facility representing a choice / switch as many boolean parameters.
+It is not itself a Sympy symbol. use #symbol("value") to access it</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class EnumParam(ParamDef):
+    &#34;&#34;&#34;Enum param is a facility representing a choice / switch as many boolean parameters.
+    It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it&#34;&#34;&#34;
+
+    def __init__(self, name, values: List[str], **argv):
+        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
+        self.values = values
+
+    def expandParams(self, currValue=None):
+        values = self.values + [None]
+        res = dict()
+        for enum_val in values:
+            var_name = &#34;%s_%s&#34; % (self.name, enum_val if enum_val is not None else &#34;default&#34;)
+            res[var_name] = 1.0 if enum_val == currValue else 0.0
+        return res
+
+    def symbol(self, enumValue):
+        &#34;&#34;&#34;Access parameter for each enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
+        if enumValue is None:
+            return Symbol(self.name + &#39;_default&#39;)
+        if not enumValue in self.values:
+            raise Exception(&#34;enumValue should be one of %s. Was %s&#34; % (str(self.values), enumValue))
+        return Symbol(self.name + &#39;_&#39; + enumValue)
+
+    def names(self):
+        return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]
+
+    def rand(self, alpha):
+        i = math.ceil(alpha * (len(self.values))) - 1
+        return self.values[int(i)]
+
+    def range(self, n):
+        return self.values</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></li>
+<li>sympy.core.symbol.Symbol</li>
+<li>sympy.core.expr.AtomicExpr</li>
+<li>sympy.core.basic.Atom</li>
+<li>sympy.core.expr.Expr</li>
+<li>sympy.logic.boolalg.Boolean</li>
+<li>sympy.core.basic.Basic</li>
+<li>sympy.core.evalf.EvalfMixin</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="lca_algebraic.params.EnumParam.expandParams"><code class="name flex">
+<span>def <span class="ident">expandParams</span></span>(<span>self, currValue=None)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def expandParams(self, currValue=None):
+    values = self.values + [None]
+    res = dict()
+    for enum_val in values:
+        var_name = &#34;%s_%s&#34; % (self.name, enum_val if enum_val is not None else &#34;default&#34;)
+        res[var_name] = 1.0 if enum_val == currValue else 0.0
+    return res</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.EnumParam.names"><code class="name flex">
+<span>def <span class="ident">names</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def names(self):
+    return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.EnumParam.symbol"><code class="name flex">
+<span>def <span class="ident">symbol</span></span>(<span>self, enumValue)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Access parameter for each enum value : <paramName>_<paramValue></p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def symbol(self, enumValue):
+    &#34;&#34;&#34;Access parameter for each enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
+    if enumValue is None:
+        return Symbol(self.name + &#39;_default&#39;)
+    if not enumValue in self.values:
+        raise Exception(&#34;enumValue should be one of %s. Was %s&#34; % (str(self.values), enumValue))
+    return Symbol(self.name + &#39;_&#39; + enumValue)</code></pre>
+</details>
+</dd>
+</dl>
+<h3>Inherited members</h3>
+<ul class="hlist">
+<li><code><b><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></b></code>:
+<ul class="hlist">
+<li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
+</ul>
+</li>
+</ul>
+</dd>
+<dt id="lca_algebraic.params.ParamDef"><code class="flex name class">
+<span>class <span class="ident">ParamDef</span></span>
+<span>(</span><span>name, *karg, **kargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Generic definition of a parameter, with name, bound, type, distribution
+This definition will serve both to generate brightway2 parameters and to evaluate.</p>
+<p>This class inherits sympy Symbol, making it possible to use in standard arithmetic python
+while keeping it as a symbolic expression (delayed evaluation).</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ParamDef(Symbol):
+    &#39;&#39;&#39;Generic definition of a parameter, with name, bound, type, distribution
+    This definition will serve both to generate brightway2 parameters and to evaluate.
+
+    This class inherits sympy Symbol, making it possible to use in standard arithmetic python
+    while keeping it as a symbolic expression (delayed evaluation).
+    &#39;&#39;&#39;
+
+    def __new__(cls, name, *karg, **kargs):
+        return Symbol.__new__(cls, name)
+
+    def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None,
+                 group=None, distrib=DistributionType.LINEAR, std=None):
+        self.name = name
+        self.type = type
+        self.default = default
+        self.description = description
+        self.min = min
+        self.max = max
+        self.unit = unit
+        self.label = label
+        self.label_fr = label_fr
+        self.group = group
+        self.distrib = distrib
+
+        if type == ParamType.FLOAT and self.min is None:
+            self.distrib = DistributionType.FIXED
+
+        if distrib == DistributionType.NORMAL and std is None:
+            raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
+        self.std = std
+
+    def label(self):
+        if self.label is not None:
+            return self.label
+        else:
+            return self.name.replace(&#34;_&#34;, &#34; &#34;)
+
+    def range(self, n):
+        &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
+        step = (self.max - self.min) / (n - 1)
+        return list(i * step + self.min for i in range(0, n))
+
+    def rand(self, alpha):
+        &#34;&#34;&#34;Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter&#34;&#34;&#34;
+        if self.distrib == DistributionType.LINEAR:
+            return self.min + alpha * (self.max - self.min)
+
+        elif self.distrib == DistributionType.TRIANGLE:
+            if not hasattr(self, &#34;_distrib&#34;):
+                scale = self.max - self.min
+                c = (self.default - self.min) / scale
+                self._distrib = triang(c, loc=self.min, scale=scale)
+
+            return self._distrib.ppf(alpha)
+
+        elif self.distrib == DistributionType.NORMAL:
+            if not hasattr(self, &#34;_distrib&#34;):
+                self._distrib = truncnorm(
+                    (self.min - self.default) / self.std,
+                    (self.max - self.min) / self.std,
+                    loc=self.default,
+                    scale=self.std)
+
+            return self._distrib.ppf(alpha)
+
+        else:
+            raise Exception(&#34;Unknowk distribution type &#34; + self.distrib)
+
+    # Expand parameter (useful for enum param)
+    def expandParams(self, value=None) -&gt; Dict[str, float]:
+        if value == None:
+            value = self.default
+        return {self.name: value}
+
+    # Useful for enum param, having several names
+    def names(self):
+        return [self.name]
+
+    def __repr__(self):
+        return self.name</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>sympy.core.symbol.Symbol</li>
+<li>sympy.core.expr.AtomicExpr</li>
+<li>sympy.core.basic.Atom</li>
+<li>sympy.core.expr.Expr</li>
+<li>sympy.logic.boolalg.Boolean</li>
+<li>sympy.core.basic.Basic</li>
+<li>sympy.core.evalf.EvalfMixin</li>
+</ul>
+<h3>Subclasses</h3>
+<ul class="hlist">
+<li><a title="lca_algebraic.params.BooleanDef" href="#lca_algebraic.params.BooleanDef">BooleanDef</a></li>
+<li><a title="lca_algebraic.params.EnumParam" href="#lca_algebraic.params.EnumParam">EnumParam</a></li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.params.ParamDef.default_assumptions"><code class="name">var <span class="ident">default_assumptions</span></code></dt>
+<dd>
+<section class="desc"><p>A FactKB specialised for the built-in rules</p>
+<p>This is the only kind of FactKB that Basic objects should use.</p></section>
+</dd>
+</dl>
+<h3>Methods</h3>
+<dl>
+<dt id="lca_algebraic.params.ParamDef.expandParams"><code class="name flex">
+<span>def <span class="ident">expandParams</span></span>(<span>self, value=None)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def expandParams(self, value=None) -&gt; Dict[str, float]:
+    if value == None:
+        value = self.default
+    return {self.name: value}</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamDef.label"><code class="name flex">
+<span>def <span class="ident">label</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def label(self):
+    if self.label is not None:
+        return self.label
+    else:
+        return self.name.replace(&#34;_&#34;, &#34; &#34;)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamDef.names"><code class="name flex">
+<span>def <span class="ident">names</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def names(self):
+    return [self.name]</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamDef.rand"><code class="name flex">
+<span>def <span class="ident">rand</span></span>(<span>self, alpha)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def rand(self, alpha):
+    &#34;&#34;&#34;Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter&#34;&#34;&#34;
+    if self.distrib == DistributionType.LINEAR:
+        return self.min + alpha * (self.max - self.min)
+
+    elif self.distrib == DistributionType.TRIANGLE:
+        if not hasattr(self, &#34;_distrib&#34;):
+            scale = self.max - self.min
+            c = (self.default - self.min) / scale
+            self._distrib = triang(c, loc=self.min, scale=scale)
+
+        return self._distrib.ppf(alpha)
+
+    elif self.distrib == DistributionType.NORMAL:
+        if not hasattr(self, &#34;_distrib&#34;):
+            self._distrib = truncnorm(
+                (self.min - self.default) / self.std,
+                (self.max - self.min) / self.std,
+                loc=self.default,
+                scale=self.std)
+
+        return self._distrib.ppf(alpha)
+
+    else:
+        raise Exception(&#34;Unknowk distribution type &#34; + self.distrib)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamDef.range"><code class="name flex">
+<span>def <span class="ident">range</span></span>(<span>self, n)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Used for parametric analysis</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def range(self, n):
+    &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
+    step = (self.max - self.min) / (n - 1)
+    return list(i * step + self.min for i in range(0, n))</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="lca_algebraic.params.ParamType"><code class="flex name class">
+<span>class <span class="ident">ParamType</span></span>
+</code></dt>
+<dd>
+<section class="desc"><p>Type of parameters</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ParamType:
+    &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
+    ENUM = &#34;enum&#34;
+    BOOL = &#34;bool&#34;
+    FLOAT = &#34;float&#34;</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.params.ParamType.BOOL"><code class="name">var <span class="ident">BOOL</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.ParamType.ENUM"><code class="name">var <span class="ident">ENUM</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.ParamType.FLOAT"><code class="name">var <span class="ident">FLOAT</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+</dl>
+</dd>
+</dl>
+</section>
+</article>
+<nav id="sidebar">
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="lca_algebraic" href="index.html">lca_algebraic</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="two-column">
+<li><code><a title="lca_algebraic.params.list_parameters" href="#lca_algebraic.params.list_parameters">list_parameters</a></code></li>
+<li><code><a title="lca_algebraic.params.newBoolParam" href="#lca_algebraic.params.newBoolParam">newBoolParam</a></code></li>
+<li><code><a title="lca_algebraic.params.newEnumParam" href="#lca_algebraic.params.newEnumParam">newEnumParam</a></code></li>
+<li><code><a title="lca_algebraic.params.newFloatParam" href="#lca_algebraic.params.newFloatParam">newFloatParam</a></code></li>
+<li><code><a title="lca_algebraic.params.newParamDef" href="#lca_algebraic.params.newParamDef">newParamDef</a></code></li>
+<li><code><a title="lca_algebraic.params.resetParams" href="#lca_algebraic.params.resetParams">resetParams</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="lca_algebraic.params.BooleanDef" href="#lca_algebraic.params.BooleanDef">BooleanDef</a></code></h4>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.params.DistributionType" href="#lca_algebraic.params.DistributionType">DistributionType</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.DistributionType.FIXED" href="#lca_algebraic.params.DistributionType.FIXED">FIXED</a></code></li>
+<li><code><a title="lca_algebraic.params.DistributionType.LINEAR" href="#lca_algebraic.params.DistributionType.LINEAR">LINEAR</a></code></li>
+<li><code><a title="lca_algebraic.params.DistributionType.NORMAL" href="#lca_algebraic.params.DistributionType.NORMAL">NORMAL</a></code></li>
+<li><code><a title="lca_algebraic.params.DistributionType.TRIANGLE" href="#lca_algebraic.params.DistributionType.TRIANGLE">TRIANGLE</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.params.EnumParam" href="#lca_algebraic.params.EnumParam">EnumParam</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.EnumParam.expandParams" href="#lca_algebraic.params.EnumParam.expandParams">expandParams</a></code></li>
+<li><code><a title="lca_algebraic.params.EnumParam.names" href="#lca_algebraic.params.EnumParam.names">names</a></code></li>
+<li><code><a title="lca_algebraic.params.EnumParam.symbol" href="#lca_algebraic.params.EnumParam.symbol">symbol</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></code></h4>
+<ul class="two-column">
+<li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.expandParams" href="#lca_algebraic.params.ParamDef.expandParams">expandParams</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.label" href="#lca_algebraic.params.ParamDef.label">label</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.names" href="#lca_algebraic.params.ParamDef.names">names</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.params.ParamType" href="#lca_algebraic.params.ParamType">ParamType</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.ParamType.BOOL" href="#lca_algebraic.params.ParamType.BOOL">BOOL</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamType.ENUM" href="#lca_algebraic.params.ParamType.ENUM">ENUM</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamType.FLOAT" href="#lca_algebraic.params.ParamType.FLOAT">FLOAT</a></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.7.4</a>.</p>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+<script>hljs.initHighlightingOnLoad()</script>
+</body>
+</html>

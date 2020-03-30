@@ -1,0 +1,13 @@
+README.md
+setup.py
+lca_algebraic/__init__.py
+lca_algebraic/base_utils.py
+lca_algebraic/helpers.py
+lca_algebraic/lca.py
+lca_algebraic/params.py
+lca_algebraic/stats.py
+lca_algebraic.egg-info/PKG-INFO
+lca_algebraic.egg-info/SOURCES.txt
+lca_algebraic.egg-info/dependency_links.txt
+lca_algebraic.egg-info/requires.txt
+lca_algebraic.egg-info/top_level.txt

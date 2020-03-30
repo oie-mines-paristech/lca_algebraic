@@ -1,9 +1,13 @@
 name: acv3.6
 channels:
-  - haasad
-  - cmutel
+  - pvlib
+  - anaconda
   - conda-forge
   - defaults
+  - cmutel
+  - bsteubing
+  - haasad
+  - pascallesage
 dependencies:
   - _anaconda_depends=2019.03=py36_0
   - _libgcc_mutex=0.1=main
@@ -41,7 +45,7 @@ dependencies:
   - bw2parameters=0.6.6=py_0
   - bw_migrations=0.1=py_0
   - bzip2=1.0.8=h7b6447c_0
-  - ca-certificates=2019.11.27=0
+  - ca-certificates=2019.11.28=hecc5488_0
   - cairo=1.14.12=h8948797_3
   - certifi=2019.11.28=py36_0
   - cffi=1.13.2=py36h2e261b9_0
@@ -50,6 +54,10 @@ dependencies:
   - cloudpickle=1.2.2=py_0
   - clyent=1.2.2=py36_1
   - colorama=0.4.3=py_0
+  - conda=4.8.1=py36_0
+  - conda-package-handling=1.6.0=py36h7b6447c_0
+  - conda-tree=0.1.0=py_0
+  - constructor=3.0.0=py36_0
   - contextlib2=0.6.0.post1=py_0
   - cryptography=2.8=py36h1ba5d50_0
   - curl=7.67.0=hbc83047_0
@@ -66,6 +74,7 @@ dependencies:
   - docutils=0.15.2=py36_0
   - eight=0.4.2=py_2
   - entrypoints=0.3=py36_0
+  - ephem=3.7.7.0=py36h516909a_0
   - et_xmlfile=1.0.1=py36_0
   - expat=2.2.6=he6710b0_0
   - fastcache=1.1.0=py36h7b6447c_0
@@ -82,6 +91,7 @@ dependencies:
   - gmp=6.1.2=h6c8ec71_1
   - gmpy2=2.0.8=py36h10f8cd9_2
   - graphite2=1.3.13=h23475e2_0
+  - graphviz=2.40.1=h21bd128_2
   - greenlet=0.4.15=py36h7b6447c_0
   - gst-plugins-base=1.14.0=hbbd80ab_1
   - gstreamer=1.14.0=hb453b48_1
@@ -110,6 +120,7 @@ dependencies:
   - jinja2=2.10.3=py_0
   - joblib=0.14.1=py_0
   - jpeg=9b=h024ee3a_2
+  - jplephem=2.12=pyhb958827_0
   - json5=0.8.5=py_0
   - jsonschema=3.2.0=py36_0
   - jupyter=1.0.0=py36_7
@@ -121,7 +132,7 @@ dependencies:
   - jupyter_highlight_selected_word=0.2.0=py36_1000
   - jupyter_latex_envs=1.4.4=py36_1000
   - jupyter_nbextensions_configurator=0.4.1=py36_0
-  - jupyterlab=1.2.4=pyhf63ae98_0
+  - jupyterlab=1.2.6=py_0
   - jupyterlab_server=1.0.6=py_0
   - jupytext=1.3.2=0
   - keyring=20.0.0=py36_0
@@ -149,11 +160,13 @@ dependencies:
   - libxslt=1.1.33=h7d1a2b0_0
   - llvmlite=0.30.0=py36hd408876_0
   - locket=0.2.0=py36_1
+  - lunardate=0.2.0=py_0
   - lxml=4.4.2=py36hefd8a0e_0
   - lz4-c=1.8.1.2=h14c3975_0
   - lzo=2.10=h49e0be7_2
   - markupsafe=1.1.1=py36h7b6447c_0
   - matplotlib=3.1.1=py36h5429711_0
+  - matplotlib-base=3.1.3=py36hef1b27d_0
   - mccabe=0.6.1=py36_1
   - metis=5.1.0=he1b5a44_1005
   - mistune=0.8.4=py36h7b6447c_0
@@ -166,6 +179,7 @@ dependencies:
   - more-itertools=8.0.2=py_0
   - mpc=1.1.0=h10f8cd9_1
   - mpfr=4.0.1=hdf1c602_3
+  - mpld3=0.3=py_2
   - mpmath=1.1.0=py36_0
   - mrio_common_metadata=0.1.1=py_0
   - msgpack-python=0.6.1=py36hfd86e86_1
@@ -179,14 +193,12 @@ dependencies:
   - notebook=6.0.2=py36_0
   - numba=0.46.0=py36h962f231_0
   - numexpr=2.7.0=py36h9e4a6bb_0
-  - numpy=1.17.4=py36hc1035e2_0
-  - numpy-base=1.17.4=py36hde5b4d6_0
+  - numpy-base=1.17.4=py36hde5b4d6_0 #
   - numpydoc=0.9.2=py_0
   - olefile=0.46=py36_0
   - openpyxl=3.0.2=py_0
-  - openssl=1.1.1d=h7b6447c_3
+  - openssl=1.1.1d=h516909a_0
   - packaging=20.0=py_0
-  - pandas=0.25.3=py36he6710b0_0
   - pandoc=2.2.3.2=0
   - pandocfilters=1.4.2=py36_1
   - pango=1.42.4=h049681c_0
@@ -210,7 +222,9 @@ dependencies:
   - prompt_toolkit=2.0.9=py36_0
   - psutil=5.6.7=py36h7b6447c_0
   - ptyprocess=0.6.0=py36_0
+  - pvlib=0.7.1=py_0
   - py=1.8.1=py_0
+  - pycalverter=1.6.1=py_0
   - pycodestyle=2.5.0=py36_0
   - pycosat=0.6.3=py36h7b6447c_0
   - pycparser=2.19=py36_0
@@ -219,6 +233,7 @@ dependencies:
   - pyflakes=2.1.1=py36_0
   - pygments=2.5.2=py_0
   - pylint=2.4.4=py36_0
+  - pyluach=1.0.1=py_0
   - pyodbc=4.0.27=py36he6710b0_0
   - pyopenssl=19.1.0=py36_0
   - pypardiso=0.2.2=py_0
@@ -237,7 +252,8 @@ dependencies:
   - pytest-remotedata=0.3.2=py36_0
   - python=3.6.10=h0371630_0
   - python-dateutil=2.8.1=py_0
-  - python-slugify=3.0.4=py_0
+  - python-graphviz=0.13.2=py_0
+  - python-slugify=1.2.6=py_0 #
   - pytz=2019.3=py_0
   - pywavelets=1.1.1=py36h7b6447c_0
   - pyyaml=5.2=py36h7b6447c_0
@@ -250,6 +266,7 @@ dependencies:
   - requests=2.22.0=py36_1
   - rope=0.14.0=py_0
   - ruamel_yaml=0.15.87=py36h7b6447c_0
+  - salib=1.1.2=py_0#
   - scikit-image=0.15.0=py36he6710b0_0
   - scikit-learn=0.22.1=py36hd81dba3_0
   - scikit-umfpack=0.3.2=py36h756d002_1003
@@ -258,10 +275,13 @@ dependencies:
   - secretstorage=3.1.1=py36_0
   - send2trash=1.5.0=py36_0
   - setuptools=44.0.0=py36_0
+  - sgp4=2.3=pyh5ca1d4c_0
   - simplegeneric=0.8.1=py36_2
   - singledispatch=3.4.0.3=py36_0
   - sip=4.19.8=py36hf484d3e_0
   - six=1.13.0=py36_0
+  - skyfield=1.17=py_2
+  - skyfield-data=0.1.0=py_0
   - snappy=1.1.7=hbae5bb6_3
   - snowballstemmer=2.0.0=py_0
   - sortedcollections=1.1.2=py36_0
@@ -283,7 +303,8 @@ dependencies:
   - stats_arrays=0.6.3=py_0
   - statsmodels=0.10.1=py36hdd07704_0
   - suitesparse=5.6.0=h717dc36_0
-  - sympy=1.5.1=py36_0
+  - sympy=1.5.1=py36_ # 
+  - tabulate=0.8.6=py_0
   - tbb=2019.9=hc9558a2_1
   - tblib=1.6.0=py_0
   - terminado=0.8.3=py36_0
@@ -292,6 +313,7 @@ dependencies:
   - tk=8.6.8=hbc83047_0
   - toolz=0.10.0=py_0
   - tornado=6.0.3=py36h7b6447c_0
+  - tqdm=4.41.1=py_0
   - traitlets=4.3.3=py36_0
   - typed-ast=1.4.0=py36h7b6447c_0
   - unicodecsv=0.14.1=py36_0
@@ -305,6 +327,7 @@ dependencies:
   - wheel=0.33.6=py36_0
   - whoosh=2.7.4=py_1
   - widgetsnbextension=3.5.1=py36_0
+  - workalendar=8.1.0=py_0
   - wrapt=1.11.2=py36h7b6447c_0
   - wurlitzer=2.0.0=py36_0
   - xlrd=1.2.0=py36_0
@@ -317,5 +340,21 @@ dependencies:
   - zipp=0.6.0=py_0
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.3.7=h0b5b093_0
+  - pip:
+    - demandlib==0.1.6
+    - ipyrmd==0.4.3
+    - itables==0.2.1
+    - livereload==2.6.1
+    - mako==1.1.1
+    - markdown==3.1.1
+    - mkdocs==1.0.4
+    - nbresuse==0.3.3
+    - numpy==1.16.6
+    - pandas==0.24.2 #
+    - pdoc3==0.7.4
+    - pyan==1.0.4.dev2+gb6cd0c6
+    - pydoc-markdown==2.0.5
+    - pyment==0.3.3
+    - snakeviz==2.0.1
 prefix: /home/rjolivet/anaconda3/envs/acv3.6
 

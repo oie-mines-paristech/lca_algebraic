@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.7.4" />
+<title>lca_algebraic.stats API documentation</title>
+<meta name="description" content="" />
+<link href='https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.0/normalize.min.css' rel='stylesheet'>
+<link href='https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/8.0.0/sanitize.min.css' rel='stylesheet'>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css" rel="stylesheet">
+<style>.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{font-weight:bold}#index h4 + ul{margin-bottom:.6em}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>lca_algebraic.stats</code></h1>
+</header>
+<section id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">import warnings
+
+import ipywidgets as widgets
+import seaborn as sns
+from SALib.analyze import sobol
+from SALib.sample import saltelli
+from ipywidgets import interact
+from matplotlib import pyplot as plt
+
+from .base_utils import _method_unit, _eprint
+from .lca import *
+from .lca import _expanded_names_to_names
+from .params import _variable_params, _fixed_params, _param_registry
+
+
+def _heatmap(df, title, vmax, ints=False):
+    &#39;&#39;&#39; Produce heatmap of a dataframe&#39;&#39;&#39;
+    fig, ax = plt.subplots(figsize=(17, 17))
+    sns.heatmap(df.transpose(), cmap=&#34;gist_heat_r&#34;, vmax=vmax, annot=True, fmt=&#39;.0f&#39; if ints else &#39;f&#39;, square=True)
+    plt.title(title, fontsize=20)
+    ax.tick_params(axis=&#34;x&#34;, labelsize=18)
+    ax.tick_params(axis=&#34;y&#34;, labelsize=18)
+
+
+def oat_matrix(model, impacts, n=10):
+    &#39;&#39;&#39;Generates a heatmap of the incertitude of the model, varying input parameters one a a time.&#39;&#39;&#39;
+
+    # Compile model into lambda functions for fast LCA
+    lambdas, required_params = preMultiLCAAlgebric(model, impacts)
+
+    required_param_names = _expanded_names_to_names(required_params)
+    required_params = {key: _param_registry()[key] for key in required_param_names}
+    var_params = _variable_params(required_param_names)
+
+
+    change = np.zeros((len(var_params), len(impacts)))
+
+    for iparam, param in enumerate(var_params.values()):
+        params = {param.name: param.default for param in required_params.values()}
+
+        # Compute range of values for given param
+        params[param.name] = param.range(n)
+
+        # Compute LCA
+        df = postMultiLCAAlgebric(impacts, lambdas, **params)
+
+        # Compute change
+        change[iparam] = (df.max() - df.min()) / df.median() * 100
+
+    # Build final heatmap
+    change = pd.DataFrame(change, index=var_params.keys(), columns=[imp[2] for imp in impacts])
+    _heatmap(change.transpose(), &#39;Change of impacts per variability of the input parameters (%)&#39;, 100, ints=True)
+
+
+def _display_tabs(titlesAndContentF):
+    &#39;&#39;&#39;Generate tabs&#39;&#39;&#39;
+    tabs = []
+    titles = []
+    for title, content_f in titlesAndContentF:
+        titles.append(title)
+
+        tab = widgets.Output()
+        with tab:
+            content_f()
+        tabs.append(tab)
+
+    res = widgets.Tab(children=tabs)
+    for i, title in enumerate(titles):
+        res.set_title(i, title)
+    display(res)
+
+
+def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None):
+    &#39;&#39;&#39;
+    Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
+
+    Parameters
+    ----------
+    model : activity, or lambdas as precomputed by preMultiLCAAlgebric, for faster computation
+    impacts : set of methods
+    param: parameter to analyse
+    n: number of samples of the parameter
+    &#39;&#39;&#39;
+
+    if all_param_names == None:
+        all_param_names = _param_registry().keys()
+
+    params = {name: _param_registry()[name].default for name in all_param_names}
+
+    # Compute range of values for given param
+    params[varying_param.name] = varying_param.range(n)
+
+    # print(&#34;Params: &#34;, params)
+
+    if isinstance(modelOrLambdas, Activity):
+        df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+    else:
+        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+
+    # Add X values in the table
+    pname = varying_param.name
+    if varying_param.unit:
+        pname = &#39;%s [%s]&#39; % (pname, varying_param.unit)
+    df.insert(0, pname, varying_param.range(n))
+    df = df.set_index(pname)
+
+    def table():
+        display(df)
+
+    def graph():
+
+        with warnings.catch_warnings():
+            warnings.simplefilter(&#34;ignore&#34;)
+
+            nb_rows = len(impacts) // 3 + 1
+
+            fig, axes = plt.subplots(figsize=(15, 15))
+
+            axes = df.plot(
+                ax=axes, sharex=True, subplots=True,
+                layout=(nb_rows, 3),
+                # legend=None,
+                kind=&#39;line&#39; if varying_param.type == ParamType.FLOAT else &#39;bar&#39;)
+
+            axes = axes.flatten()
+
+            for ax, impact in zip(axes, impacts):
+                ax.set_ylim(ymin=0)
+                ax.set_ylabel(_method_unit(impact))
+
+            plt.show(fig)
+
+    def change():
+
+        ch = (df.max() - df.min()) / df.median() * 100
+        fig, ax = plt.subplots(figsize=(9, 6))
+        plt.title(&#39;Relative change for %s&#39; % df.index.name)
+        ch.plot(kind=&#39;barh&#39;, rot=30)
+        ax.set_xlabel(&#39;Relative change of the median value (%)&#39;)
+        plt.tight_layout()
+        plt.show(fig)
+
+    _display_tabs([
+        (&#34;Graphs&#34;, graph),
+        (&#34;Data&#34;, table),
+        (&#34;Variation&#34;, change)
+    ])
+
+
+def oat_dashboard_interact(model, methods):
+    &#39;&#39;&#39;Interative dashboard, with a dropdown for selecting parameter&#39;&#39;&#39;
+
+    lambdas, required_params = preMultiLCAAlgebric(model, methods)
+
+    required_params = _expanded_names_to_names(required_params)
+
+    def process_func(param):
+        oat_dasboard(lambdas, methods, _param_registry()[param], all_param_names=required_params)
+
+    paramlist = list(_variable_params(required_params).keys())
+    interact(process_func, param=paramlist)
+
+
+def _stochastics(modelOrLambdas, methods, n=1000):
+    &#39;&#39;&#39; Compute stochastic impacts for later analysis of incertitude &#39;&#39;&#39;
+
+    # Extract variable names
+    param_names = list(_variable_params().keys())
+    problem = {
+        &#39;num_vars&#39;: len(param_names),
+        &#39;names&#39;: param_names,
+        &#39;bounds&#39;: [[0, 1]] * len(param_names)
+    }
+
+    print(&#34;Generating samples ...&#34;)
+    X = saltelli.sample(problem, n, calc_second_order=True)
+
+    # Map normalized 0-1 random values into real values
+    print(&#34;Transforming samples ...&#34;)
+    params = dict()
+    for i, param_name in enumerate(param_names):
+        param = _param_registry()[param_name]
+        vals = list(map(lambda v: param.rand(v), X[:, i]))
+        params[param_name] = vals
+
+    # Add static parameters
+    for param in _fixed_params().values():
+        params[param.name] = param.default
+
+    print(&#34;Processing LCA ...&#34;)
+    if isinstance(modelOrLambdas, Activity):
+        Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
+    else:
+        Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
+
+    return problem, X, Y
+
+
+def _sobols(methods, problem, Y):
+    &#39;&#39;&#39; Computes sobols indices&#39;&#39;&#39;
+    s1 = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
+    st = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
+
+    for i, method in enumerate(methods):
+
+        try:
+            y = Y[Y.columns[i]]
+            res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
+            st[:, i] = res[&#34;ST&#34;]
+            s1[:, i] = res[&#34;S1&#34;]
+
+        except Exception as e:
+            _eprint(&#34;Sobol failed on %s&#34; % method[2], e)
+    return (s1, st)
+
+
+def _incer_stochastic_matrix(methods, param_names, Y, st):
+    &#39;&#39;&#39; Internal method computing matrix of parameter importance &#39;&#39;&#39;
+
+    def draw(mode):
+
+        if mode == &#39;sobol&#39;:
+            data = st
+        else:
+            # If percent, express result as percentage of standard deviation / mean
+            data = np.zeros((len(param_names), len(methods)))
+            for i, method in enumerate(methods):
+                # Total variance
+                var = np.var(Y[Y.columns[i]])
+                mean = np.mean(Y[Y.columns[i]])
+                if mean != 0:
+                    data[:, i] = np.sqrt((st[:, i] * var)) / mean * 100
+
+        df = pd.DataFrame(data, index=param_names, columns=[method_name(method) for method in methods])
+        _heatmap(
+            df.transpose(),
+            title=&#34;Relative deviation of impacts (%)&#34; if mode == &#39;percent&#39; else &#34;Sobol indices (part of variability)&#34;,
+            vmax=100 if mode == &#39;percent&#39; else 1,
+            ints=mode == &#39;percent&#39;)
+
+    interact(draw, mode=[(&#39;Raw sobol indices (ST)&#39;, &#39;sobol&#39;), (&#39;Deviation (ST) / mean&#39;, &#39;percent&#39;)])
+
+
+def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
+    &#39;&#39;&#39; Method computing matrix of parameter importance &#39;&#39;&#39;
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
+
+
+def _incer_stochastic_violin(methods, Y):
+    &#39;&#39;&#39; Internal method for computing violin graph of impacts &#39;&#39;&#39;
+
+    nb_rows = math.ceil(len(methods) / 3)
+    fig, axes = plt.subplots(nb_rows, 3, figsize=(15, 15), sharex=True)
+
+    for imethod, method, ax in zip(range(len(methods)), methods, axes.flatten()):
+        ax.violinplot(Y[Y.columns[imethod]], showmedians=True)
+        ax.title.set_text(method_name(method))
+        ax.set_ylim(ymin=0)
+        ax.set_ylabel(_method_unit(method))
+
+    plt.tick_params(axis=&#39;x&#39;, which=&#39;both&#39;, bottom=False, top=False, labelbottom=False)
+    plt.show(fig)
+
+
+def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
+    &#39;&#39;&#39; Method for computing violin graph of impacts &#39;&#39;&#39;
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+
+    _incer_stochastic_violin(methods, Y)
+
+
+def _incer_stochastic_variations(methods, Y, param_names, sobols1):
+    &#39;&#39;&#39; Method for computing violin graph of impacts &#39;&#39;&#39;
+    method_names = [method_name(method) for method in methods]
+
+    std = np.std(Y)
+    mean = np.mean(Y)
+
+    fig = plt.figure(num=None, figsize=(12, 6), dpi=80, facecolor=&#39;w&#39;, edgecolor=&#39;k&#39;)
+    ax = plt.gca()
+    tab20b = plt.get_cmap(&#39;tab20b&#39;)
+    tab20c = plt.get_cmap(&#39;tab20c&#39;)
+    ax.set_prop_cycle(&#39;color&#39;, [tab20b(k) if k &lt; 1 else tab20c(k - 1) for k in np.linspace(0, 2, 40)])
+
+    relative_variance_pct = std * std / (mean * mean) * 100
+    totplt = plt.bar(np.arange(len(method_names)), relative_variance_pct, 0.8)
+
+    sum = np.zeros(len(methods))
+
+    plots = [totplt[0]]
+
+    data = np.zeros((len(param_names) + 2, len(methods)))
+    data[0, :] = mean
+    data[1, :] = std
+
+    for i_param, param_name in enumerate(param_names):
+        s1 = sobols1[i_param, :]
+        data[i_param + 2, :] = s1
+
+        curr_bar = s1 * relative_variance_pct
+        curr_plt = plt.bar(np.arange(len(method_names)), curr_bar, 0.8, bottom=sum)
+        sum += curr_bar
+        plots.append(curr_plt[0])
+
+    plt.legend(plots, [&#39;Higher order&#39;] + param_names)
+    plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
+    plt.title(&#34;variance / mean² (%)&#34;)
+    plt.show(fig)
+
+    # Show raw data
+    rows = [&#34;mean&#34;, &#34;std&#34;] + [&#34;s1(%s)&#34; % param for param in param_names]
+    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
+    display(df)
+
+
+def incer_stochastic_dasboard(model, methods, n=1000):
+    &#39;&#39;&#39; Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...&#39;&#39;&#39;
+
+    problem, X, Y = _stochastics(model, methods, n)
+    param_names = problem[&#39;names&#39;]
+
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
+    def violin():
+        _incer_stochastic_violin(methods, Y)
+
+    def variation():
+        _incer_stochastic_variations(methods, Y, param_names, s1)
+
+    def matrix():
+        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
+
+    _display_tabs([
+        (&#34;Violin graphs&#34;, violin),
+        (&#34;Impact variations&#34;, variation),
+        (&#34;Sobol matrix&#34;, matrix)
+    ])</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="lca_algebraic.stats.incer_stochastic_dasboard"><code class="name flex">
+<span>def <span class="ident">incer_stochastic_dasboard</span></span>(<span>model, methods, n=1000)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, &hellip;</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def incer_stochastic_dasboard(model, methods, n=1000):
+    &#39;&#39;&#39; Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...&#39;&#39;&#39;
+
+    problem, X, Y = _stochastics(model, methods, n)
+    param_names = problem[&#39;names&#39;]
+
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
+    def violin():
+        _incer_stochastic_violin(methods, Y)
+
+    def variation():
+        _incer_stochastic_variations(methods, Y, param_names, s1)
+
+    def matrix():
+        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
+
+    _display_tabs([
+        (&#34;Violin graphs&#34;, violin),
+        (&#34;Impact variations&#34;, variation),
+        (&#34;Sobol matrix&#34;, matrix)
+    ])</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.incer_stochastic_matrix"><code class="name flex">
+<span>def <span class="ident">incer_stochastic_matrix</span></span>(<span>modelOrLambdas, methods, n=1000)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Method computing matrix of parameter importance</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
+    &#39;&#39;&#39; Method computing matrix of parameter importance &#39;&#39;&#39;
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+
+    print(&#34;Processing Sobol indices ...&#34;)
+    s1, st = _sobols(methods, problem, Y)
+
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.incer_stochastic_violin"><code class="name flex">
+<span>def <span class="ident">incer_stochastic_violin</span></span>(<span>modelOrLambdas, methods, n=1000)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Method for computing violin graph of impacts</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
+    &#39;&#39;&#39; Method for computing violin graph of impacts &#39;&#39;&#39;
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+
+    _incer_stochastic_violin(methods, Y)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.oat_dasboard"><code class="name flex">
+<span>def <span class="ident">oat_dasboard</span></span>(<span>modelOrLambdas, impacts, varying_param, n=10, all_param_names=None)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>model</code></strong> :&ensp;<code>activity</code>, or <code>lambdas</code> <code>as</code> <code>precomputed</code> <code>by</code> <code>preMultiLCAAlgebric</code>, <code>for</code> <code>faster</code> <code>computation</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>impacts</code></strong> :&ensp;<code>set</code> of <code>methods</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>param</code></strong> :&ensp;<code>parameter</code> <code>to</code> <code>analyse</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>n</code></strong> :&ensp;<code>number</code> of <code>samples</code> of <code>the</code> <code>parameter</code></dt>
+<dd>&nbsp;</dd>
+</dl></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None):
+    &#39;&#39;&#39;
+    Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
+
+    Parameters
+    ----------
+    model : activity, or lambdas as precomputed by preMultiLCAAlgebric, for faster computation
+    impacts : set of methods
+    param: parameter to analyse
+    n: number of samples of the parameter
+    &#39;&#39;&#39;
+
+    if all_param_names == None:
+        all_param_names = _param_registry().keys()
+
+    params = {name: _param_registry()[name].default for name in all_param_names}
+
+    # Compute range of values for given param
+    params[varying_param.name] = varying_param.range(n)
+
+    # print(&#34;Params: &#34;, params)
+
+    if isinstance(modelOrLambdas, Activity):
+        df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+    else:
+        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+
+    # Add X values in the table
+    pname = varying_param.name
+    if varying_param.unit:
+        pname = &#39;%s [%s]&#39; % (pname, varying_param.unit)
+    df.insert(0, pname, varying_param.range(n))
+    df = df.set_index(pname)
+
+    def table():
+        display(df)
+
+    def graph():
+
+        with warnings.catch_warnings():
+            warnings.simplefilter(&#34;ignore&#34;)
+
+            nb_rows = len(impacts) // 3 + 1
+
+            fig, axes = plt.subplots(figsize=(15, 15))
+
+            axes = df.plot(
+                ax=axes, sharex=True, subplots=True,
+                layout=(nb_rows, 3),
+                # legend=None,
+                kind=&#39;line&#39; if varying_param.type == ParamType.FLOAT else &#39;bar&#39;)
+
+            axes = axes.flatten()
+
+            for ax, impact in zip(axes, impacts):
+                ax.set_ylim(ymin=0)
+                ax.set_ylabel(_method_unit(impact))
+
+            plt.show(fig)
+
+    def change():
+
+        ch = (df.max() - df.min()) / df.median() * 100
+        fig, ax = plt.subplots(figsize=(9, 6))
+        plt.title(&#39;Relative change for %s&#39; % df.index.name)
+        ch.plot(kind=&#39;barh&#39;, rot=30)
+        ax.set_xlabel(&#39;Relative change of the median value (%)&#39;)
+        plt.tight_layout()
+        plt.show(fig)
+
+    _display_tabs([
+        (&#34;Graphs&#34;, graph),
+        (&#34;Data&#34;, table),
+        (&#34;Variation&#34;, change)
+    ])</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.oat_dashboard_interact"><code class="name flex">
+<span>def <span class="ident">oat_dashboard_interact</span></span>(<span>model, methods)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Interative dashboard, with a dropdown for selecting parameter</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def oat_dashboard_interact(model, methods):
+    &#39;&#39;&#39;Interative dashboard, with a dropdown for selecting parameter&#39;&#39;&#39;
+
+    lambdas, required_params = preMultiLCAAlgebric(model, methods)
+
+    required_params = _expanded_names_to_names(required_params)
+
+    def process_func(param):
+        oat_dasboard(lambdas, methods, _param_registry()[param], all_param_names=required_params)
+
+    paramlist = list(_variable_params(required_params).keys())
+    interact(process_func, param=paramlist)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.oat_matrix"><code class="name flex">
+<span>def <span class="ident">oat_matrix</span></span>(<span>model, impacts, n=10)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Generates a heatmap of the incertitude of the model, varying input parameters one a a time.</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def oat_matrix(model, impacts, n=10):
+    &#39;&#39;&#39;Generates a heatmap of the incertitude of the model, varying input parameters one a a time.&#39;&#39;&#39;
+
+    # Compile model into lambda functions for fast LCA
+    lambdas, required_params = preMultiLCAAlgebric(model, impacts)
+
+    required_param_names = _expanded_names_to_names(required_params)
+    required_params = {key: _param_registry()[key] for key in required_param_names}
+    var_params = _variable_params(required_param_names)
+
+
+    change = np.zeros((len(var_params), len(impacts)))
+
+    for iparam, param in enumerate(var_params.values()):
+        params = {param.name: param.default for param in required_params.values()}
+
+        # Compute range of values for given param
+        params[param.name] = param.range(n)
+
+        # Compute LCA
+        df = postMultiLCAAlgebric(impacts, lambdas, **params)
+
+        # Compute change
+        change[iparam] = (df.max() - df.min()) / df.median() * 100
+
+    # Build final heatmap
+    change = pd.DataFrame(change, index=var_params.keys(), columns=[imp[2] for imp in impacts])
+    _heatmap(change.transpose(), &#39;Change of impacts per variability of the input parameters (%)&#39;, 100, ints=True)</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+</article>
+<nav id="sidebar">
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="lca_algebraic" href="index.html">lca_algebraic</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="lca_algebraic.stats.incer_stochastic_dasboard" href="#lca_algebraic.stats.incer_stochastic_dasboard">incer_stochastic_dasboard</a></code></li>
+<li><code><a title="lca_algebraic.stats.incer_stochastic_matrix" href="#lca_algebraic.stats.incer_stochastic_matrix">incer_stochastic_matrix</a></code></li>
+<li><code><a title="lca_algebraic.stats.incer_stochastic_violin" href="#lca_algebraic.stats.incer_stochastic_violin">incer_stochastic_violin</a></code></li>
+<li><code><a title="lca_algebraic.stats.oat_dasboard" href="#lca_algebraic.stats.oat_dasboard">oat_dasboard</a></code></li>
+<li><code><a title="lca_algebraic.stats.oat_dashboard_interact" href="#lca_algebraic.stats.oat_dashboard_interact">oat_dashboard_interact</a></code></li>
+<li><code><a title="lca_algebraic.stats.oat_matrix" href="#lca_algebraic.stats.oat_matrix">oat_matrix</a></code></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.7.4</a>.</p>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+<script>hljs.initHighlightingOnLoad()</script>
+</body>
+</html>

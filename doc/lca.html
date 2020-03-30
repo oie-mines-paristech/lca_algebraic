@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+<meta name="generator" content="pdoc 0.7.4" />
+<title>lca_algebraic.lca API documentation</title>
+<meta name="description" content="" />
+<link href='https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.0/normalize.min.css' rel='stylesheet'>
+<link href='https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/8.0.0/sanitize.min.css' rel='stylesheet'>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css" rel="stylesheet">
+<style>.flex{display:flex !important}body{line-height:1.5em}#content{padding:20px}#sidebar{padding:30px;overflow:hidden}.http-server-breadcrumbs{font-size:130%;margin:0 0 15px 0}#footer{font-size:.75em;padding:5px 30px;border-top:1px solid #ddd;text-align:right}#footer p{margin:0 0 0 1em;display:inline-block}#footer p:last-child{margin-right:30px}h1,h2,h3,h4,h5{font-weight:300}h1{font-size:2.5em;line-height:1.1em}h2{font-size:1.75em;margin:1em 0 .50em 0}h3{font-size:1.4em;margin:25px 0 10px 0}h4{margin:0;font-size:105%}a{color:#058;text-decoration:none;transition:color .3s ease-in-out}a:hover{color:#e82}.title code{font-weight:bold}h2[id^="header-"]{margin-top:2em}.ident{color:#900}pre code{background:#f8f8f8;font-size:.8em;line-height:1.4em}code{background:#f2f2f1;padding:1px 4px;overflow-wrap:break-word}h1 code{background:transparent}pre{background:#f8f8f8;border:0;border-top:1px solid #ccc;border-bottom:1px solid #ccc;margin:1em 0;padding:1ex}#http-server-module-list{display:flex;flex-flow:column}#http-server-module-list div{display:flex}#http-server-module-list dt{min-width:10%}#http-server-module-list p{margin-top:0}.toc ul,#index{list-style-type:none;margin:0;padding:0}#index code{background:transparent}#index h3{border-bottom:1px solid #ddd}#index ul{padding:0}#index h4{font-weight:bold}#index h4 + ul{margin-bottom:.6em}@media (min-width:200ex){#index .two-column{column-count:2}}@media (min-width:300ex){#index .two-column{column-count:3}}dl{margin-bottom:2em}dl dl:last-child{margin-bottom:4em}dd{margin:0 0 1em 3em}#header-classes + dl > dd{margin-bottom:3em}dd dd{margin-left:2em}dd p{margin:10px 0}.name{background:#eee;font-weight:bold;font-size:.85em;padding:5px 10px;display:inline-block;min-width:40%}.name:hover{background:#e0e0e0}.name > span:first-child{white-space:nowrap}.name.class > span:nth-child(2){margin-left:.4em}.inherited{color:#999;border-left:5px solid #eee;padding-left:1em}.inheritance em{font-style:normal;font-weight:bold}.desc h2{font-weight:400;font-size:1.25em}.desc h3{font-size:1em}.desc dt code{background:inherit}.source summary,.git-link-div{color:#666;text-align:right;font-weight:400;font-size:.8em;text-transform:uppercase}.source summary > *{white-space:nowrap;cursor:pointer}.git-link{color:inherit;margin-left:1em}.source pre{max-height:500px;overflow:auto;margin:0}.source pre code{font-size:12px;overflow:visible}.hlist{list-style:none}.hlist li{display:inline}.hlist li:after{content:',\2002'}.hlist li:last-child:after{content:none}.hlist .hlist{display:inline;padding-left:1em}img{max-width:100%}.admonition{padding:.1em .5em;margin-bottom:1em}.admonition-title{font-weight:bold}.admonition.note,.admonition.info,.admonition.important{background:#aef}.admonition.todo,.admonition.versionadded,.admonition.tip,.admonition.hint{background:#dfd}.admonition.warning,.admonition.versionchanged,.admonition.deprecated{background:#fd4}.admonition.error,.admonition.danger,.admonition.caution{background:lightpink}</style>
+<style media="screen and (min-width: 700px)">@media screen and (min-width:700px){#sidebar{width:30%}#content{width:70%;max-width:100ch;padding:3em 4em;border-left:1px solid #ddd}pre code{font-size:1em}.item .name{font-size:1em}main{display:flex;flex-direction:row-reverse;justify-content:flex-end}.toc ul ul,#index ul{padding-left:1.5em}.toc > ul > li{margin-top:.5em}}</style>
+<style media="print">@media print{#sidebar h1{page-break-before:always}.source{display:none}}@media print{*{background:transparent !important;color:#000 !important;box-shadow:none !important;text-shadow:none !important}a[href]:after{content:" (" attr(href) ")";font-size:90%}a[href][title]:after{content:none}abbr[title]:after{content:" (" attr(title) ")"}.ir a:after,a[href^="javascript:"]:after,a[href^="#"]:after{content:""}pre,blockquote{border:1px solid #999;page-break-inside:avoid}thead{display:table-header-group}tr,img{page-break-inside:avoid}img{max-width:100% !important}@page{margin:0.5cm}p,h2,h3{orphans:3;widows:3}h1,h2,h3,h4,h5,h6{page-break-after:avoid}}</style>
+</head>
+<body>
+<main>
+<article id="content">
+<header>
+<h1 class="title">Module <code>lca_algebraic.lca</code></h1>
+</header>
+<section id="section-intro">
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">from collections import OrderedDict
+
+import numpy as np
+from slugify import slugify
+from sympy import lambdify
+
+from .base_utils import _actName, _eprint, _getDb
+from .base_utils import _getAmountOrFormula
+from .helpers import *
+from .params import _param_registry, _completeParamValues
+
+
+def _multiLCA(activities, methods):
+    &#34;&#34;&#34;Simple wrapper around brightway API&#34;&#34;&#34;
+    bw.calculation_setups[&#39;process&#39;] = {&#39;inv&#39;: activities, &#39;ia&#39;: methods}
+    lca = bw.MultiLCA(&#39;process&#39;)
+    cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
+    return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
+
+
+def multiLCA(model, methods, **params):
+    &#34;&#34;&#34;Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
+
+    Parameters
+    ----------
+    model : Single activity (root model) or list of activities
+    methods : Impact methods to consider
+    params : Other parameters of the model
+    &#34;&#34;&#34;
+
+    # Check and expand params
+    params = _completeParamValues(params)
+
+    # Update brightway parameters
+    bwParams = [dict(name=key, amount=value) for key, value in params.items()]
+    bw.parameters.new_project_parameters(bwParams)
+
+    # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
+    bw.parameters.recalculate()
+
+    if isinstance(model, list):
+        activities = [{act: 1} for act in model]
+    else:
+        activities = [{model: 1}]
+    return _multiLCA(activities, methods).transpose()
+
+
+def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
+    &#39;&#39;&#39;
+        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+
+        This method is used by multiLCAAlgebric
+    &#39;&#39;&#39;
+
+    # print(&#34;computing model to expression for %s&#34; % model)
+    expr, actBySymbolName = actToExpression(model)
+
+    dbname = model.key[0]
+
+    # Required params
+    free_names = set([str(symb) for symb in expr.free_symbols])
+    act_names = set([str(symb) for symb in actBySymbolName.keys()])
+    expected_names = free_names - act_names
+
+    # If we expect an enu param name, we also expect the other ones : enumparam_val1 =&gt; enumparam_val1, enumparam_val2, ...
+    expected_names = _expand_param_names(_expanded_names_to_names(expected_names))
+
+    # Create dummy reference to biosphere
+    # We cannot run LCA to biosphere activities
+    # We create a technosphere activity mapping exactly to 1 biosphere item
+    pureTechActBySymbol = OrderedDict()
+    for name, act in actBySymbolName.items():
+        if act[0] == BIOSPHERE3_DB_NAME:
+            act = _getOrCreateDummyBiosphereActCopy(dbname, act[1])
+        else:
+            act = getActByCode(*act)
+        pureTechActBySymbol[name] = act
+
+    # List of activities, ordered
+    acts = pureTechActBySymbol.values()
+
+    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
+    actsWithAmount = [{act: 1} for act in acts]
+
+    # Compute LCA for all background activities and methods
+    lca = _multiLCA(actsWithAmount, methods)
+
+    # For each method, compute an algebric expression with activities replaced by their values
+    lambdas = []
+    for imethod, method in enumerate(methods):
+        # print(&#34;Generating lamba function for %s / %s&#34; % (model, method))
+
+        # Replace activities by their value in expression for this method
+        sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
+        method_expr = expr.xreplace(sub)
+
+        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
+        lambd = lambdify(expected_names, method_expr, &#39;numpy&#39;)
+        lambdas.append(lambd)
+
+    return lambdas, expected_names
+
+
+def method_name(method):
+    return method[1] + &#34; - &#34; + method[2]
+
+
+def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
+    &#39;&#39;&#39;
+        Compute LCA for a given set of parameters and pre-compiled lambda functions.
+        This function is used by **multiLCAAlgebric**
+
+        Parameters
+        ----------
+        methodAndLambdas : Output of preMultiLCAAlgebric
+        **params : Parameters of the model
+    &#39;&#39;&#39;
+
+    # Check and expand params
+    params = _completeParamValues(params)
+
+    # Expand parameters as list of parameters
+    param_length = 1
+
+    for key, val in params.items():
+        if isinstance(val, list):
+            if param_length == 1:
+                param_length = len(val)
+            elif param_length != len(val):
+                raise Exception(&#34;Parameters should be a single value or a list of same number of values&#34;)
+
+    # Expand params and transform lists to np.array for vector computation
+    for key in params.keys():
+        val = params[key]
+        if not isinstance(val, list):
+            val = list([val] * param_length)
+        params[key] = np.array(val)
+
+    res = np.zeros((len(methods), param_length))
+
+    # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
+    for imethod, lambd in enumerate(lambdas):
+        res[imethod, :] = alpha * lambd(**params)
+
+    return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
+
+
+def _expand_param_names(param_names):
+    &#39;&#39;&#39;Expand parameters names (with enum params) &#39;&#39;&#39;
+    return [name for key in param_names for name in _param_registry()[key].names()]
+
+
+def _expanded_names_to_names(param_names):
+    &#34;&#34;&#34;Find params corresponding to expanded names, including enums.&#34;&#34;&#34;
+    param_names = set(param_names)
+    res = dict()
+    for param in _param_registry().values():
+        for name in param.names():
+            if name in param_names:
+                res[name] = param
+
+    missing = param_names - set(res.keys())
+    if len(missing) &gt; 0:
+        raise Exception(&#34;Unkown params : %s&#34; % missing)
+
+    return {param.name for param in res.values()}
+
+
+def multiLCAAlgebric(models, methods, **params):
+    &#34;&#34;&#34;Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    Then, compute &#39;static&#39; inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
+
+    Parameters
+    ----------
+    models : Single model or list of models or dict of model:amount : if list of models, you cannot use param lists
+    methods : List of methods / impacts to consider
+    params : You should provide named values of all the parameters declared in the model. \
+             Values can be single value or list of samples, all of the same size
+    &#34;&#34;&#34;
+    dfs = dict()
+
+    if not isinstance(models, list):
+        models = [models]
+
+    for model in models:
+
+        alpha = 1
+        if type(model) is tuple:
+            model, alpha = model
+
+        # Fill default values
+        lambdas, expected_names = preMultiLCAAlgebric(model, methods)
+
+        # Replace missing names by default value
+        expected_params = _expanded_names_to_names(expected_names)
+        for expected_name in expected_params:
+            if expected_name not in params:
+                default = _param_registry()[expected_name].default
+                params[expected_name] = default
+                _eprint(&#34;Missing parameter %s, replaced by default value %s&#34; % (expected_name, default))
+
+        # Filter on required parameters
+        filtered_params = dict()
+        for key, value in params.items():
+            if key in expected_params:
+                filtered_params[key] = value
+            else:
+                _eprint(&#34;Param %s not required for model %s&#34; % (key, model))
+
+        df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **filtered_params)
+
+        model_name = _actName(model)
+
+        # Single params ? =&gt; give the single row the name of the model activity
+        if df.shape[0] == 1:
+            df = df.rename(index={0: model_name})
+
+        dfs[model_name] = df
+
+    if len(dfs) == 1:
+        df = list(dfs.values())[0]
+        return df
+    else:
+        # Concat several dataframes for several models
+        return pd.concat(list(dfs.values()))
+
+
+def _getOrCreateDummyBiosphereActCopy(dbname, code):
+    &#34;&#34;&#34;
+        We cannot reference directly biosphere in the model, since LCA can only be applied to products
+        We create a dummy activity in our DB, with same code, and single exchange of amount &#39;1&#39;
+    &#34;&#34;&#34;
+
+    code_to_find = code + &#34;#asTech&#34;
+    try:
+        return _getDb(dbname).get(code_to_find)
+    except:
+        bioAct = _getDb(BIOSPHERE3_DB_NAME).get(code)
+        name = bioAct[&#39;name&#39;] + &#39; # asTech&#39;
+        res = newActivity(dbname, name, bioAct[&#39;unit&#39;], {bioAct: 1}, code=code_to_find)
+        return res
+
+
+def actToExpression(act: Activity):
+    &#34;&#34;&#34;Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
+
+    Returns
+    -------
+        (sympy_expr, dict of symbol =&gt; activity)
+    &#34;&#34;&#34;
+
+    act_symbols = dict()  # Dict of  act = &gt; symbol
+
+    def act_to_symbol(db_name, code):
+
+        act = _getDb(db_name).get(code)
+        name = act[&#39;name&#39;]
+        base_slug = slugify(name, separator=&#39;_&#39;)
+
+        slug = base_slug
+        i = 1
+        while symbols(slug) in act_symbols.values():
+            slug = f&#34;{base_slug}{i}&#34;
+            i += 1
+
+        return symbols(slug)
+
+    def rec_func(act: Activity):
+
+        res = 0
+        outputAmount = 1
+
+        for exch in act.exchanges():
+
+            formula = _getAmountOrFormula(exch)
+
+            if isinstance(formula, types.FunctionType):
+                # Some amounts in EIDB are functions ... we ignore them
+                continue
+
+            input_db, input_code = exch[&#39;input&#39;]
+
+            #  Different output ?
+            if exch[&#39;input&#39;] == exch[&#39;output&#39;]:
+                if exch[&#39;amount&#39;] != 1:
+                    outputAmount = exch[&#39;amount&#39;]
+                continue
+
+            # Background DB =&gt; reference it as a symbol
+            if input_db in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                if not (input_db, input_code) in act_symbols:
+                    act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
+                act_expr = act_symbols[(input_db, input_code)]
+
+            # Our model : recursively transform it to a symbolic expression
+            else:
+
+                if input_db == act[&#39;database&#39;] and input_code == act[&#39;code&#39;]:
+                    raise Exception(&#34;Recursive exchange : %s&#34; % (act.__dict__))
+
+                sub_act = _getDb(input_db).get(input_code)
+                act_expr = rec_func(sub_act)
+
+            res += formula * act_expr
+
+        return res / outputAmount
+
+    expr = rec_func(act)
+
+    return (expr, _reverse_dict(act_symbols))
+
+
+def _reverse_dict(dic):
+    return {v: k for k, v in dic.items()}</code></pre>
+</details>
+</section>
+<section>
+</section>
+<section>
+</section>
+<section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="lca_algebraic.lca.actToExpression"><code class="name flex">
+<span>def <span class="ident">actToExpression</span></span>(<span>act)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Computes a symbolic expression of the model, referencing background activities and model parameters as symbols</p>
+<h2 id="returns">Returns</h2>
+<pre><code>(sympy_expr, dict of symbol =&gt; activity)
+</code></pre></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def actToExpression(act: Activity):
+    &#34;&#34;&#34;Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
+
+    Returns
+    -------
+        (sympy_expr, dict of symbol =&gt; activity)
+    &#34;&#34;&#34;
+
+    act_symbols = dict()  # Dict of  act = &gt; symbol
+
+    def act_to_symbol(db_name, code):
+
+        act = _getDb(db_name).get(code)
+        name = act[&#39;name&#39;]
+        base_slug = slugify(name, separator=&#39;_&#39;)
+
+        slug = base_slug
+        i = 1
+        while symbols(slug) in act_symbols.values():
+            slug = f&#34;{base_slug}{i}&#34;
+            i += 1
+
+        return symbols(slug)
+
+    def rec_func(act: Activity):
+
+        res = 0
+        outputAmount = 1
+
+        for exch in act.exchanges():
+
+            formula = _getAmountOrFormula(exch)
+
+            if isinstance(formula, types.FunctionType):
+                # Some amounts in EIDB are functions ... we ignore them
+                continue
+
+            input_db, input_code = exch[&#39;input&#39;]
+
+            #  Different output ?
+            if exch[&#39;input&#39;] == exch[&#39;output&#39;]:
+                if exch[&#39;amount&#39;] != 1:
+                    outputAmount = exch[&#39;amount&#39;]
+                continue
+
+            # Background DB =&gt; reference it as a symbol
+            if input_db in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                if not (input_db, input_code) in act_symbols:
+                    act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
+                act_expr = act_symbols[(input_db, input_code)]
+
+            # Our model : recursively transform it to a symbolic expression
+            else:
+
+                if input_db == act[&#39;database&#39;] and input_code == act[&#39;code&#39;]:
+                    raise Exception(&#34;Recursive exchange : %s&#34; % (act.__dict__))
+
+                sub_act = _getDb(input_db).get(input_code)
+                act_expr = rec_func(sub_act)
+
+            res += formula * act_expr
+
+        return res / outputAmount
+
+    expr = rec_func(act)
+
+    return (expr, _reverse_dict(act_symbols))</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.lca.method_name"><code class="name flex">
+<span>def <span class="ident">method_name</span></span>(<span>method)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def method_name(method):
+    return method[1] + &#34; - &#34; + method[2]</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.lca.multiLCA"><code class="name flex">
+<span>def <span class="ident">multiLCA</span></span>(<span>model, methods, **params)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>model</code></strong> :&ensp;<code>Single</code> <code>activity</code> (<code>root</code> <code>model</code>) or <code>list</code> of <code>activities</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>methods</code></strong> :&ensp;<code>Impact</code> <code>methods</code> <code>to</code> <code>consider</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>params</code></strong> :&ensp;<code>Other</code> <code>parameters</code> of <code>the</code> <code>model</code></dt>
+<dd>&nbsp;</dd>
+</dl></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def multiLCA(model, methods, **params):
+    &#34;&#34;&#34;Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
+
+    Parameters
+    ----------
+    model : Single activity (root model) or list of activities
+    methods : Impact methods to consider
+    params : Other parameters of the model
+    &#34;&#34;&#34;
+
+    # Check and expand params
+    params = _completeParamValues(params)
+
+    # Update brightway parameters
+    bwParams = [dict(name=key, amount=value) for key, value in params.items()]
+    bw.parameters.new_project_parameters(bwParams)
+
+    # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
+    bw.parameters.recalculate()
+
+    if isinstance(model, list):
+        activities = [{act: 1} for act in model]
+    else:
+        activities = [{model: 1}]
+    return _multiLCA(activities, methods).transpose()</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.lca.multiLCAAlgebric"><code class="name flex">
+<span>def <span class="ident">multiLCAAlgebric</span></span>(<span>models, methods, **params)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+Then, compute 'static' inventory of the referenced background activities.
+This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>models</code></strong> :&ensp;<code>Single</code> <code>model</code> or <code>list</code> of <code>models</code> or <code>dict</code> of <code>model</code>:<code>amount</code> : <code>if</code> <code>list</code> of <code>models</code>, <code>you</code> <code>cannot</code> <code>use</code> <code>param</code> <code>lists</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>methods</code></strong> :&ensp;<code>List</code> of <code>methods</code> / <code>impacts</code> <code>to</code> <code>consider</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>params</code></strong> :&ensp;<code>You</code> <code>should</code> <code>provide</code> <code>named</code> <code>values</code> of <code>all</code> <code>the</code> <code>parameters</code> <code>declared</code> <code>in</code> <code>the</code> <code>model.</code>
+<code>Values</code> <code>can</code> <code>be</code> <code>single</code> <code>value</code> or <code>list</code> of <code>samples</code>, <code>all</code> of <code>the</code> <code>same</code> <code>size</code></dt>
+<dd>&nbsp;</dd>
+</dl></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def multiLCAAlgebric(models, methods, **params):
+    &#34;&#34;&#34;Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    Then, compute &#39;static&#39; inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
+
+    Parameters
+    ----------
+    models : Single model or list of models or dict of model:amount : if list of models, you cannot use param lists
+    methods : List of methods / impacts to consider
+    params : You should provide named values of all the parameters declared in the model. \
+             Values can be single value or list of samples, all of the same size
+    &#34;&#34;&#34;
+    dfs = dict()
+
+    if not isinstance(models, list):
+        models = [models]
+
+    for model in models:
+
+        alpha = 1
+        if type(model) is tuple:
+            model, alpha = model
+
+        # Fill default values
+        lambdas, expected_names = preMultiLCAAlgebric(model, methods)
+
+        # Replace missing names by default value
+        expected_params = _expanded_names_to_names(expected_names)
+        for expected_name in expected_params:
+            if expected_name not in params:
+                default = _param_registry()[expected_name].default
+                params[expected_name] = default
+                _eprint(&#34;Missing parameter %s, replaced by default value %s&#34; % (expected_name, default))
+
+        # Filter on required parameters
+        filtered_params = dict()
+        for key, value in params.items():
+            if key in expected_params:
+                filtered_params[key] = value
+            else:
+                _eprint(&#34;Param %s not required for model %s&#34; % (key, model))
+
+        df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **filtered_params)
+
+        model_name = _actName(model)
+
+        # Single params ? =&gt; give the single row the name of the model activity
+        if df.shape[0] == 1:
+            df = df.rename(index={0: model_name})
+
+        dfs[model_name] = df
+
+    if len(dfs) == 1:
+        df = list(dfs.values())[0]
+        return df
+    else:
+        # Concat several dataframes for several models
+        return pd.concat(list(dfs.values()))</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.lca.postMultiLCAAlgebric"><code class="name flex">
+<span>def <span class="ident">postMultiLCAAlgebric</span></span>(<span>methods, lambdas, alpha=1, **params)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Compute LCA for a given set of parameters and pre-compiled lambda functions.
+This function is used by <strong>multiLCAAlgebric</strong></p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>methodAndLambdas</code></strong> :&ensp;<code>Output</code> of <a title="lca_algebraic.lca.preMultiLCAAlgebric" href="#lca_algebraic.lca.preMultiLCAAlgebric"><code>preMultiLCAAlgebric()</code></a></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>**params</code></strong> :&ensp;<code>Parameters</code> of <code>the</code> <code>model</code></dt>
+<dd>&nbsp;</dd>
+</dl></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
+    &#39;&#39;&#39;
+        Compute LCA for a given set of parameters and pre-compiled lambda functions.
+        This function is used by **multiLCAAlgebric**
+
+        Parameters
+        ----------
+        methodAndLambdas : Output of preMultiLCAAlgebric
+        **params : Parameters of the model
+    &#39;&#39;&#39;
+
+    # Check and expand params
+    params = _completeParamValues(params)
+
+    # Expand parameters as list of parameters
+    param_length = 1
+
+    for key, val in params.items():
+        if isinstance(val, list):
+            if param_length == 1:
+                param_length = len(val)
+            elif param_length != len(val):
+                raise Exception(&#34;Parameters should be a single value or a list of same number of values&#34;)
+
+    # Expand params and transform lists to np.array for vector computation
+    for key in params.keys():
+        val = params[key]
+        if not isinstance(val, list):
+            val = list([val] * param_length)
+        params[key] = np.array(val)
+
+    res = np.zeros((len(methods), param_length))
+
+    # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
+    for imethod, lambd in enumerate(lambdas):
+        res[imethod, :] = alpha * lambd(**params)
+
+    return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.lca.preMultiLCAAlgebric"><code class="name flex">
+<span>def <span class="ident">preMultiLCAAlgebric</span></span>(<span>model, methods, amount=1)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.</p>
+<p>This method is used by multiLCAAlgebric</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
+    &#39;&#39;&#39;
+        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+
+        This method is used by multiLCAAlgebric
+    &#39;&#39;&#39;
+
+    # print(&#34;computing model to expression for %s&#34; % model)
+    expr, actBySymbolName = actToExpression(model)
+
+    dbname = model.key[0]
+
+    # Required params
+    free_names = set([str(symb) for symb in expr.free_symbols])
+    act_names = set([str(symb) for symb in actBySymbolName.keys()])
+    expected_names = free_names - act_names
+
+    # If we expect an enu param name, we also expect the other ones : enumparam_val1 =&gt; enumparam_val1, enumparam_val2, ...
+    expected_names = _expand_param_names(_expanded_names_to_names(expected_names))
+
+    # Create dummy reference to biosphere
+    # We cannot run LCA to biosphere activities
+    # We create a technosphere activity mapping exactly to 1 biosphere item
+    pureTechActBySymbol = OrderedDict()
+    for name, act in actBySymbolName.items():
+        if act[0] == BIOSPHERE3_DB_NAME:
+            act = _getOrCreateDummyBiosphereActCopy(dbname, act[1])
+        else:
+            act = getActByCode(*act)
+        pureTechActBySymbol[name] = act
+
+    # List of activities, ordered
+    acts = pureTechActBySymbol.values()
+
+    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
+    actsWithAmount = [{act: 1} for act in acts]
+
+    # Compute LCA for all background activities and methods
+    lca = _multiLCA(actsWithAmount, methods)
+
+    # For each method, compute an algebric expression with activities replaced by their values
+    lambdas = []
+    for imethod, method in enumerate(methods):
+        # print(&#34;Generating lamba function for %s / %s&#34; % (model, method))
+
+        # Replace activities by their value in expression for this method
+        sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
+        method_expr = expr.xreplace(sub)
+
+        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
+        lambd = lambdify(expected_names, method_expr, &#39;numpy&#39;)
+        lambdas.append(lambd)
+
+    return lambdas, expected_names</code></pre>
+</details>
+</dd>
+</dl>
+</section>
+<section>
+</section>
+</article>
+<nav id="sidebar">
+<h1>Index</h1>
+<div class="toc">
+<ul></ul>
+</div>
+<ul id="index">
+<li><h3>Super-module</h3>
+<ul>
+<li><code><a title="lca_algebraic" href="index.html">lca_algebraic</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="lca_algebraic.lca.actToExpression" href="#lca_algebraic.lca.actToExpression">actToExpression</a></code></li>
+<li><code><a title="lca_algebraic.lca.method_name" href="#lca_algebraic.lca.method_name">method_name</a></code></li>
+<li><code><a title="lca_algebraic.lca.multiLCA" href="#lca_algebraic.lca.multiLCA">multiLCA</a></code></li>
+<li><code><a title="lca_algebraic.lca.multiLCAAlgebric" href="#lca_algebraic.lca.multiLCAAlgebric">multiLCAAlgebric</a></code></li>
+<li><code><a title="lca_algebraic.lca.postMultiLCAAlgebric" href="#lca_algebraic.lca.postMultiLCAAlgebric">postMultiLCAAlgebric</a></code></li>
+<li><code><a title="lca_algebraic.lca.preMultiLCAAlgebric" href="#lca_algebraic.lca.preMultiLCAAlgebric">preMultiLCAAlgebric</a></code></li>
+</ul>
+</li>
+</ul>
+</nav>
+</main>
+<footer id="footer">
+<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.7.4</a>.</p>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+<script>hljs.initHighlightingOnLoad()</script>
+</body>
+</html>
