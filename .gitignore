@@ -8,3 +8,4 @@ __pycache__/
 *.zip
 *.exe
 *.ignore.*
+*.egg-info
