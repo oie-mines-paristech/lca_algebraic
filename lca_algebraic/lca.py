@@ -1,7 +1,7 @@
 from collections import OrderedDict
 
+import re
 import numpy as np
-from slugify import slugify
 from sympy import lambdify
 
 from .base_utils import _actName, _eprint, _getDb
@@ -105,6 +105,8 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
 def method_name(method):
     return method[1] + " - " + method[2]
 
+def _slugify(str) :
+    return re.sub('[^0-9a-zA-Z]+', '_', str)
 
 def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     '''
@@ -257,7 +259,7 @@ def actToExpression(act: Activity):
 
         act = _getDb(db_name).get(code)
         name = act['name']
-        base_slug = slugify(name, separator='_')
+        base_slug = _slugify(name)
 
         slug = base_slug
         i = 1

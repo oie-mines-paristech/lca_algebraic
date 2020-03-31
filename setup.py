@@ -10,7 +10,7 @@ def read(fname):
 
 setup(
     name = "lca_algebraic",
-    version = "0.0.1",
+    version = "0.0.2",
     author = "OIE - Mines ParisTech",
     author_email = "raphael.jolivet@mines-paristech.fr",
     description = ("This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."),
@@ -24,7 +24,7 @@ setup(
     install_requires=[
         'tabulate>=0.8.6',
         'ipywidgets>=7.5.1',
-        'pandas>=1.0.1',
+        'pandas',
         'seaborn>=0.9.0',
         'sympy>=1.5.1',
         'nbformat>=4.4.0',
@@ -35,7 +35,5 @@ setup(
         'scipy>=1.3.2',
         'brightway2>=2.3',
         'ipython>=7.13.0',
-        'SALib>=1.3.8',
-        'python-slugify>=4.0.0'
-    ]
+        'SALib>=1.3.8']
 )
