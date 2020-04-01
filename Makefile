@@ -1,4 +1,6 @@
 TST_NOTEBOOK:=algebraic_model.ipynb
+VERSION:=$(shell cat VERSION)
+
 #TST_IPNB:=algebraic_model_tst.ipynb
 
 .PHONY: doc test package tst-upload 
@@ -14,14 +16,24 @@ doc:
 clean:
 	rm -r dist
 
-package:
+package-pip:
 	python setup.py sdist bdist_wheel --universal
 
-tst-upload:
+package-conda :
+	conda build conda-recipe/meta.yaml
+
+package : package-pip package-conda
+
+tst-upload-pip:
 	twine upload --repository-url https://test.pypi.org/legacy/ dist/lca_algebraic*
 
-upload:
+upload-pip:
 	twine upload -u oie-minesparistech dist/lca_algebraic*
+
+upload-conda:
+	anaconda upload --force ~/anaconda3/conda-bld/noarch/lca_algebraic-$(VERSION)-py_0.tar.bz2
+
+upload : upload-pip upload-conda
 
 test:
 	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPNB)
