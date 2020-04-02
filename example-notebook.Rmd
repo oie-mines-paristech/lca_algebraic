@@ -49,7 +49,7 @@ When computing LCA for foreground models, the library develops the model as a co
 
 By providing **large vectors** of **parameter values** to those numpy functions, we can compute LCA for **thousands of values** at a time.
 
-![](./doc/lca-algebraic.png)
+![](https://oie-mines-paristech.github.io/lca_algebraic/doc/lca-algebraic.png)
 
 
 # Compatiblity with brightway2 
