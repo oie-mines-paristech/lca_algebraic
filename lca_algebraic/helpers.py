@@ -449,11 +449,6 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
         unit=list(acts_dict.values())[0]['unit'],
         exchanges=exch)
 
-    # Unit of switch activity is the one of the children
-    for key, act in acts_dict.items():
-        if 'unit' in act:
-            res['unit'] = act['unit']
-            res.save()
     return res
 
 

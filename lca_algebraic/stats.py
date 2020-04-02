@@ -275,7 +275,7 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
 
     _incer_stochastic_violin(methods, Y)
 
-
+percentiles = [10, 90, 25, 50, 75]
 def _incer_stochastic_variations(methods, Y, param_names, sobols1):
     ''' Method for computing violin graph of impacts '''
     method_names = [method_name(method) for method in methods]
@@ -296,13 +296,15 @@ def _incer_stochastic_variations(methods, Y, param_names, sobols1):
 
     plots = [totplt[0]]
 
-    data = np.zeros((len(param_names) + 2, len(methods)))
+    data = np.zeros((len(param_names) + len(percentiles) +2, len(methods)))
     data[0, :] = mean
     data[1, :] = std
+    for i, percentile in enumerate(percentiles) :
+        data[2 + i, :] = np.percentile(Y, percentile)
 
     for i_param, param_name in enumerate(param_names):
         s1 = sobols1[i_param, :]
-        data[i_param + 2, :] = s1
+        data[i_param + 2 + len(percentiles), :] = s1
 
         curr_bar = s1 * relative_variance_pct
         curr_plt = plt.bar(np.arange(len(method_names)), curr_bar, 0.8, bottom=sum)
@@ -315,7 +317,7 @@ def _incer_stochastic_variations(methods, Y, param_names, sobols1):
     plt.show(fig)
 
     # Show raw data
-    rows = ["mean", "std"] + ["s1(%s)" % param for param in param_names]
+    rows = ["mean", "std"] + ["p%d" % p for p in percentiles] + ["s1(%s)" % param for param in param_names]
     df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
     display(df)
 
