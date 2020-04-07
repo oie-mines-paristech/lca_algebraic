@@ -55,6 +55,8 @@ old_amount = symbols(&#34;old_amount&#34;)  # Can be used in epxression of amoun
 NumOrExpression = Union[float, Basic]
 
 
+
+
 class ActivityExtended(Activity):
     &#34;&#34;&#34;Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
@@ -461,25 +463,43 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     This enables to implement a &#34;Switch&#34; with brightway parameters
     Internally, this will create a linear sum of other activities controlled by &lt;param_name&gt;_&lt;enum_value&gt; : 0 or 1
 
+    By default, all activities have associated amount of 1.
+    You can provide other amounts by providing a tuple of (activity, amount).
+
+
+
+
     Parameters
     ----------
+    dbname: name of the target DB
+    name: Name of the new activity
     paramDef : parameter definition of type enum
-    acts_dict : dict of &lt;enumValue&gt; =&gt; activity
+    acts_dict : dict of &#34;enumValue&#34; =&gt; activity or &#34;enumValue&#34; =&gt; (activity, amount)
+
+    Examples
+    --------
+
+    &gt;&gt;&gt; newSwitchAct(MYDB, &#34;switchAct&#34;, switchParam, {
+    &gt;&gt;&gt;    &#34;val1&#34; : act1 # Amount is 1
+    &gt;&gt;&gt;    &#34;val2&#34; : (act2, 0.4) # Different amount
+    &gt;&gt;&gt;    &#34;val3&#34; : (act3, b + 6) # Amount with formula
+    &gt;&gt;&gt; }
     &#34;&#34;&#34;
 
     # Transform map of enum values to correspoding formulas &lt;param_name&gt;_&lt;enum_value&gt;
-    exch = {act: paramDef.symbol(key) for key, act in acts_dict.items()}
+    exch = dict()
+    for key, act in acts_dict.items() :
+        amount = 1
+        if type(act) == list or type(act) == tuple :
+            act, amount = act
+        exch[act] = amount * paramDef.symbol(key)
+        
     res = newActivity(
         dbname,
         name,
         unit=list(acts_dict.values())[0][&#39;unit&#39;],
         exchanges=exch)
 
-    # Unit of switch activity is the one of the children
-    for key, act in acts_dict.items():
-        if &#39;unit&#39; in act:
-            res[&#39;unit&#39;] = act[&#39;unit&#39;]
-            res.save()
     return res
 
 
@@ -880,13 +900,26 @@ amount = alpha1 * a1 + (x - X1) * (alpha2 * a2 - alpha1 * a1) / (x2 - x1)</p>
 <section class="desc"><p>Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
 This enables to implement a "Switch" with brightway parameters
 Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1</p>
+<p>By default, all activities have associated amount of 1.
+You can provide other amounts by providing a tuple of (activity, amount).</p>
 <h2 id="parameters">Parameters</h2>
 <dl>
+<dt><strong><code>dbname</code></strong> :&ensp;<code>name</code> of <code>the</code> <code>target</code> <code>DB</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>name</code></strong> :&ensp;<code>Name</code> of <code>the</code> <code>new</code> <code>activity</code></dt>
+<dd>&nbsp;</dd>
 <dt><strong><code>paramDef</code></strong> :&ensp;<code>parameter</code> <code>definition</code> of <code>type</code> <code>enum</code></dt>
 <dd>&nbsp;</dd>
-<dt><strong><code>acts_dict</code></strong> :&ensp;<code>dict</code> of &lt;<code>enumValue</code>&gt; =&gt; <code>activity</code></dt>
+<dt><strong><code>acts_dict</code></strong> :&ensp;<code>dict</code> of <code>"enumValue"</code> =&gt; <code>activity</code> or <code>"enumValue"</code> =&gt; (<code>activity</code>, <code>amount</code>)</dt>
 <dd>&nbsp;</dd>
-</dl></section>
+</dl>
+<h2 id="examples">Examples</h2>
+<pre><code>&gt;&gt;&gt; newSwitchAct(MYDB, "switchAct", switchParam, {
+&gt;&gt;&gt;    "val1" : act1 # Amount is 1
+&gt;&gt;&gt;    "val2" : (act2, 0.4) # Different amount
+&gt;&gt;&gt;    "val3" : (act3, b + 6) # Amount with formula
+&gt;&gt;&gt; }
+</code></pre></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -896,25 +929,43 @@ Internally, this will create a linear sum of other activities controlled by <par
     This enables to implement a &#34;Switch&#34; with brightway parameters
     Internally, this will create a linear sum of other activities controlled by &lt;param_name&gt;_&lt;enum_value&gt; : 0 or 1
 
+    By default, all activities have associated amount of 1.
+    You can provide other amounts by providing a tuple of (activity, amount).
+
+
+
+
     Parameters
     ----------
+    dbname: name of the target DB
+    name: Name of the new activity
     paramDef : parameter definition of type enum
-    acts_dict : dict of &lt;enumValue&gt; =&gt; activity
+    acts_dict : dict of &#34;enumValue&#34; =&gt; activity or &#34;enumValue&#34; =&gt; (activity, amount)
+
+    Examples
+    --------
+
+    &gt;&gt;&gt; newSwitchAct(MYDB, &#34;switchAct&#34;, switchParam, {
+    &gt;&gt;&gt;    &#34;val1&#34; : act1 # Amount is 1
+    &gt;&gt;&gt;    &#34;val2&#34; : (act2, 0.4) # Different amount
+    &gt;&gt;&gt;    &#34;val3&#34; : (act3, b + 6) # Amount with formula
+    &gt;&gt;&gt; }
     &#34;&#34;&#34;
 
     # Transform map of enum values to correspoding formulas &lt;param_name&gt;_&lt;enum_value&gt;
-    exch = {act: paramDef.symbol(key) for key, act in acts_dict.items()}
+    exch = dict()
+    for key, act in acts_dict.items() :
+        amount = 1
+        if type(act) == list or type(act) == tuple :
+            act, amount = act
+        exch[act] = amount * paramDef.symbol(key)
+        
     res = newActivity(
         dbname,
         name,
         unit=list(acts_dict.values())[0][&#39;unit&#39;],
         exchanges=exch)
 
-    # Unit of switch activity is the one of the children
-    for key, act in acts_dict.items():
-        if &#39;unit&#39; in act:
-            res[&#39;unit&#39;] = act[&#39;unit&#39;]
-            res.save()
     return res</code></pre>
 </details>
 </dd>

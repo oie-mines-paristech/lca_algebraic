@@ -232,12 +232,14 @@ activity1 = newActivity(USER_DB, # We define foreground activities in our own DB
     })
 
 # You can create a virtual "switch" activity combining several activities with a switch parameter
+
 elec_mix = newSwitchAct(USER_DB, 
     "elect mix", # Name
     elec_switch_param, # Sith parameter
     { # Dictionnary of enum values / activities
-        "us" : us_elec,
-        "eu" : eu_elec})
+        "us" : us_elec, # By default associated amount is 1
+        "eu" : (eu_elec, 0.8)  # You can also provide custom amout or formula with a tuple 
+    })
 ```
 
 ## Copy and update existing activity
@@ -336,7 +338,6 @@ multiLCAAlgebric(
     
     # Parameters of the model
     a=1, 
-    b=2,
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```
@@ -344,7 +345,9 @@ multiLCAAlgebric(
 ```{python}
 # Here is what the symbolic model looks like :
 expr, _ = actToExpression(model)
-expr
+
+# Replace constants
+display(replaceFixedParams(expr))
 ```
 
 ```{python}
@@ -356,9 +359,7 @@ multiLCAAlgebric(
     
     # Parameters of the model
     share_recycled_aluminium=0.3,
-    elec_switch_param="us",
-    b=4)
-
+    elec_switch_param="us")
 ```
 
 ```{python}
@@ -369,7 +370,6 @@ multiLCAAlgebric(
     
     # Parameters of the model
     a=list(range(1, 1000000)), # All lists should have the same size
-    b=list(range(1, 1000000)),
     share_recycled_aluminium=1,
     elec_switch_param="eu")
 ```

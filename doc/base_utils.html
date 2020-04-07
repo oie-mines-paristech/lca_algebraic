@@ -32,6 +32,8 @@ import brightway2 as bw
 from bw2data.backends.peewee import Activity, ExchangeDataset
 from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
+import ipywidgets as widgets
+from IPython.core.display import display
 
 DEBUG=False
 
@@ -106,7 +108,24 @@ def _getAmountOrFormula(ex: ExchangeDataset) -&gt; Union[Basic, float]:
         except:
             _eprint(&#34;Error while parsing formula &#39;%s&#39; : backing to amount&#34; % ex[&#39;formula&#39;])
 
-    return ex[&#39;amount&#39;]</code></pre>
+    return ex[&#39;amount&#39;]
+
+
+def displayWithExportButton(df):
+    &#39;&#39;&#39;Display dataframe with option to export&#39;&#39;&#39;
+
+    button = widgets.Button(description=&#34;Export data&#34;)
+    button.style.button_color = &#34;lightgray&#34;
+    def click(e) :
+        df.to_csv(&#34;out.csv&#34;)
+        button.description = &#34;exported as &#39;out.csv&#39;&#34;
+    dfout = widgets.Output()
+    with dfout :
+        display(df)
+
+    button.on_click(click)
+
+    display(widgets.VBox([button, dfout]))</code></pre>
 </details>
 </section>
 <section>
@@ -156,6 +175,32 @@ def _getAmountOrFormula(ex: ExchangeDataset) -&gt; Union[Basic, float]:
 <pre><code class="python">def debug(*args, **kwargs) :
     if DEBUG :
         print(*args, **kwargs)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.base_utils.displayWithExportButton"><code class="name flex">
+<span>def <span class="ident">displayWithExportButton</span></span>(<span>df)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Display dataframe with option to export</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def displayWithExportButton(df):
+    &#39;&#39;&#39;Display dataframe with option to export&#39;&#39;&#39;
+
+    button = widgets.Button(description=&#34;Export data&#34;)
+    button.style.button_color = &#34;lightgray&#34;
+    def click(e) :
+        df.to_csv(&#34;out.csv&#34;)
+        button.description = &#34;exported as &#39;out.csv&#39;&#34;
+    dfout = widgets.Output()
+    with dfout :
+        display(df)
+
+    button.on_click(click)
+
+    display(widgets.VBox([button, dfout]))</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.base_utils.error"><code class="name flex">
@@ -209,6 +254,7 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
 <li><code><a title="lca_algebraic.base_utils.Max" href="#lca_algebraic.base_utils.Max">Max</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.Min" href="#lca_algebraic.base_utils.Min">Min</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.debug" href="#lca_algebraic.base_utils.debug">debug</a></code></li>
+<li><code><a title="lca_algebraic.base_utils.displayWithExportButton" href="#lca_algebraic.base_utils.displayWithExportButton">displayWithExportButton</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.error" href="#lca_algebraic.base_utils.error">error</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.interpolate" href="#lca_algebraic.base_utils.interpolate">interpolate</a></code></li>
 </ul>

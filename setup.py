@@ -10,7 +10,7 @@ def read(fname):
 
 setup(
     name = "lca_algebraic",
-    version = "0.0.3",
+    version = read("VERSION").strip(),
     author = "OIE - Mines ParisTech",
     author_email = "raphael.jolivet@mines-paristech.fr",
     description = ("This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."),

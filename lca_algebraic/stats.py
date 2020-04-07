@@ -105,7 +105,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     df = df.set_index(pname)
 
     def table():
-        display(df)
+        displayWithExportButton(df)
 
     def graph():
 
@@ -206,8 +206,8 @@ def _sobols(methods, problem, Y):
         try:
             y = Y[Y.columns[i]]
             res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
-            st[:, i] = res["ST"]
             s1[:, i] = res["S1"]
+            st[:, i] = res["ST"]
 
         except Exception as e:
             _eprint("Sobol failed on %s" % method[2], e)
@@ -276,7 +276,7 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
     _incer_stochastic_violin(methods, Y)
 
 percentiles = [10, 90, 25, 50, 75]
-def _incer_stochastic_variations(methods, Y, param_names, sobols1):
+def _incer_stochastic_variations(methods, param_names, Y, sob1):
     ''' Method for computing violin graph of impacts '''
     method_names = [method_name(method) for method in methods]
 
@@ -296,15 +296,9 @@ def _incer_stochastic_variations(methods, Y, param_names, sobols1):
 
     plots = [totplt[0]]
 
-    data = np.zeros((len(param_names) + len(percentiles) +2, len(methods)))
-    data[0, :] = mean
-    data[1, :] = std
-    for i, percentile in enumerate(percentiles) :
-        data[2 + i, :] = np.percentile(Y, percentile)
-
     for i_param, param_name in enumerate(param_names):
-        s1 = sobols1[i_param, :]
-        data[i_param + 2 + len(percentiles), :] = s1
+
+        s1 = sob1[i_param, :]
 
         curr_bar = s1 * relative_variance_pct
         curr_plt = plt.bar(np.arange(len(method_names)), curr_bar, 0.8, bottom=sum)
@@ -316,11 +310,28 @@ def _incer_stochastic_variations(methods, Y, param_names, sobols1):
     plt.title("variance / mean² (%)")
     plt.show(fig)
 
-    # Show raw data
-    rows = ["mean", "std"] + ["p%d" % p for p in percentiles] + ["s1(%s)" % param for param in param_names]
-    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
-    display(df)
+def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
+    '''Show full stochastic output with sobol indices'''
+    data = np.zeros((len(param_names) * 2 + len(percentiles) +2, len(methods)))
+    data[0, :] = np.mean(Y)
+    data[1, :] = np.std(Y)
+
+    for i, percentile in enumerate(percentiles) :
+        data[2 + i, :] = np.percentile(Y, percentile)
+
+    for i_param, param_name in enumerate(param_names):
+        s1 = sob1[i_param, :]
+        data[i_param + 2 + len(percentiles), :] = s1
+        data[i_param + 2 + len(percentiles) + len(param_names), :] = sobt[i_param, :]
+
+    rows = ["mean", "std"] + \
+           ["p%d" % p for p in percentiles] + \
+           ["Sobol 1(%s)" % param for param in param_names] + \
+           ["Sobol T(%s)" % param for param in param_names]
+
+    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
+    displayWithExportButton(df)
 
 def incer_stochastic_dasboard(model, methods, n=1000):
     ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...'''
@@ -335,13 +346,17 @@ def incer_stochastic_dasboard(model, methods, n=1000):
         _incer_stochastic_violin(methods, Y)
 
     def variation():
-        _incer_stochastic_variations(methods, Y, param_names, s1)
+        _incer_stochastic_variations(methods, param_names, Y, s1)
 
     def matrix():
         _incer_stochastic_matrix(methods, problem['names'], Y, st)
 
+    def data():
+        _incer_stochastic_data(methods, problem['names'], Y, s1, st)
+
     _display_tabs([
         ("Violin graphs", violin),
         ("Impact variations", variation),
-        ("Sobol matrix", matrix)
+        ("Sobol matrix", matrix),
+        ("Data", data)
     ])

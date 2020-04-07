@@ -52,11 +52,10 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
 
         This method is used by multiLCAAlgebric
     '''
+    dbname = model.key[0]
 
     # print("computing model to expression for %s" % model)
     expr, actBySymbolName = actToExpression(model)
-
-    dbname = model.key[0]
 
     # Required params
     free_names = set([str(symb) for symb in expr.free_symbols])
@@ -245,7 +244,8 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
         return res
 
 
-def actToExpression(act: Activity):
+def actToExpression(act: Activity, replaceFixedParams:True):
+
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -310,6 +310,11 @@ def actToExpression(act: Activity):
         return res / outputAmount
 
     expr = rec_func(act)
+
+    if replaceFixedParams :
+        sub = {symbols(param.name): param.default for param in _param_registry().values() \
+               if param.distrib == DistributionType.FIXED}
+        expr = expr.xreplace(sub)
 
     return (expr, _reverse_dict(act_symbols))
 

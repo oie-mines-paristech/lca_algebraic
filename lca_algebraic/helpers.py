@@ -29,6 +29,8 @@ old_amount = symbols("old_amount")  # Can be used in epxression of amount for up
 NumOrExpression = Union[float, Basic]
 
 
+
+
 class ActivityExtended(Activity):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
@@ -435,14 +437,34 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     This enables to implement a "Switch" with brightway parameters
     Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
 
+    By default, all activities have associated amount of 1.
+    You can provide other amounts by providing a tuple of (activity, amount).
+
     Parameters
     ----------
+    dbname: name of the target DB
+    name: Name of the new activity
     paramDef : parameter definition of type enum
-    acts_dict : dict of <enumValue> => activity
+    acts_dict : dict of "enumValue" => activity or "enumValue" => (activity, amount)
+
+    Examples
+    --------
+
+    >>> newSwitchAct(MYDB, "switchAct", switchParam, {
+    >>>    "val1" : act1 # Amount is 1
+    >>>    "val2" : (act2, 0.4) # Different amount
+    >>>    "val3" : (act3, b + 6) # Amount with formula
+    >>> }
     """
 
-    # Transform map of enum values to correspoding formulas <param_name>_<enum_value>
-    exch = {act: paramDef.symbol(key) for key, act in acts_dict.items()}
+    # Transform map of enum values to corresponding formulas <param_name>_<enum_value>
+    exch = dict()
+    for key, act in acts_dict.items() :
+        amount = 1
+        if type(act) == list or type(act) == tuple :
+            act, amount = act
+        exch[act] = amount * paramDef.symbol(key)
+
     res = newActivity(
         dbname,
         name,
@@ -558,3 +580,7 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
         act = getActByCode(*input)
         res.addExchanges({act: dict(amount=amount, name=exch['name'])})
     return res
+
+
+
+

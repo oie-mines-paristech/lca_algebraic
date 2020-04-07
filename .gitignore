@@ -8,6 +8,7 @@ __pycache__/
 *.zip
 *.exe
 *.swp
+*.csv
 *.ignore.*
 *.egg-info
 build

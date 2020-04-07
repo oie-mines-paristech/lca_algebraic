@@ -6,6 +6,8 @@ import brightway2 as bw
 from bw2data.backends.peewee import Activity, ExchangeDataset
 from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
+import ipywidgets as widgets
+from IPython.core.display import display
 
 DEBUG=False
 
@@ -81,3 +83,20 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
             _eprint("Error while parsing formula '%s' : backing to amount" % ex['formula'])
 
     return ex['amount']
+
+
+def displayWithExportButton(df):
+    '''Display dataframe with option to export'''
+
+    button = widgets.Button(description="Export data")
+    button.style.button_color = "lightgray"
+    def click(e) :
+        df.to_csv("out.csv")
+        button.description = "exported as 'out.csv'"
+    dfout = widgets.Output()
+    with dfout :
+        display(df)
+
+    button.on_click(click)
+
+    display(widgets.VBox([button, dfout]))

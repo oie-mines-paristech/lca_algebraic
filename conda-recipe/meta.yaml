@@ -1,8 +1,10 @@
-{% set name = "lca_algebraic" %}
-{% set version = "0.0.3" %}
+{% set data = load_setup_py_data(setup_file='../setup.py', from_recipe_dir=True) %}
+{% set name = data.get('name') %}
+{% set version = data.get('version') %}
+{% set description = data.get('description') %}
 
 package:
-  name: "{{ name|lower }}"
+  name: "{{ name }}"
   version: "{{ version }}"
 
 source:
@@ -42,10 +44,8 @@ about:
   license: "BSD"
   license_family: "BSD"
   license_file: ""
-  summary: "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
+  summary: {{ description }}
   doc_url: ""
   dev_url: ""
 
-extra:
-  recipe-maintainers:
-    - your-github-id-here
+
