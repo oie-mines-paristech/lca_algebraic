@@ -1,7 +1,7 @@
 {% set data = load_setup_py_data(setup_file='../setup.py', from_recipe_dir=True) %}
 {% set name = data.get('name') %}
 {% set version = data.get('version') %}
-{% set description = data.get('description') %}
+{% set summary = data.get('summary') %}
 
 package:
   name: "{{ name }}"
@@ -44,7 +44,8 @@ about:
   license: "BSD"
   license_family: "BSD"
   license_file: ""
-  summary: {{ description }}
+  summary: {{ summary }}
+  description :
   doc_url: ""
   dev_url: ""
 

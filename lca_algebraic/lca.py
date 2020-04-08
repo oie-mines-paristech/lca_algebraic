@@ -45,12 +45,15 @@ def multiLCA(model, methods, **params):
     return _multiLCA(activities, methods).transpose()
 
 
-def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
+def _modelToExpr(model: ActivityExtended, methods) :
     '''
-        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
-        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
-        This method is used by multiLCAAlgebric
+
+    Return
+    ------
+    <list of expressions (one per impact)>, <list of required param names>
+
     '''
     dbname = model.key[0]
 
@@ -86,17 +89,38 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
     lca = _multiLCA(actsWithAmount, methods)
 
     # For each method, compute an algebric expression with activities replaced by their values
-    lambdas = []
+    exprs = []
     for imethod, method in enumerate(methods):
         # print("Generating lamba function for %s / %s" % (model, method))
 
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
-        method_expr = expr.xreplace(sub)
+        exprs.append(expr.xreplace(sub))
 
-        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
-        lambd = lambdify(expected_names, method_expr, 'numpy')
-        lambdas.append(lambd)
+    return exprs, expected_names
+
+def modelToExpr(model, impacts) :
+    '''
+    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
+
+    Return
+    ------
+    list of expressions (one per impact)
+    '''
+    exprs, _ = _modelToExpr(model, impacts)
+    return exprs
+
+def preMultiLCAAlgebric(model: ActivityExtended, methods):
+    '''
+        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+
+        This method is used by multiLCAAlgebric
+    '''
+    exprs, expected_names = _modelToExpr(model, methods)
+
+    # Lambdify expressions
+    lambdas = [lambdify(expected_names, expr, 'numpy') for expr in exprs]
 
     return lambdas, expected_names
 
@@ -244,7 +268,7 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
         return res
 
 
-def actToExpression(act: Activity, replaceFixedParams:True):
+def actToExpression(act: Activity, replaceFixedParams=True):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 

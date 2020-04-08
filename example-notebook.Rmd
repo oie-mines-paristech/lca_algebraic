@@ -345,9 +345,14 @@ multiLCAAlgebric(
 ```{python}
 # Here is what the symbolic model looks like :
 expr, _ = actToExpression(model)
+expr
+```
 
-# Replace constants
-display(replaceFixedParams(expr))
+```{python}
+# You can also replace activities by their value for each impact 
+# The resulting expressions depends only of the parameters
+exprs= modelToExpr(model, impacts)
+exprs[0]
 ```
 
 ```{python}
