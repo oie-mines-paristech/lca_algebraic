@@ -1,12 +1,13 @@
 # 0.0.6 
 
-Improve performance of computation. Added multithread computation for LCA and Sobol.
-
-Added method **sobol_simplify_model** that computed list of most meaningfull parameters, 
-based on Sobol analysis, and generates simplified models based on it.
+* Rename **modelToExpr()** to **simplifiedModel()**
+* Improve performance of computation. Added multithread computation for LCA and Sobol.
+* Added method **sobol_simplify_model** that computes list of most meaningful parameters, 
+based on Sobol analysis, and then generates simplified models based on it.
 
 # 0.0.5
-Add function `modelToExpr(model, impacts)`, returning expression with background activities replaced 
+
+* Add function `modelToExpr(model, impacts)`, returning expression with background activities replaced 
 by the value of each impact.
 
 
