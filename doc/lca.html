@@ -25,6 +25,7 @@
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">from collections import OrderedDict
+import concurrent.futures
 
 import re
 import numpy as np
@@ -33,7 +34,7 @@ from sympy import lambdify
 from .base_utils import _actName, _eprint, _getDb
 from .base_utils import _getAmountOrFormula
 from .helpers import *
-from .params import _param_registry, _completeParamValues
+from .params import _param_registry, _completeParamValues, _fixed_params
 
 
 def _multiLCA(activities, methods):
@@ -71,18 +72,20 @@ def multiLCA(model, methods, **params):
     return _multiLCA(activities, methods).transpose()
 
 
-def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
+def _modelToExpr(model: ActivityExtended, methods, extraFixedParams=None) :
     &#39;&#39;&#39;
-        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
-        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
-        This method is used by multiLCAAlgebric
+
+    Return
+    ------
+    &lt;list of expressions (one per impact)&gt;, &lt;list of required param names&gt;
+
     &#39;&#39;&#39;
+    dbname = model.key[0]
 
     # print(&#34;computing model to expression for %s&#34; % model)
-    expr, actBySymbolName = actToExpression(model)
-
-    dbname = model.key[0]
+    expr, actBySymbolName = actToExpression(model, extraFixedParams=extraFixedParams)
 
     # Required params
     free_names = set([str(symb) for symb in expr.free_symbols])
@@ -113,17 +116,42 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
     lca = _multiLCA(actsWithAmount, methods)
 
     # For each method, compute an algebric expression with activities replaced by their values
-    lambdas = []
+    exprs = []
     for imethod, method in enumerate(methods):
         # print(&#34;Generating lamba function for %s / %s&#34; % (model, method))
 
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
-        method_expr = expr.xreplace(sub)
+        exprs.append(expr.xreplace(sub))
 
-        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
-        lambd = lambdify(expected_names, method_expr, &#39;numpy&#39;)
-        lambdas.append(lambd)
+    return exprs, expected_names
+
+def simplifiedModel(model, impacts, extraFixedParams=None) :
+    &#39;&#39;&#39;
+    Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.
+
+    Return
+    ------
+    list of sympy expressions (one per impact)
+
+    Parameters
+    ----------
+    extraFixedParams : List of extra parameters to fix
+    &#39;&#39;&#39;
+    exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
+    return exprs
+
+def preMultiLCAAlgebric(model: ActivityExtended, methods):
+    &#39;&#39;&#39;
+        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+
+        This method is used by multiLCAAlgebric
+    &#39;&#39;&#39;
+    exprs, expected_names = _modelToExpr(model, methods)
+
+    # Lambdify expressions
+    lambdas = [lambdify(expected_names, expr, &#39;numpy&#39;) for expr in exprs]
 
     return lambdas, expected_names
 
@@ -168,8 +196,15 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     res = np.zeros((len(methods), param_length))
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    for imethod, lambd in enumerate(lambdas):
-        res[imethod, :] = alpha * lambd(**params)
+    def process(args) :
+        imethod, lambd = args
+        value = alpha * lambd(**params)
+        return (imethod, value)
+
+    # Use multithread for that
+    with concurrent.futures.ThreadPoolExecutor() as exec:
+        for imethod, value in exec.map(process, enumerate(lambdas)):
+            res[imethod, :] = value
 
     return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
 
@@ -271,7 +306,8 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
         return res
 
 
-def actToExpression(act: Activity):
+def actToExpression(act: Activity, extraFixedParams=None):
+
     &#34;&#34;&#34;Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -322,7 +358,7 @@ def actToExpression(act: Activity):
                     act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
                 act_expr = act_symbols[(input_db, input_code)]
 
-            # Our model : recursively transform it to a symbolic expression
+            # Our model : recursively it to a symbolic expression
             else:
 
                 if input_db == act[&#39;database&#39;] and input_code == act[&#39;code&#39;]:
@@ -336,6 +372,13 @@ def actToExpression(act: Activity):
         return res / outputAmount
 
     expr = rec_func(act)
+
+    fixed_params = set(_fixed_params().values())
+    if extraFixedParams :
+        fixed_params |= set(extraFixedParams)
+    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.default).items()}
+    expr = expr.xreplace(sub)
+
 
     return (expr, _reverse_dict(act_symbols))
 
@@ -352,7 +395,7 @@ def _reverse_dict(dic):
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
 <dt id="lca_algebraic.lca.actToExpression"><code class="name flex">
-<span>def <span class="ident">actToExpression</span></span>(<span>act)</span>
+<span>def <span class="ident">actToExpression</span></span>(<span>act, extraFixedParams=None)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Computes a symbolic expression of the model, referencing background activities and model parameters as symbols</p>
@@ -363,7 +406,8 @@ def _reverse_dict(dic):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def actToExpression(act: Activity):
+<pre><code class="python">def actToExpression(act: Activity, extraFixedParams=None):
+
     &#34;&#34;&#34;Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -414,7 +458,7 @@ def _reverse_dict(dic):
                     act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
                 act_expr = act_symbols[(input_db, input_code)]
 
-            # Our model : recursively transform it to a symbolic expression
+            # Our model : recursively it to a symbolic expression
             else:
 
                 if input_db == act[&#39;database&#39;] and input_code == act[&#39;code&#39;]:
@@ -428,6 +472,13 @@ def _reverse_dict(dic):
         return res / outputAmount
 
     expr = rec_func(act)
+
+    fixed_params = set(_fixed_params().values())
+    if extraFixedParams :
+        fixed_params |= set(extraFixedParams)
+    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.default).items()}
+    expr = expr.xreplace(sub)
+
 
     return (expr, _reverse_dict(act_symbols))</code></pre>
 </details>
@@ -622,14 +673,21 @@ This function is used by <strong>multiLCAAlgebric</strong></p>
     res = np.zeros((len(methods), param_length))
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    for imethod, lambd in enumerate(lambdas):
-        res[imethod, :] = alpha * lambd(**params)
+    def process(args) :
+        imethod, lambd = args
+        value = alpha * lambd(**params)
+        return (imethod, value)
+
+    # Use multithread for that
+    with concurrent.futures.ThreadPoolExecutor() as exec:
+        for imethod, value in exec.map(process, enumerate(lambdas)):
+            res[imethod, :] = value
 
     return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.lca.preMultiLCAAlgebric"><code class="name flex">
-<span>def <span class="ident">preMultiLCAAlgebric</span></span>(<span>model, methods, amount=1)</span>
+<span>def <span class="ident">preMultiLCAAlgebric</span></span>(<span>model, methods)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -639,61 +697,51 @@ You may use is and pass the result to postMultiLCAAlgebric for fast computation 
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def preMultiLCAAlgebric(model: ActivityExtended, methods, amount=1):
+<pre><code class="python">def preMultiLCAAlgebric(model: ActivityExtended, methods):
     &#39;&#39;&#39;
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
 
         This method is used by multiLCAAlgebric
     &#39;&#39;&#39;
+    exprs, expected_names = _modelToExpr(model, methods)
 
-    # print(&#34;computing model to expression for %s&#34; % model)
-    expr, actBySymbolName = actToExpression(model)
-
-    dbname = model.key[0]
-
-    # Required params
-    free_names = set([str(symb) for symb in expr.free_symbols])
-    act_names = set([str(symb) for symb in actBySymbolName.keys()])
-    expected_names = free_names - act_names
-
-    # If we expect an enu param name, we also expect the other ones : enumparam_val1 =&gt; enumparam_val1, enumparam_val2, ...
-    expected_names = _expand_param_names(_expanded_names_to_names(expected_names))
-
-    # Create dummy reference to biosphere
-    # We cannot run LCA to biosphere activities
-    # We create a technosphere activity mapping exactly to 1 biosphere item
-    pureTechActBySymbol = OrderedDict()
-    for name, act in actBySymbolName.items():
-        if act[0] == BIOSPHERE3_DB_NAME:
-            act = _getOrCreateDummyBiosphereActCopy(dbname, act[1])
-        else:
-            act = getActByCode(*act)
-        pureTechActBySymbol[name] = act
-
-    # List of activities, ordered
-    acts = pureTechActBySymbol.values()
-
-    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
-    actsWithAmount = [{act: 1} for act in acts]
-
-    # Compute LCA for all background activities and methods
-    lca = _multiLCA(actsWithAmount, methods)
-
-    # For each method, compute an algebric expression with activities replaced by their values
-    lambdas = []
-    for imethod, method in enumerate(methods):
-        # print(&#34;Generating lamba function for %s / %s&#34; % (model, method))
-
-        # Replace activities by their value in expression for this method
-        sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
-        method_expr = expr.xreplace(sub)
-
-        # Tranform Sympy expression to lambda function, based on numpy to fast vectorial evaluation
-        lambd = lambdify(expected_names, method_expr, &#39;numpy&#39;)
-        lambdas.append(lambd)
+    # Lambdify expressions
+    lambdas = [lambdify(expected_names, expr, &#39;numpy&#39;) for expr in exprs]
 
     return lambdas, expected_names</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.lca.simplifiedModel"><code class="name flex">
+<span>def <span class="ident">simplifiedModel</span></span>(<span>model, impacts, extraFixedParams=None)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.</p>
+<h2 id="return">Return</h2>
+<p>list of sympy expressions (one per impact)</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>extraFixedParams</code></strong> :&ensp;<code>List</code> of <code>extra</code> <code>parameters</code> <code>to</code> <code>fix</code></dt>
+<dd>&nbsp;</dd>
+</dl></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def simplifiedModel(model, impacts, extraFixedParams=None) :
+    &#39;&#39;&#39;
+    Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.
+
+    Return
+    ------
+    list of sympy expressions (one per impact)
+
+    Parameters
+    ----------
+    extraFixedParams : List of extra parameters to fix
+    &#39;&#39;&#39;
+    exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
+    return exprs</code></pre>
 </details>
 </dd>
 </dl>
@@ -720,6 +768,7 @@ You may use is and pass the result to postMultiLCAAlgebric for fast computation 
 <li><code><a title="lca_algebraic.lca.multiLCAAlgebric" href="#lca_algebraic.lca.multiLCAAlgebric">multiLCAAlgebric</a></code></li>
 <li><code><a title="lca_algebraic.lca.postMultiLCAAlgebric" href="#lca_algebraic.lca.postMultiLCAAlgebric">postMultiLCAAlgebric</a></code></li>
 <li><code><a title="lca_algebraic.lca.preMultiLCAAlgebric" href="#lca_algebraic.lca.preMultiLCAAlgebric">preMultiLCAAlgebric</a></code></li>
+<li><code><a title="lca_algebraic.lca.simplifiedModel" href="#lca_algebraic.lca.simplifiedModel">simplifiedModel</a></code></li>
 </ul>
 </li>
 </ul>

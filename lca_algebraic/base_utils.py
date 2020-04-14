@@ -8,6 +8,7 @@ from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets
 from IPython.core.display import display
+import numpy as np
 
 DEBUG=False
 
@@ -100,3 +101,10 @@ def displayWithExportButton(df):
     button.on_click(click)
 
     display(widgets.VBox([button, dfout]))
+
+
+def as_np_array(a) :
+    if type(a) == list :
+        return np.asarray(a)
+    else :
+        return a

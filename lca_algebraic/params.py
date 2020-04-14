@@ -1,6 +1,7 @@
 import builtins
 import math
-from typing import Dict, List
+import numpy as np
+from typing import Dict, List, Union, Tuple
 
 import brightway2 as bw
 from tabulate import tabulate
@@ -9,7 +10,7 @@ from bw2data.parameters import ActivityParameter, ProjectParameter, DatabasePara
 from scipy.stats import triang, truncnorm
 from sympy import Symbol
 
-from .base_utils import _eprint
+from .base_utils import _eprint, as_np_array
 
 DEFAULT_PARAM_GROUP = "acv"
 
@@ -85,26 +86,28 @@ class ParamDef(Symbol):
         if self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
-        elif self.distrib == DistributionType.TRIANGLE:
+        else :
+
             if not hasattr(self, "_distrib"):
-                scale = self.max - self.min
-                c = (self.default - self.min) / scale
-                self._distrib = triang(c, loc=self.min, scale=scale)
+                if self.distrib == DistributionType.TRIANGLE:
+                    scale = self.max - self.min
+                    c = (self.default - self.min) / scale
+                    self._distrib = triang(c, loc=self.min, scale=scale)
+
+                elif self.distrib == DistributionType.NORMAL:
+
+                    self._distrib = truncnorm(
+                        (self.min - self.default) / self.std,
+                        (self.max - self.min) / self.std,
+                        loc=self.default,
+                        scale=self.std)
+                else:
+                    raise Exception("Unkown distribution type " + self.distrib)
+
 
             return self._distrib.ppf(alpha)
 
-        elif self.distrib == DistributionType.NORMAL:
-            if not hasattr(self, "_distrib"):
-                self._distrib = truncnorm(
-                    (self.min - self.default) / self.std,
-                    (self.max - self.min) / self.std,
-                    loc=self.default,
-                    scale=self.std)
 
-            return self._distrib.ppf(alpha)
-
-        else:
-            raise Exception("Unknowk distribution type " + self.distrib)
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
@@ -130,16 +133,24 @@ class BooleanDef(ParamDef):
         return [0, 1]
 
     def rand(self, alpha):
-        return round(alpha)
+        return np.around(alpha)
 
 
 class EnumParam(ParamDef):
     """Enum param is a facility representing a choice / switch as many boolean parameters.
-    It is not itself a Sympy symbol. use #symbol("value") to access it"""
+    It is not itself a Sympy symbol. use #symbol("value") to access it.
+    Statistics weight can be attached to values by providing a dict.
+    """
 
-    def __init__(self, name, values: List[str], **argv):
+    def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
         super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
-        self.values = values
+        if type(values) == list :
+            self.values = values
+            self.weights = {key:1 for key in values}
+        else :
+            self.weights = values
+            self.values = list(values)
+        self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
         values = self.values + [None]
@@ -161,8 +172,20 @@ class EnumParam(ParamDef):
         return ["%s_%s" % (self.name, value) for value in (self.values + ["default"])]
 
     def rand(self, alpha):
-        i = math.ceil(alpha * (len(self.values))) - 1
-        return self.values[int(i)]
+        alpha = as_np_array(alpha)
+        alpha = alpha * self.sum
+
+        # Build bins
+        if not hasattr(self, "_bins"):
+            self._bins = [0]
+            for i in range(len(self.values)) :
+                enumvalue = self.values[i]
+                self._bins.append(self._bins[i] + self.weights[enumvalue])
+
+        inds = np.digitize(alpha, self._bins, right=True)
+        values = np.asarray(self.values)
+
+        return values[inds - 1]
 
     def range(self, n):
         return self.values
@@ -257,7 +280,7 @@ def resetParams(db_name):
 
 def list_parameters():
     """ Print a pretty list of all defined parameters """
-    params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label, param.default, param.min, param.max, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))

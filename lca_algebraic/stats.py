@@ -16,7 +16,7 @@ from .params import _variable_params, _fixed_params, _param_registry
 def _heatmap(df, title, vmax, ints=False):
     ''' Produce heatmap of a dataframe'''
     fig, ax = plt.subplots(figsize=(17, 17))
-    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else 'f', square=True)
+    sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else '.2f', square=True)
     plt.title(title, fontsize=20)
     ax.tick_params(axis="x", labelsize=18)
     ax.tick_params(axis="y", labelsize=18)
@@ -180,8 +180,7 @@ def _stochastics(modelOrLambdas, methods, n=1000):
     params = dict()
     for i, param_name in enumerate(param_names):
         param = _param_registry()[param_name]
-        vals = list(map(lambda v: param.rand(v), X[:, i]))
-        params[param_name] = vals
+        params[param_name] = param.rand(X[:, i]).tolist()
 
     # Add static parameters
     for param in _fixed_params().values():
@@ -199,19 +198,32 @@ def _stochastics(modelOrLambdas, methods, n=1000):
 def _sobols(methods, problem, Y):
     ''' Computes sobols indices'''
     s1 = np.zeros((len(problem['names']), len(methods)))
+    s2 = np.zeros((len(problem['names']), len(problem['names']), len(methods)))
     st = np.zeros((len(problem['names']), len(methods)))
 
-    for i, method in enumerate(methods):
+    def process(args) :
+        imethod, method = args
+        y = Y[Y.columns[imethod]]
+        res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
+        return imethod, res
 
-        try:
-            y = Y[Y.columns[i]]
-            res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
-            s1[:, i] = res["S1"]
-            st[:, i] = res["ST"]
+    with concurrent.futures.ThreadPoolExecutor() as exec :
+        exec.map(process, enumerate(methods))
 
-        except Exception as e:
-            _eprint("Sobol failed on %s" % method[2], e)
-    return (s1, st)
+        for imethod, res in exec.map(process, enumerate(methods)):
+            try:
+                s1[:, imethod] = res["S1"]
+                s2_ = np.nan_to_num(res["S2"])
+                s2[:, :, imethod] = s2_ + np.transpose(s2_)
+                st[:, imethod] = res["ST"]
+
+            except Exception as e:
+                _eprint("Sobol failed on %s" % imethod[2], e)
+
+    return (s1, s2, st)
+
+
+
 
 
 def _incer_stochastic_matrix(methods, param_names, Y, st):
@@ -247,7 +259,7 @@ def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
     problem, X, Y = _stochastics(modelOrLambdas, methods, n)
 
     print("Processing Sobol indices ...")
-    s1, st = _sobols(methods, problem, Y)
+    s1, s2, st = _sobols(methods, problem, Y)
 
     _incer_stochastic_matrix(methods, problem['names'], Y, st)
 
@@ -318,7 +330,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     data[1, :] = np.std(Y)
 
     for i, percentile in enumerate(percentiles) :
-        data[2 + i, :] = np.percentile(Y, percentile)
+        data[2 + i, :] = np.percentile(Y, percentile, axis=0)
 
     for i_param, param_name in enumerate(param_names):
         s1 = sob1[i_param, :]
@@ -340,7 +352,7 @@ def incer_stochastic_dasboard(model, methods, n=1000):
     param_names = problem['names']
 
     print("Processing Sobol indices ...")
-    s1, st = _sobols(methods, problem, Y)
+    s1, s2, st = _sobols(methods, problem, Y)
 
     def violin():
         _incer_stochastic_violin(methods, Y)
@@ -360,3 +372,51 @@ def incer_stochastic_dasboard(model, methods, n=1000):
         ("Sobol matrix", matrix),
         ("Data", data)
     ])
+
+
+def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000) :
+    '''
+    Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
+    Then generates simplified models for thoses parameters.
+    '''
+    problem, X, Y = _stochastics(model, methods, n)
+    param_names = problem['names']
+
+    print("Processing Sobol indices ...")
+    s1, s2, st = _sobols(methods, problem, Y)
+
+    for imethod, method in enumerate(methods) :
+
+        print("> Method : ", method_name(method))
+
+        s1s2 = np.sum(s1[:, imethod]) + np.sum(s2[:, :, imethod]) / 2
+        print("S1 + S2", s1s2)
+
+        sum = 0
+        sorted_param_indices = list(range(0, len(param_names)))
+        sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
+        selected_params = []
+        for iparam, param in enumerate(sorted_param_indices) :
+
+            selected_params.append(param_names[param])
+
+            # S1
+            sum += s1[param, imethod]
+
+            # S2
+            for iparam2 in range(0, iparam) :
+                param2 = sorted_param_indices[iparam2]
+                sum += s2[param, param2, imethod]
+
+            if sum > min_ratio :
+                break
+        print("Selected params : ", selected_params, "explains: ", sum)
+
+        fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+
+        # Generate simplified model
+        simplified_models = simplifiedModel(
+            model,
+            [method],
+            extraFixedParams=fixedParams)
+        display(simplified_models[0])

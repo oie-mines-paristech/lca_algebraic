@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import concurrent.futures
 
 import re
 import numpy as np
@@ -7,7 +8,7 @@ from sympy import lambdify
 from .base_utils import _actName, _eprint, _getDb
 from .base_utils import _getAmountOrFormula
 from .helpers import *
-from .params import _param_registry, _completeParamValues
+from .params import _param_registry, _completeParamValues, _fixed_params
 
 
 def _multiLCA(activities, methods):
@@ -45,7 +46,7 @@ def multiLCA(model, methods, **params):
     return _multiLCA(activities, methods).transpose()
 
 
-def _modelToExpr(model: ActivityExtended, methods) :
+def _modelToExpr(model: ActivityExtended, methods, extraFixedParams=None) :
     '''
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -58,7 +59,7 @@ def _modelToExpr(model: ActivityExtended, methods) :
     dbname = model.key[0]
 
     # print("computing model to expression for %s" % model)
-    expr, actBySymbolName = actToExpression(model)
+    expr, actBySymbolName = actToExpression(model, extraFixedParams=extraFixedParams)
 
     # Required params
     free_names = set([str(symb) for symb in expr.free_symbols])
@@ -99,15 +100,19 @@ def _modelToExpr(model: ActivityExtended, methods) :
 
     return exprs, expected_names
 
-def modelToExpr(model, impacts) :
+def simplifiedModel(model, impacts, extraFixedParams=None) :
     '''
-    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
+    Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.
 
     Return
     ------
-    list of expressions (one per impact)
+    list of sympy expressions (one per impact)
+
+    Parameters
+    ----------
+    extraFixedParams : List of extra parameters to fix
     '''
-    exprs, _ = _modelToExpr(model, impacts)
+    exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
     return exprs
 
 def preMultiLCAAlgebric(model: ActivityExtended, methods):
@@ -165,8 +170,15 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     res = np.zeros((len(methods), param_length))
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    for imethod, lambd in enumerate(lambdas):
-        res[imethod, :] = alpha * lambd(**params)
+    def process(args) :
+        imethod, lambd = args
+        value = alpha * lambd(**params)
+        return (imethod, value)
+
+    # Use multithread for that
+    with concurrent.futures.ThreadPoolExecutor() as exec:
+        for imethod, value in exec.map(process, enumerate(lambdas)):
+            res[imethod, :] = value
 
     return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
 
@@ -268,7 +280,7 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
         return res
 
 
-def actToExpression(act: Activity, replaceFixedParams=True):
+def actToExpression(act: Activity, extraFixedParams=None):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
@@ -320,7 +332,7 @@ def actToExpression(act: Activity, replaceFixedParams=True):
                     act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
                 act_expr = act_symbols[(input_db, input_code)]
 
-            # Our model : recursively transform it to a symbolic expression
+            # Our model : recursively it to a symbolic expression
             else:
 
                 if input_db == act['database'] and input_code == act['code']:
@@ -335,10 +347,12 @@ def actToExpression(act: Activity, replaceFixedParams=True):
 
     expr = rec_func(act)
 
-    if replaceFixedParams :
-        sub = {symbols(param.name): param.default for param in _param_registry().values() \
-               if param.distrib == DistributionType.FIXED}
-        expr = expr.xreplace(sub)
+    fixed_params = set(_fixed_params().values())
+    if extraFixedParams :
+        fixed_params |= set(extraFixedParams)
+    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.default).items()}
+    expr = expr.xreplace(sub)
+
 
     return (expr, _reverse_dict(act_symbols))
 

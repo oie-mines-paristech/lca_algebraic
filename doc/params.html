@@ -26,7 +26,8 @@
 </summary>
 <pre><code class="python">import builtins
 import math
-from typing import Dict, List
+import numpy as np
+from typing import Dict, List, Union, Tuple
 
 import brightway2 as bw
 from tabulate import tabulate
@@ -35,7 +36,7 @@ from bw2data.parameters import ActivityParameter, ProjectParameter, DatabasePara
 from scipy.stats import triang, truncnorm
 from sympy import Symbol
 
-from .base_utils import _eprint
+from .base_utils import _eprint, as_np_array
 
 DEFAULT_PARAM_GROUP = &#34;acv&#34;
 
@@ -111,26 +112,28 @@ class ParamDef(Symbol):
         if self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
-        elif self.distrib == DistributionType.TRIANGLE:
+        else :
+
             if not hasattr(self, &#34;_distrib&#34;):
-                scale = self.max - self.min
-                c = (self.default - self.min) / scale
-                self._distrib = triang(c, loc=self.min, scale=scale)
+                if self.distrib == DistributionType.TRIANGLE:
+                    scale = self.max - self.min
+                    c = (self.default - self.min) / scale
+                    self._distrib = triang(c, loc=self.min, scale=scale)
+
+                elif self.distrib == DistributionType.NORMAL:
+
+                    self._distrib = truncnorm(
+                        (self.min - self.default) / self.std,
+                        (self.max - self.min) / self.std,
+                        loc=self.default,
+                        scale=self.std)
+                else:
+                    raise Exception(&#34;Unkown distribution type &#34; + self.distrib)
+
 
             return self._distrib.ppf(alpha)
 
-        elif self.distrib == DistributionType.NORMAL:
-            if not hasattr(self, &#34;_distrib&#34;):
-                self._distrib = truncnorm(
-                    (self.min - self.default) / self.std,
-                    (self.max - self.min) / self.std,
-                    loc=self.default,
-                    scale=self.std)
 
-            return self._distrib.ppf(alpha)
-
-        else:
-            raise Exception(&#34;Unknowk distribution type &#34; + self.distrib)
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -&gt; Dict[str, float]:
@@ -156,16 +159,24 @@ class BooleanDef(ParamDef):
         return [0, 1]
 
     def rand(self, alpha):
-        return round(alpha)
+        return np.around(alpha)
 
 
 class EnumParam(ParamDef):
     &#34;&#34;&#34;Enum param is a facility representing a choice / switch as many boolean parameters.
-    It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it&#34;&#34;&#34;
+    It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it.
+    Statistics weight can be attached to values by providing a dict.
+    &#34;&#34;&#34;
 
-    def __init__(self, name, values: List[str], **argv):
+    def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
         super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
-        self.values = values
+        if type(values) == list :
+            self.values = values
+            self.weights = {key:1 for key in values}
+        else :
+            self.weights = values
+            self.values = list(values)
+        self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
         values = self.values + [None]
@@ -187,8 +198,20 @@ class EnumParam(ParamDef):
         return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]
 
     def rand(self, alpha):
-        i = math.ceil(alpha * (len(self.values))) - 1
-        return self.values[int(i)]
+        alpha = as_np_array(alpha)
+        alpha = alpha * self.sum
+
+        # Build bins
+        if not hasattr(self, &#34;_bins&#34;):
+            self._bins = [0]
+            for i in range(len(self.values)) :
+                enumvalue = self.values[i]
+                self._bins.append(self._bins[i] + self.weights[enumvalue])
+
+        inds = np.digitize(alpha, self._bins, right=True)
+        values = np.asarray(self.values)
+
+        return values[inds - 1]
 
     def range(self, n):
         return self.values
@@ -283,7 +306,7 @@ def resetParams(db_name):
 
 def list_parameters():
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label, param.default, param.min, param.max, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
@@ -308,7 +331,7 @@ def list_parameters():
 </summary>
 <pre><code class="python">def list_parameters():
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.label_fr, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label, param.default, param.min, param.max, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
@@ -427,7 +450,7 @@ def list_parameters():
         return [0, 1]
 
     def rand(self, alpha):
-        return round(alpha)</code></pre>
+        return np.around(alpha)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -525,18 +548,27 @@ errors defaults to 'strict'.</p></section>
 </code></dt>
 <dd>
 <section class="desc"><p>Enum param is a facility representing a choice / switch as many boolean parameters.
-It is not itself a Sympy symbol. use #symbol("value") to access it</p></section>
+It is not itself a Sympy symbol. use #symbol("value") to access it.
+Statistics weight can be attached to values by providing a dict.</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class EnumParam(ParamDef):
     &#34;&#34;&#34;Enum param is a facility representing a choice / switch as many boolean parameters.
-    It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it&#34;&#34;&#34;
+    It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it.
+    Statistics weight can be attached to values by providing a dict.
+    &#34;&#34;&#34;
 
-    def __init__(self, name, values: List[str], **argv):
+    def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
         super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
-        self.values = values
+        if type(values) == list :
+            self.values = values
+            self.weights = {key:1 for key in values}
+        else :
+            self.weights = values
+            self.values = list(values)
+        self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
         values = self.values + [None]
@@ -558,8 +590,20 @@ It is not itself a Sympy symbol. use #symbol("value") to access it</p></section>
         return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]
 
     def rand(self, alpha):
-        i = math.ceil(alpha * (len(self.values))) - 1
-        return self.values[int(i)]
+        alpha = as_np_array(alpha)
+        alpha = alpha * self.sum
+
+        # Build bins
+        if not hasattr(self, &#34;_bins&#34;):
+            self._bins = [0]
+            for i in range(len(self.values)) :
+                enumvalue = self.values[i]
+                self._bins.append(self._bins[i] + self.weights[enumvalue])
+
+        inds = np.digitize(alpha, self._bins, right=True)
+        values = np.asarray(self.values)
+
+        return values[inds - 1]
 
     def range(self, n):
         return self.values</code></pre>
@@ -699,26 +743,28 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         if self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
-        elif self.distrib == DistributionType.TRIANGLE:
+        else :
+
             if not hasattr(self, &#34;_distrib&#34;):
-                scale = self.max - self.min
-                c = (self.default - self.min) / scale
-                self._distrib = triang(c, loc=self.min, scale=scale)
+                if self.distrib == DistributionType.TRIANGLE:
+                    scale = self.max - self.min
+                    c = (self.default - self.min) / scale
+                    self._distrib = triang(c, loc=self.min, scale=scale)
+
+                elif self.distrib == DistributionType.NORMAL:
+
+                    self._distrib = truncnorm(
+                        (self.min - self.default) / self.std,
+                        (self.max - self.min) / self.std,
+                        loc=self.default,
+                        scale=self.std)
+                else:
+                    raise Exception(&#34;Unkown distribution type &#34; + self.distrib)
+
 
             return self._distrib.ppf(alpha)
 
-        elif self.distrib == DistributionType.NORMAL:
-            if not hasattr(self, &#34;_distrib&#34;):
-                self._distrib = truncnorm(
-                    (self.min - self.default) / self.std,
-                    (self.max - self.min) / self.std,
-                    loc=self.default,
-                    scale=self.std)
 
-            return self._distrib.ppf(alpha)
-
-        else:
-            raise Exception(&#34;Unknowk distribution type &#34; + self.distrib)
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -&gt; Dict[str, float]:
@@ -816,26 +862,26 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     if self.distrib == DistributionType.LINEAR:
         return self.min + alpha * (self.max - self.min)
 
-    elif self.distrib == DistributionType.TRIANGLE:
+    else :
+
         if not hasattr(self, &#34;_distrib&#34;):
-            scale = self.max - self.min
-            c = (self.default - self.min) / scale
-            self._distrib = triang(c, loc=self.min, scale=scale)
+            if self.distrib == DistributionType.TRIANGLE:
+                scale = self.max - self.min
+                c = (self.default - self.min) / scale
+                self._distrib = triang(c, loc=self.min, scale=scale)
 
-        return self._distrib.ppf(alpha)
+            elif self.distrib == DistributionType.NORMAL:
 
-    elif self.distrib == DistributionType.NORMAL:
-        if not hasattr(self, &#34;_distrib&#34;):
-            self._distrib = truncnorm(
-                (self.min - self.default) / self.std,
-                (self.max - self.min) / self.std,
-                loc=self.default,
-                scale=self.std)
+                self._distrib = truncnorm(
+                    (self.min - self.default) / self.std,
+                    (self.max - self.min) / self.std,
+                    loc=self.default,
+                    scale=self.std)
+            else:
+                raise Exception(&#34;Unkown distribution type &#34; + self.distrib)
 
-        return self._distrib.ppf(alpha)
 
-    else:
-        raise Exception(&#34;Unknowk distribution type &#34; + self.distrib)</code></pre>
+        return self._distrib.ppf(alpha)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.ParamDef.range"><code class="name flex">

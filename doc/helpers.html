@@ -466,9 +466,6 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     By default, all activities have associated amount of 1.
     You can provide other amounts by providing a tuple of (activity, amount).
 
-
-
-
     Parameters
     ----------
     dbname: name of the target DB
@@ -486,14 +483,14 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     &gt;&gt;&gt; }
     &#34;&#34;&#34;
 
-    # Transform map of enum values to correspoding formulas &lt;param_name&gt;_&lt;enum_value&gt;
+    # Transform map of enum values to corresponding formulas &lt;param_name&gt;_&lt;enum_value&gt;
     exch = dict()
     for key, act in acts_dict.items() :
         amount = 1
         if type(act) == list or type(act) == tuple :
             act, amount = act
         exch[act] = amount * paramDef.symbol(key)
-        
+
     res = newActivity(
         dbname,
         name,
@@ -932,9 +929,6 @@ You can provide other amounts by providing a tuple of (activity, amount).</p>
     By default, all activities have associated amount of 1.
     You can provide other amounts by providing a tuple of (activity, amount).
 
-
-
-
     Parameters
     ----------
     dbname: name of the target DB
@@ -952,14 +946,14 @@ You can provide other amounts by providing a tuple of (activity, amount).</p>
     &gt;&gt;&gt; }
     &#34;&#34;&#34;
 
-    # Transform map of enum values to correspoding formulas &lt;param_name&gt;_&lt;enum_value&gt;
+    # Transform map of enum values to corresponding formulas &lt;param_name&gt;_&lt;enum_value&gt;
     exch = dict()
     for key, act in acts_dict.items() :
         amount = 1
         if type(act) == list or type(act) == tuple :
             act, amount = act
         exch[act] = amount * paramDef.symbol(key)
-        
+
     res = newActivity(
         dbname,
         name,

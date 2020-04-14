@@ -34,6 +34,7 @@ from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets
 from IPython.core.display import display
+import numpy as np
 
 DEBUG=False
 
@@ -125,7 +126,14 @@ def displayWithExportButton(df):
 
     button.on_click(click)
 
-    display(widgets.VBox([button, dfout]))</code></pre>
+    display(widgets.VBox([button, dfout]))
+
+
+def as_np_array(a) :
+    if type(a) == list :
+        return np.asarray(a)
+    else :
+        return a</code></pre>
 </details>
 </section>
 <section>
@@ -161,6 +169,22 @@ def displayWithExportButton(df):
 <pre><code class="python">def Min(a, b) :
     &#34;&#34;&#34;Max define as algrebraic forumal with &#39;abs&#39; for proper computation on vectors &#34;&#34;&#34;
     return (a + b - abs(b - a)) / 2</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.base_utils.as_np_array"><code class="name flex">
+<span>def <span class="ident">as_np_array</span></span>(<span>a)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def as_np_array(a) :
+    if type(a) == list :
+        return np.asarray(a)
+    else :
+        return a</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.base_utils.debug"><code class="name flex">
@@ -253,6 +277,7 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
 <ul class="">
 <li><code><a title="lca_algebraic.base_utils.Max" href="#lca_algebraic.base_utils.Max">Max</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.Min" href="#lca_algebraic.base_utils.Min">Min</a></code></li>
+<li><code><a title="lca_algebraic.base_utils.as_np_array" href="#lca_algebraic.base_utils.as_np_array">as_np_array</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.debug" href="#lca_algebraic.base_utils.debug">debug</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.displayWithExportButton" href="#lca_algebraic.base_utils.displayWithExportButton">displayWithExportButton</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.error" href="#lca_algebraic.base_utils.error">error</a></code></li>
