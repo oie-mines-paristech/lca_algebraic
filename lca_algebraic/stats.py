@@ -161,15 +161,18 @@ def oat_dashboard_interact(model, methods):
     interact(process_func, param=paramlist)
 
 
-def _stochastics(modelOrLambdas, methods, n=1000):
+def _stochastics(modelOrLambdas, methods, n=1000, var_params=None):
     ''' Compute stochastic impacts for later analysis of incertitude '''
 
+    if var_params is None :
+        var_params = _variable_params().values()
+
     # Extract variable names
-    param_names = list(_variable_params().keys())
+    var_param_names = list([param.name for param in var_params])
     problem = {
-        'num_vars': len(param_names),
-        'names': param_names,
-        'bounds': [[0, 1]] * len(param_names)
+        'num_vars': len(var_param_names),
+        'names': var_param_names,
+        'bounds': [[0, 1]] * len(var_param_names)
     }
 
     print("Generating samples ...")
@@ -178,13 +181,14 @@ def _stochastics(modelOrLambdas, methods, n=1000):
     # Map normalized 0-1 random values into real values
     print("Transforming samples ...")
     params = dict()
-    for i, param_name in enumerate(param_names):
+    for i, param_name in enumerate(var_param_names):
         param = _param_registry()[param_name]
         params[param_name] = param.rand(X[:, i]).tolist()
 
     # Add static parameters
-    for param in _fixed_params().values():
-        params[param.name] = param.default
+    for param in _param_registry().values():
+        if param.name not in var_param_names :
+            params[param.name] = param.default
 
     print("Processing LCA ...")
     if isinstance(modelOrLambdas, Activity):
@@ -253,10 +257,17 @@ def _incer_stochastic_matrix(methods, param_names, Y, st):
     interact(draw, mode=[('Raw sobol indices (ST)', 'sobol'), ('Deviation (ST) / mean', 'percent')])
 
 
-def incer_stochastic_matrix(modelOrLambdas, methods, n=1000):
-    ''' Method computing matrix of parameter importance '''
+def incer_stochastic_matrix(modelOrLambdas, methods, n=1000, var_params=None):
+    '''
+    Method computing matrix of parameter importance
 
-    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+    parameters
+    ----------
+    var_params: Optional list of parameters to vary.
+    By default use all the parameters with distribution not FIXED
+    '''
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     print("Processing Sobol indices ...")
     s1, s2, st = _sobols(methods, problem, Y)
@@ -270,20 +281,47 @@ def _incer_stochastic_violin(methods, Y):
     nb_rows = math.ceil(len(methods) / 3)
     fig, axes = plt.subplots(nb_rows, 3, figsize=(15, 15), sharex=True)
 
+
+
     for imethod, method, ax in zip(range(len(methods)), methods, axes.flatten()):
-        ax.violinplot(Y[Y.columns[imethod]], showmedians=True)
+
+        data = Y[Y.columns[imethod]]
+        median = np.median(data)
+        std = np.std(data)
+        mean = np.mean(data)
+
+        #ax.hist(Y[Y.columns[imethod]])
+        ax.violinplot(data, showmedians=True)
         ax.title.set_text(method_name(method))
         ax.set_ylim(ymin=0)
         ax.set_ylabel(_method_unit(method))
+
+        # Add text
+        textstr = '\n'.join((
+            r'$\mu=%.2f$' % (mean,),
+            r'$\mathrm{median}=%.2f$' % (median,),
+            r'$\sigma=%.2f$' % (std,)))
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=10,
+                verticalalignment='top', bbox=props)
+
+
 
     plt.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
     plt.show(fig)
 
 
-def incer_stochastic_violin(modelOrLambdas, methods, n=1000):
-    ''' Method for computing violin graph of impacts '''
+def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None):
+    '''
+    Method for computing violin graph of impacts
 
-    problem, X, Y = _stochastics(modelOrLambdas, methods, n)
+    parameters
+    ----------
+    var_params: Optional list of parameters to vary.
+    By default use all the parameters with distribution not FIXED
+    '''
+
+    problem, X, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     _incer_stochastic_violin(methods, Y)
 
@@ -345,10 +383,16 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
     displayWithExportButton(df)
 
-def incer_stochastic_dasboard(model, methods, n=1000):
-    ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...'''
+def incer_stochastic_dashboard(model, methods, n=1000, var_params=None):
+    ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
-    problem, X, Y = _stochastics(model, methods, n)
+    parameters
+    ----------
+    var_params: Optional list of parameters to vary.
+    By default use all the parameters with distribution not FIXED
+    '''
+
+    problem, X, Y = _stochastics(model, methods, n, var_params)
     param_names = problem['names']
 
     print("Processing Sobol indices ...")
@@ -374,12 +418,19 @@ def incer_stochastic_dasboard(model, methods, n=1000):
     ])
 
 
-def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000) :
+def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000, var_params=None) :
     '''
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
     Then generates simplified models for thoses parameters.
+
+    parameters
+    ----------
+    min_ratio: [0, 1] minimum amount of variation to explain
+    var_params: Optional list of parameters to vary.
+    By default use all the parameters with distribution not FIXED
     '''
-    problem, X, Y = _stochastics(model, methods, n)
+
+    problem, X, Y = _stochastics(model, methods, n, var_params)
     param_names = problem['names']
 
     print("Processing Sobol indices ...")

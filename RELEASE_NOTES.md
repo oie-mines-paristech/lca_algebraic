@@ -1,3 +1,10 @@
+# 0.0.7
+
+* Added parameters 'var_params' for all stats tools, for providing list of parameters to vary.
+  Other parameters will be set at their default value.
+* Fixed typo in the function name **incer_stochastic_dahboard** => **incer_stochastic_dashboard**
+
+
 # 0.0.6 
 
 * Rename **modelToExpr()** to **simplifiedModel()**

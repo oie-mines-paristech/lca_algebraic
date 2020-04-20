@@ -1,7 +1,6 @@
-TST_NOTEBOOK:=algebraic_model.ipynb
+TST_NOTEBOOK:=example-notebook.ipynb
 VERSION:=$(shell cat VERSION)
 
-#TST_IPNB:=algebraic_model_tst.ipynb
 
 .PHONY: doc test package tst-upload 
 

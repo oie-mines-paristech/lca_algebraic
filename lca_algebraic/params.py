@@ -280,7 +280,7 @@ def resetParams(db_name):
 
 def list_parameters():
     """ Print a pretty list of all defined parameters """
-    params = [[param.group, param.label_fr or param.label, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))

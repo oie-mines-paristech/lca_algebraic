@@ -79,6 +79,9 @@ import brightway2 as bw
 # Custom utils defined for inter-acv
 from lca_algebraic import *
 import lca_algebraic
+from sympy import init_printing, simplify
+
+init_printing()
 ```
 
 # Init brightway2 and databases
@@ -349,10 +352,9 @@ expr
 ```
 
 ```{python}
-# You can also replace activities by their value for each impact 
-# The resulting expressions depends only of the parameters
-exprs= modelToExpr(model, impacts)
-exprs[0]
+# This method provides a symbolic expresion of the model, it can be simplified by fixing additional parameters
+ex = simplifiedModel(model, impacts, extraFixedParams=[a])
+ex[0]
 ```
 
 ```{python}
@@ -449,7 +451,7 @@ A dashboard groups all this information in a single interface with tabs.
 It also shows total variation of impacts. This last graph could be improved by showing stacked colored bars with the contribution of each parameter to this variation, according to Sobol indices. 
 
 ```{python}
-incer_stochastic_dasboard(model, impacts)
+incer_stochastic_dashboard(model, impacts)
 ```
 
 ```{python}

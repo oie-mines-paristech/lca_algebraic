@@ -3,7 +3,7 @@ import concurrent.futures
 
 import re
 import numpy as np
-from sympy import lambdify
+from sympy import lambdify, simplify
 
 from .base_utils import _actName, _eprint, _getDb
 from .base_utils import _getAmountOrFormula
@@ -113,7 +113,8 @@ def simplifiedModel(model, impacts, extraFixedParams=None) :
     extraFixedParams : List of extra parameters to fix
     '''
     exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
-    return exprs
+
+    return [simplify(ex) for ex in exprs]
 
 def preMultiLCAAlgebric(model: ActivityExtended, methods):
     '''
@@ -123,6 +124,8 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods):
         This method is used by multiLCAAlgebric
     '''
     exprs, expected_names = _modelToExpr(model, methods)
+
+    print(exprs)
 
     # Lambdify expressions
     lambdas = [lambdify(expected_names, expr, 'numpy') for expr in exprs]
