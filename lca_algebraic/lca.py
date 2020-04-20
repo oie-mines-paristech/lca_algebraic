@@ -162,12 +162,13 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
 
     # Expand params and transform lists to np.array for vector computation
     for key in params.keys():
-        val = params[key]
+        val = float(params[key])
         if not isinstance(val, list):
             val = list([val] * param_length)
-        params[key] = np.array(val)
+        params[key] = np.array(val, float)
 
-    res = np.zeros((len(methods), param_length))
+    print(params)
+    res = np.zeros((len(methods), param_length), float)
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
