@@ -29,7 +29,7 @@ import concurrent.futures
 
 import re
 import numpy as np
-from sympy import lambdify
+from sympy import lambdify, simplify
 
 from .base_utils import _actName, _eprint, _getDb
 from .base_utils import _getAmountOrFormula
@@ -139,7 +139,8 @@ def simplifiedModel(model, impacts, extraFixedParams=None) :
     extraFixedParams : List of extra parameters to fix
     &#39;&#39;&#39;
     exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
-    return exprs
+
+    return [simplify(ex) for ex in exprs]
 
 def preMultiLCAAlgebric(model: ActivityExtended, methods):
     &#39;&#39;&#39;
@@ -149,6 +150,8 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods):
         This method is used by multiLCAAlgebric
     &#39;&#39;&#39;
     exprs, expected_names = _modelToExpr(model, methods)
+
+    print(exprs)
 
     # Lambdify expressions
     lambdas = [lambdify(expected_names, expr, &#39;numpy&#39;) for expr in exprs]
@@ -188,12 +191,13 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
 
     # Expand params and transform lists to np.array for vector computation
     for key in params.keys():
-        val = params[key]
+        val = float(params[key])
         if not isinstance(val, list):
             val = list([val] * param_length)
-        params[key] = np.array(val)
+        params[key] = np.array(val, float)
 
-    res = np.zeros((len(methods), param_length))
+    print(params)
+    res = np.zeros((len(methods), param_length), float)
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
@@ -665,12 +669,13 @@ This function is used by <strong>multiLCAAlgebric</strong></p>
 
     # Expand params and transform lists to np.array for vector computation
     for key in params.keys():
-        val = params[key]
+        val = float(params[key])
         if not isinstance(val, list):
             val = list([val] * param_length)
-        params[key] = np.array(val)
+        params[key] = np.array(val, float)
 
-    res = np.zeros((len(methods), param_length))
+    print(params)
+    res = np.zeros((len(methods), param_length), float)
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
@@ -705,6 +710,8 @@ You may use is and pass the result to postMultiLCAAlgebric for fast computation 
         This method is used by multiLCAAlgebric
     &#39;&#39;&#39;
     exprs, expected_names = _modelToExpr(model, methods)
+
+    print(exprs)
 
     # Lambdify expressions
     lambdas = [lambdify(expected_names, expr, &#39;numpy&#39;) for expr in exprs]
@@ -741,7 +748,8 @@ You may use is and pass the result to postMultiLCAAlgebric for fast computation 
     extraFixedParams : List of extra parameters to fix
     &#39;&#39;&#39;
     exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
-    return exprs</code></pre>
+
+    return [simplify(ex) for ex in exprs]</code></pre>
 </details>
 </dd>
 </dl>

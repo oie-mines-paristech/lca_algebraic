@@ -125,8 +125,6 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods):
     '''
     exprs, expected_names = _modelToExpr(model, methods)
 
-    print(exprs)
-
     # Lambdify expressions
     lambdas = [lambdify(expected_names, expr, 'numpy') for expr in exprs]
 
@@ -165,12 +163,11 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
 
     # Expand params and transform lists to np.array for vector computation
     for key in params.keys():
-        val = float(params[key])
+        val = params[key]
         if not isinstance(val, list):
             val = list([val] * param_length)
         params[key] = np.array(val, float)
 
-    print(params)
     res = np.zeros((len(methods), param_length), float)
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
