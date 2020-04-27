@@ -22,18 +22,12 @@ setup(
     long_description_content_type='text/markdown',
     classifiers=[],
     install_requires=[
-        'tabulate>=0.8.6',
-        'ipywidgets>=7.5.1',
+        'tabulate',
+        'ipywidgets',
         'pandas',
-        'seaborn>=0.9.0',
-        'sympy>=1.5.1',
-        'nbformat>=4.4.0',
-        'bw2data>=3.6.2',
-        'nbconvert>=5.6.1',
-        'numpy>=1.16.6',
-        'matplotlib>=3.1.1',
-        'scipy>=1.3.2',
+        'seaborn',
+        'sympy',
+        'matplotlib',
         'brightway2>=2.3',
-        'ipython>=7.13.0',
-        'SALib>=1.3.8']
+        'SALib']
 )
