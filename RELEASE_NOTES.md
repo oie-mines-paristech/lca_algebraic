@@ -1,3 +1,7 @@
+# 0.0.8
+
+Cleanup dependencies
+
 # 0.0.7
 
 * Added parameters 'var_params' for all stats tools, for providing list of parameters to vary.
