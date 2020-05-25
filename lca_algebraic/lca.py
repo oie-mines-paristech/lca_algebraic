@@ -1,8 +1,6 @@
 from collections import OrderedDict
 import concurrent.futures
 
-import re
-import numpy as np
 from sympy import lambdify, simplify
 
 from .base_utils import _actName, _eprint, _getDb
@@ -46,7 +44,7 @@ def multiLCA(model, methods, **params):
     return _multiLCA(activities, methods).transpose()
 
 
-def _modelToExpr(model: ActivityExtended, methods, extraFixedParams=None) :
+def _modelToExpr(model: ActivityExtended, methods, extraFixedParams=None, fixed_mode=FixedParamMode.DEFAULT) :
     '''
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -59,7 +57,7 @@ def _modelToExpr(model: ActivityExtended, methods, extraFixedParams=None) :
     dbname = model.key[0]
 
     # print("computing model to expression for %s" % model)
-    expr, actBySymbolName = actToExpression(model, extraFixedParams=extraFixedParams)
+    expr, actBySymbolName = actToExpression(model, extraFixedParams=extraFixedParams, fixed_mode=fixed_mode)
 
     # Required params
     free_names = set([str(symb) for symb in expr.free_symbols])
@@ -100,7 +98,7 @@ def _modelToExpr(model: ActivityExtended, methods, extraFixedParams=None) :
 
     return exprs, expected_names
 
-def simplifiedModel(model, impacts, extraFixedParams=None) :
+def simplifiedModel(model, impacts, extraFixedParams=None, fixed_mode=FixedParamMode.DEFAULT) :
     '''
     Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.
 
@@ -112,9 +110,33 @@ def simplifiedModel(model, impacts, extraFixedParams=None) :
     ----------
     extraFixedParams : List of extra parameters to fix
     '''
-    exprs, _ = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams)
+    exprs, expected_names = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams, fixed_mode=fixed_mode)
 
     return [simplify(ex) for ex in exprs]
+
+
+
+class LambdaWithParamNames :
+    """
+    This class represents a compiled (lambdified) expression together with the list of requirement parameters and the source expression
+    """
+    def __init__(self, expr, expanded_params=None, params=None):
+        """ Computes a lamdda function from expression and list of expected parameters.
+        you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
+        """
+        self.expr = expr
+        self.params = params
+        if  expanded_params is None :
+            expanded_params = _expand_param_names(params)
+
+        self.lambd = lambdify(expanded_params, expr, 'numpy')
+        self.expanded_params = expanded_params
+
+    def compute(self, **params):
+        """Compute result value based of input parameters """
+        # Filter on required parameters
+        params = {key : val for key, val in params.items() if key in self.expanded_params}
+        return self.lambd(**params)
 
 def preMultiLCAAlgebric(model: ActivityExtended, methods):
     '''
@@ -125,10 +147,8 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods):
     '''
     exprs, expected_names = _modelToExpr(model, methods)
 
-    # Lambdify expressions
-    lambdas = [lambdify(expected_names, expr, 'numpy') for expr in exprs]
-
-    return lambdas, expected_names
+    # Lambdify (compile) expressions
+    return [LambdaWithParamNames(expr, expected_names) for expr in exprs]
 
 
 def method_name(method):
@@ -148,7 +168,7 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
         **params : Parameters of the model
     '''
 
-    # Check and expand params
+    # Check and expand enum params
     params = _completeParamValues(params)
 
     # Expand parameters as list of parameters
@@ -172,8 +192,9 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
-        imethod, lambd = args
-        value = alpha * lambd(**params)
+        imethod = args[0]
+        lambd_with_params : LambdaWithParamNames = args[1]
+        value = alpha * lambd_with_params.compute(**params)
         return (imethod, value)
 
     # Use multithread for that
@@ -204,6 +225,23 @@ def _expanded_names_to_names(param_names):
 
     return {param.name for param in res.values()}
 
+# Add default values for issing parameters or warn about extra params
+def _filter_params(params, expected_names, model) :
+    res = params.copy()
+
+    expected_params_names = _expanded_names_to_names(expected_names)
+    for expected_name in expected_params_names:
+        if expected_name not in params:
+            default = _param_registry()[expected_name].default
+            res[expected_name] = default
+            _eprint("Missing parameter %s, replaced by default value %s" % (expected_name, default))
+
+    for key, value in params.items():
+        if not key in expected_params_names:
+            del res[key]
+            if model :
+                _eprint("Param %s not required for model %s" % (key, model))
+    return res
 
 def multiLCAAlgebric(models, methods, **params):
     """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
@@ -229,25 +267,10 @@ def multiLCAAlgebric(models, methods, **params):
             model, alpha = model
 
         # Fill default values
-        lambdas, expected_names = preMultiLCAAlgebric(model, methods)
-
-        # Replace missing names by default value
-        expected_params = _expanded_names_to_names(expected_names)
-        for expected_name in expected_params:
-            if expected_name not in params:
-                default = _param_registry()[expected_name].default
-                params[expected_name] = default
-                _eprint("Missing parameter %s, replaced by default value %s" % (expected_name, default))
+        lambdas = preMultiLCAAlgebric(model, methods)
 
         # Filter on required parameters
-        filtered_params = dict()
-        for key, value in params.items():
-            if key in expected_params:
-                filtered_params[key] = value
-            else:
-                _eprint("Param %s not required for model %s" % (key, model))
-
-        df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **filtered_params)
+        df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
         model_name = _actName(model)
 
@@ -281,7 +304,7 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
         return res
 
 
-def actToExpression(act: Activity, extraFixedParams=None):
+def actToExpression(act: Activity, extraFixedParams=None, fixed_mode=FixedParamMode.DEFAULT):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
@@ -351,9 +374,12 @@ def actToExpression(act: Activity, extraFixedParams=None):
     fixed_params = set(_fixed_params().values())
     if extraFixedParams :
         fixed_params |= set(extraFixedParams)
-    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.default).items()}
-    expr = expr.xreplace(sub)
 
+    # Replace fixed values
+    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
+
+
+    expr = expr.xreplace(sub)
 
     return (expr, _reverse_dict(act_symbols))
 

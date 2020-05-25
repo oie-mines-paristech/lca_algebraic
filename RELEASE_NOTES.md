@@ -1,3 +1,10 @@
+# 0.0.9 
+
+* Removed cache for **find{Bio/Tech}Act**, in order to lower memory usage.
+Instead, we now use core Brightway capabilities for searching activities.
+* Added function **sobol_simplify_model** for generating simplified models, 
+and **compare_simplified** for comparing their distributions with the initial model.
+
 # 0.0.8
 
 Cleanup dependencies
@@ -8,7 +15,6 @@ Cleanup dependencies
   Other parameters will be set at their default value.
 * Fixed typo in the function name **incer_stochastic_dahboard** => **incer_stochastic_dashboard**
 * Fixed bug of int overload : convert everything to float
-
 
 # 0.0.6 
 

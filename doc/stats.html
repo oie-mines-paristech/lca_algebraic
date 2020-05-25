@@ -25,18 +25,28 @@
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">import warnings
-
-import ipywidgets as widgets
+import random
 import seaborn as sns
 from SALib.analyze import sobol
-from SALib.sample import saltelli
+from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
 from matplotlib import pyplot as plt
-
+from sympy import Float, Number
+from time import time
 from .base_utils import _method_unit, _eprint
 from .lca import *
 from .lca import _expanded_names_to_names
-from .params import _variable_params, _fixed_params, _param_registry
+from .params import _variable_params, _param_registry, FixedParamMode
+
+
+PARALLEL=False
+
+def _parallel_map(f, items) :
+    if PARALLEL :
+        with concurrent.futures.ThreadPoolExecutor() as exec:
+            return exec.map(f, items)
+    else :
+        return map(f, items)
 
 
 def _heatmap(df, title, vmax, ints=False):
@@ -52,9 +62,9 @@ def oat_matrix(model, impacts, n=10):
     &#39;&#39;&#39;Generates a heatmap of the incertitude of the model, varying input parameters one a a time.&#39;&#39;&#39;
 
     # Compile model into lambda functions for fast LCA
-    lambdas, required_params = preMultiLCAAlgebric(model, impacts)
+    lambdas = preMultiLCAAlgebric(model, impacts)
 
-    required_param_names = _expanded_names_to_names(required_params)
+    required_param_names = _expanded_names_to_names(lambdas[0].expanded_params)
     required_params = {key: _param_registry()[key] for key in required_param_names}
     var_params = _variable_params(required_param_names)
 
@@ -106,6 +116,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     impacts : set of methods
     param: parameter to analyse
     n: number of samples of the parameter
+
     &#39;&#39;&#39;
 
     if all_param_names == None:
@@ -176,34 +187,75 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 def oat_dashboard_interact(model, methods):
     &#39;&#39;&#39;Interative dashboard, with a dropdown for selecting parameter&#39;&#39;&#39;
 
-    lambdas, required_params = preMultiLCAAlgebric(model, methods)
-
-    required_params = _expanded_names_to_names(required_params)
+    lambdas = preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
-        oat_dasboard(lambdas, methods, _param_registry()[param], all_param_names=required_params)
+        oat_dasboard(lambdas, methods, _param_registry()[param])
 
-    paramlist = list(_variable_params(required_params).keys())
-    interact(process_func, param=paramlist)
+    param_list = _expanded_names_to_names(lambdas[0].expanded_params)
+    param_list = list(_variable_params(param_list).keys())
+
+    interact(process_func, param=param_list)
 
 
-def _stochastics(modelOrLambdas, methods, n=1000, var_params=None):
+class StochasticMethod :
+    SALTELLI = &#34;saltelli&#34;
+    RAND = &#34;rand&#34;
+    SOBOL=&#34;sobol&#34;
+
+
+def _stochastics(
+        modelOrLambdas, methods, n=1000,
+        var_params=None, sample_method=StochasticMethod.SALTELLI,
+        **extra_fixed_params):
+
+    params, problem = _generate_random_params(n, sample_method, var_params)
+
+    # Fix other params
+    if extra_fixed_params :
+        params.update(extra_fixed_params)
+
+    Y = _compute_stochastics(modelOrLambdas, methods , params)
+
+    return problem, params, Y
+
+
+def _compute_stochastics(modelOrLambdas, methods, params):
+    if isinstance(modelOrLambdas, Activity):
+        Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
+    else:
+        Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
+    return Y
+
+def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None):
+
     &#39;&#39;&#39; Compute stochastic impacts for later analysis of incertitude &#39;&#39;&#39;
-
-    if var_params is None :
+    if var_params is None:
         var_params = _variable_params().values()
 
+    if seed is None :
+        seed = int(time() * 1000)
+
+    random.seed(seed)
+
     # Extract variable names
-    var_param_names = list([param.name for param in var_params])
+    var_param_names = list([param if isinstance(param, str) else param.name for param in var_params])
     problem = {
         &#39;num_vars&#39;: len(var_param_names),
         &#39;names&#39;: var_param_names,
-        &#39;bounds&#39;: [[0, 1]] * len(var_param_names)
-    }
-
+        &#39;bounds&#39;: [[0, 1]] * len(var_param_names)}
     print(&#34;Generating samples ...&#34;)
-    X = saltelli.sample(problem, n, calc_second_order=True)
-
+    if sample_method == StochasticMethod.SALTELLI:
+        X = saltelli.sample(problem, n, calc_second_order=True)
+    elif sample_method == StochasticMethod.RAND:
+        X = np.random.rand(n, len(var_param_names))
+    elif sample_method == StochasticMethod.SOBOL:
+        print(&#34;sobol !&#34;)
+        X = sobol_sequence.sample(n * (len(var_param_names) * 2 + 2), len(var_param_names))
+    # elif sample_method == StochasticMethod.LATIN :
+    #    X = latin.sample(problem, n)
+    else:
+        raise Exception(&#34;Unkown rand method &#34; + sample_method)
     # Map normalized 0-1 random values into real values
     print(&#34;Transforming samples ...&#34;)
     params = dict()
@@ -211,46 +263,57 @@ def _stochastics(modelOrLambdas, methods, n=1000, var_params=None):
         param = _param_registry()[param_name]
         params[param_name] = param.rand(X[:, i]).tolist()
 
-    # Add static parameters
+    # Add fixed parameters
     for param in _param_registry().values():
-        if param.name not in var_param_names :
+        if param.name not in var_param_names:
             params[param.name] = param.default
 
-    print(&#34;Processing LCA ...&#34;)
-    if isinstance(modelOrLambdas, Activity):
-        Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
-    else:
-        Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
-
-    return problem, X, Y
+    return params, problem
 
 
-def _sobols(methods, problem, Y):
+class SobolResults :
+
+    def __init__(self, s1, s2, st, s1_conf=None, s2_conf=None, st_conf=None):
+        self.s1 = s1
+        self.s2 = s2
+        self.st = st
+        self.s1_conf = s1_conf
+        self.s2_conf = s2_conf
+        self.st_conf = st_conf
+
+
+def _sobols(methods, problem, Y) -&gt; SobolResults :
     &#39;&#39;&#39; Computes sobols indices&#39;&#39;&#39;
     s1 = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
+    s1_conf = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
     s2 = np.zeros((len(problem[&#39;names&#39;]), len(problem[&#39;names&#39;]), len(methods)))
+    s2_conf = np.zeros((len(problem[&#39;names&#39;]), len(problem[&#39;names&#39;]), len(methods)))
     st = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
+    st_conf = np.zeros((len(problem[&#39;names&#39;]), len(methods)))
 
     def process(args) :
         imethod, method = args
+
+        print(&#34;Processing sobol for &#34; + str(method))
         y = Y[Y.columns[imethod]]
         res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
         return imethod, res
 
-    with concurrent.futures.ThreadPoolExecutor() as exec :
-        exec.map(process, enumerate(methods))
+    for imethod, res in _parallel_map(process, enumerate(methods)):
+        try:
+            s1[:, imethod] = res[&#34;S1&#34;]
+            s1_conf[:, imethod] = res[&#34;S1_conf&#34;]
+            s2_ = np.nan_to_num(res[&#34;S2&#34;])
+            s2_conf_ = np.nan_to_num(res[&#34;S2_conf&#34;])
+            s2[:, :, imethod] = s2_ + np.transpose(s2_)
+            s2_conf[:, :, imethod] = s2_conf_ + np.transpose(s2_conf_)
+            st[:, imethod] = res[&#34;ST&#34;]
+            st_conf[:, imethod] = res[&#34;ST_conf&#34;]
 
-        for imethod, res in exec.map(process, enumerate(methods)):
-            try:
-                s1[:, imethod] = res[&#34;S1&#34;]
-                s2_ = np.nan_to_num(res[&#34;S2&#34;])
-                s2[:, :, imethod] = s2_ + np.transpose(s2_)
-                st[:, imethod] = res[&#34;ST&#34;]
+        except Exception as e:
+            _eprint(&#34;Sobol failed on %s&#34; % imethod[2], e)
 
-            except Exception as e:
-                _eprint(&#34;Sobol failed on %s&#34; % imethod[2], e)
-
-    return (s1, s2, st)
+    return SobolResults(s1, s2, st, s1_conf, s2_conf, st_conf)
 
 
 
@@ -293,12 +356,12 @@ def incer_stochastic_matrix(modelOrLambdas, methods, n=1000, var_params=None):
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(modelOrLambdas, methods, n, var_params)
+    problem, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     print(&#34;Processing Sobol indices ...&#34;)
-    s1, s2, st = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y)
 
-    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob.st)
 
 
 def _incer_stochastic_violin(methods, Y):
@@ -306,8 +369,6 @@ def _incer_stochastic_violin(methods, Y):
 
     nb_rows = math.ceil(len(methods) / 3)
     fig, axes = plt.subplots(nb_rows, 3, figsize=(15, 15), sharex=True)
-
-
 
     for imethod, method, ax in zip(range(len(methods)), methods, axes.flatten()):
 
@@ -324,9 +385,9 @@ def _incer_stochastic_violin(methods, Y):
 
         # Add text
         textstr = &#39;\n&#39;.join((
-            r&#39;$\mu=%.2f$&#39; % (mean,),
-            r&#39;$\mathrm{median}=%.2f$&#39; % (median,),
-            r&#39;$\sigma=%.2f$&#39; % (std,)))
+            r&#39;$\mu=%.3g$&#39; % (mean,),
+            r&#39;$\mathrm{median}=%.3g$&#39; % (median,),
+            r&#39;$\sigma=%.3g$&#39; % (std,)))
         props = dict(boxstyle=&#39;round&#39;, facecolor=&#39;wheat&#39;, alpha=0.5)
         ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=10,
                 verticalalignment=&#39;top&#39;, bbox=props)
@@ -347,11 +408,11 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None):
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(modelOrLambdas, methods, n, var_params)
+    _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     _incer_stochastic_violin(methods, Y)
 
-percentiles = [10, 90, 25, 50, 75]
+_percentiles = [10, 90, 25, 50, 75]
 def _incer_stochastic_variations(methods, param_names, Y, sob1):
     &#39;&#39;&#39; Method for computing violin graph of impacts &#39;&#39;&#39;
     method_names = [method_name(method) for method in methods]
@@ -389,20 +450,20 @@ def _incer_stochastic_variations(methods, param_names, Y, sob1):
 def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
     &#39;&#39;&#39;Show full stochastic output with sobol indices&#39;&#39;&#39;
-    data = np.zeros((len(param_names) * 2 + len(percentiles) +2, len(methods)))
+    data = np.zeros((len(param_names) * 2 + len(_percentiles) +2, len(methods)))
     data[0, :] = np.mean(Y)
     data[1, :] = np.std(Y)
 
-    for i, percentile in enumerate(percentiles) :
+    for i, percentile in enumerate(_percentiles) :
         data[2 + i, :] = np.percentile(Y, percentile, axis=0)
 
     for i_param, param_name in enumerate(param_names):
         s1 = sob1[i_param, :]
-        data[i_param + 2 + len(percentiles), :] = s1
-        data[i_param + 2 + len(percentiles) + len(param_names), :] = sobt[i_param, :]
+        data[i_param + 2 + len(_percentiles), :] = s1
+        data[i_param + 2 + len(_percentiles) + len(param_names), :] = sobt[i_param, :]
 
     rows = [&#34;mean&#34;, &#34;std&#34;] + \
-           [&#34;p%d&#34; % p for p in percentiles] + \
+           [&#34;p%d&#34; % p for p in _percentiles] + \
            [&#34;Sobol 1(%s)&#34; % param for param in param_names] + \
            [&#34;Sobol T(%s)&#34; % param for param in param_names]
 
@@ -418,23 +479,23 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None):
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(model, methods, n, var_params)
+    problem, _, Y = _stochastics(model, methods, n, var_params)
     param_names = problem[&#39;names&#39;]
 
     print(&#34;Processing Sobol indices ...&#34;)
-    s1, s2, st = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y)
 
     def violin():
         _incer_stochastic_violin(methods, Y)
 
     def variation():
-        _incer_stochastic_variations(methods, param_names, Y, s1)
+        _incer_stochastic_variations(methods, param_names, Y, sob.s1)
 
     def matrix():
-        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
+        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob.st)
 
     def data():
-        _incer_stochastic_data(methods, problem[&#39;names&#39;], Y, s1, st)
+        _incer_stochastic_data(methods, problem[&#39;names&#39;], Y, sob.s1, sob.st)
 
     _display_tabs([
         (&#34;Violin graphs&#34;, violin),
@@ -444,46 +505,74 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None):
     ])
 
 
-def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000, var_params=None) :
+def _round_expr(expr, num_digits):
+    &#39;&#39;&#39; Round all number in sympy expression with n digits&#39;&#39;&#39;
+    return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
+
+def sobol_simplify_model(model, methods,
+                         min_ratio=0.8, n=10000, var_params=None,
+                         fixed_mode = FixedParamMode.MEDIAN,
+                         sob=None, num_digits=3) :
     &#39;&#39;&#39;
     Computes Sobol indices and selects main parameters for explaining sensibility of at least &#39;min_ratio&#39;,
-    Then generates simplified models for thoses parameters.
+    Then generates simplified models for those parameters.
 
     parameters
     ----------
-    min_ratio: [0, 1] minimum amount of variation to explain
+    min_ratio: [0, 1] minimum amount of first order variation (sum of S1) to explain
     var_params: Optional list of parameters to vary.
-    By default use all the parameters with distribution not FIXED
+    fixed_mode : What to replace minor parameters with : MEDIAN by default
+    sob: [optional] Pre-computed sobol indices
+
+    returns
+    _______
+
+    List of LambdaWithParamNames, one per impact : with wraps the simplified expression together with the
+    list of required parameters and a fast complied lambda function for fast evaluation.
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(model, methods, n, var_params)
-    param_names = problem[&#39;names&#39;]
+    # Default var param names
+    if var_params is None :
+        var_params = _variable_params().values()
 
-    print(&#34;Processing Sobol indices ...&#34;)
-    s1, s2, st = _sobols(methods, problem, Y)
+    var_param_names = list([param.name for param in var_params])
+
+    if sob==None :
+
+        problem, _, Y = _stochastics(model, methods, n, var_params)
+
+        print(&#34;Processing Sobol indices ...&#34;)
+        sob = _sobols(methods, problem, Y)
+
+    s1, s2 = sob.s1, sob.s2
+
+    res = []
 
     for imethod, method in enumerate(methods) :
 
         print(&#34;&gt; Method : &#34;, method_name(method))
 
-        s1s2 = np.sum(s1[:, imethod]) + np.sum(s2[:, :, imethod]) / 2
-        print(&#34;S1 + S2&#34;, s1s2)
+        s1_sum = np.sum(s1[:, imethod])
+        s2_sum = np.sum(s2[:, :, imethod]) / 2
+        print(&#39;S1: &#39;, s1_sum)
+        print(&#39;S2: &#39;, s2_sum)
+        print(&#39;ST: &#39;, np.sum(sob.st[:, imethod]))
 
         sum = 0
-        sorted_param_indices = list(range(0, len(param_names)))
+        sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
         for iparam, param in enumerate(sorted_param_indices) :
 
-            selected_params.append(param_names[param])
+            selected_params.append(var_param_names[param])
 
             # S1
             sum += s1[param, imethod]
 
             # S2
-            for iparam2 in range(0, iparam) :
-                param2 = sorted_param_indices[iparam2]
-                sum += s2[param, param2, imethod]
+            #for iparam2 in range(0, iparam) :
+            #    param2 = sorted_param_indices[iparam2]
+            #    sum += s2[param, param2, imethod]
 
             if sum &gt; min_ratio :
                 break
@@ -492,11 +581,211 @@ def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000, var_params=None)
         fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
 
         # Generate simplified model
-        simplified_models = simplifiedModel(
+        simplified_expr = simplifiedModel(
             model,
             [method],
-            extraFixedParams=fixedParams)
-        display(simplified_models[0])</code></pre>
+            fixed_mode=fixed_mode,
+            extraFixedParams=fixedParams)[0]
+
+        simplified_expr = _round_expr(simplified_expr, num_digits)
+
+        display(simplified_expr)
+
+        # Lambdify the expression
+        lambd = LambdaWithParamNames(simplified_expr, params=selected_params)
+
+        res.append(lambd)
+
+    return res
+
+
+def _text(x, y, val):
+    txt = plt.text(x, y, val, fontsize=14)
+    txt.set_path_effects([patheffects.withStroke(linewidth=3, foreground=&#39;w&#39;)])
+
+
+def _hline(x1, x2, y, linewidth=1, linestyle=&#39;solid&#39;):
+    ymin, ymax = plt.ylim()
+    xmin, xmax = plt.xlim()
+    minx = (x1 - xmin) / (xmax - xmin)
+    maxx = (x2 - xmin) / (xmax - xmin)
+    plt.axhline(ymax * y, color=&#39;k&#39;, xmin=minx, xmax=maxx, linewidth=linewidth, linestyle=linestyle)
+
+
+def _vline(x, ymin, ymax, linewidth=1, linestyle=&#39;solid&#39;):
+    plt.axvline(x, color=&#39;k&#39;, ymin=ymin, ymax=ymax, linewidth=linewidth, linestyle=linestyle)
+
+
+def _graph(data, method, title, ax,
+           unit_overrides=None, box=False, scales=None,
+           alpha=1, textboxtop=0.95, textboxright=0.95, color=None):
+    def unit(method):
+        if unit_overrides and method in unit_overrides:
+            return unit_overrides[method]
+        else:
+            return _method_unit(method)
+
+    if ax is not None:
+        plt.sca(ax)
+    else:
+        ax = plt.gca()
+
+    if method[2] == &#39;total energy kwh&#39;:
+        data = 1 / data
+
+    if scales and method in scales:
+        data = data * scales[method]
+
+    median = np.median(data)
+    std = np.std(data)
+    mean = np.mean(data)
+    p1 = np.percentile(data, 1)
+    p99 = np.percentile(data, 99)
+    q1 = np.percentile(data, 25)
+    q3 = np.percentile(data, 75)
+    median = np.percentile(data, 50)
+
+    min_ylim, max_ylim = plt.ylim()
+
+    if box:
+
+        low = 0.3
+        high = 0.5
+        mid = (low + high) / 2
+
+        xmin = np.min(data)
+        xmax = np.max(data)
+        plt.xlim(left=xmin, right=xmax)
+
+        # P1 -&gt; Q1
+        _hline(p1, q1, mid, linewidth=3)
+
+        # Q1 -&gt; Q3
+        _vline(q1, low, high)
+        _hline(q1, q3, low, linewidth=1)
+        _hline(q1, q3, high, linewidth=1)
+        _vline(q3, low, high)
+
+        # p50
+        _vline(mean, low, high, linestyle=&#34;dashed&#34;)
+        _vline(median, low, high)
+
+        # Q3 -&gt; p99
+        _hline(q3, p99, mid, linewidth=3)
+
+    else:
+        args = dict()
+        if color:
+            args[&#39;color&#39;] = color
+        p = plt.hist(data, 200, alpha=alpha, **args)
+        xmin, xmax = plt.xlim()
+
+    # Box of text
+    median = np.median(data)
+    std = np.std(data)
+    mean = np.mean(data)
+    p1 = np.percentile(data, 1)
+    p99 = np.percentile(data, 99)
+    q1 = np.percentile(data, 25)
+    q3 = np.percentile(data, 75)
+    variability = std / mean
+
+    textstr = &#39;\n&#39;.join((
+        r&#39;$\mu=%.3g$&#39; % (mean,),
+        r&#39;$\mathrm{median}=%.3g$&#39; % (median,),
+        r&#39;$\sigma=%.3g$&#39; % (std,),
+        r&#39;$\sigma/\mu=%.3g$&#39; % (variability,),
+        r&#39;$p1=%.3g$&#39; % (p1,),
+        r&#39;$p99=%.3g$&#39; % (p99,)
+    ))
+    props = dict(boxstyle=&#39;round&#39;, facecolor=&#39;wheat&#39; if not color else color, alpha=0.5)
+    ax.text(textboxright, textboxtop, textstr, transform=ax.transAxes, fontsize=12,
+            verticalalignment=&#39;top&#39;, ha=&#39;right&#39;, bbox=props)
+
+    # Axes
+    ax.set_xlabel(unit(method) + &#34; / kWh&#34;, dict(fontsize=14))
+    ax.set_yticks([])
+    ax.set_title(title, dict(fontsize=16))
+
+
+def graphs(
+        model, methods,
+        Y=None, nb_cols=1, box=False, axes=None, title=None, impact_names=None,
+        unit_overrides=None,
+        scales=None,
+        height=10,
+        width=15):
+    &#34;&#34;&#34; Show distributions together with statistical outcomes&#34;&#34;&#34;
+
+    if Y is None:
+        _, _, Y = _stochastics(model, methods, n=100000, salt=False)
+
+    if axes is None:
+        nb_rows = math.ceil(len(methods) / nb_cols)
+        fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+
+    if isinstance(axes, np.ndarray):
+        axes = axes.flatten()
+    else:
+        axes = [axes]
+
+    plt.subplots_adjust(hspace=0.4)
+
+    for i, method, ax in zip(range(len(methods)), methods, axes):
+        data = Y[Y.columns[i]]
+        _graph(data, method,
+              title if title else impact_names[method] if impact_names else str(method[2]),
+              unit_overrides=unit_overrides, scales=scales,
+              ax=ax, box=box)
+
+    for i in range(0, -len(methods) % nb_cols):
+        ax = axes.flatten()[-(i + 1)]
+        ax.axis(&#34;off&#34;)
+
+    return Y
+
+
+def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impact_names=None):
+    &#39;&#39;&#39;
+    Compare distribution of simplified model with full model
+    &#39;&#39;&#39;
+
+    # Raw model
+    lambdas = preMultiLCAAlgebric(model, methods)
+
+    nb_rows = math.ceil(len(methods) / nb_cols)
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows))
+
+    plt.subplots_adjust(hspace=0.4)
+
+    colors = plt.rcParams[&#34;axes.prop_cycle&#34;].by_key()[&#34;color&#34;]
+
+    for i, lambd, simpl_lambd, method, ax in zip(range(len(methods)), lambdas, simpl_lambdas, methods, axes.flatten()):
+        params, _ = _generate_random_params(100000, sample_method=StochasticMethod.RAND)
+
+        # Run  Monte Carlo on full model
+        Y1 = _compute_stochastics([lambd], [method], params)
+        d1 = Y1[Y1.columns[0]]
+
+        # Run monte carlo of simplified model
+        Y2 = _compute_stochastics([simpl_lambd], [method], params)
+        d2 = Y2[Y2.columns[0]]
+
+        r_value = r_squared(Y1, Y2)
+
+        title = impact_names[method] if impact_names else method[0]
+
+        _graph(d1, method, title, ax=ax, box=box, alpha=0.6, color=colors[0])
+        _graph(d2, method, title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
+
+        ax.text(0.9, 0.65, &#34;R² : %0.3g&#34; % r_value, transform=ax.transAxes, fontsize=14,
+                verticalalignment=&#39;top&#39;, ha=&#39;right&#39;)
+
+
+    # Hide missing graphs
+    for i in range(0, -len(methods) % nb_cols):
+        ax = axes.flatten()[-(i + 1)]
+        ax.axis(&#34;off&#34;)</code></pre>
 </details>
 </section>
 <section>
@@ -506,6 +795,104 @@ def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000, var_params=None)
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
+<dt id="lca_algebraic.stats.compare_simplified"><code class="name flex">
+<span>def <span class="ident">compare_simplified</span></span>(<span>model, methods, simpl_lambdas, box=False, nb_cols=2, impact_names=None)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Compare distribution of simplified model with full model</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impact_names=None):
+    &#39;&#39;&#39;
+    Compare distribution of simplified model with full model
+    &#39;&#39;&#39;
+
+    # Raw model
+    lambdas = preMultiLCAAlgebric(model, methods)
+
+    nb_rows = math.ceil(len(methods) / nb_cols)
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows))
+
+    plt.subplots_adjust(hspace=0.4)
+
+    colors = plt.rcParams[&#34;axes.prop_cycle&#34;].by_key()[&#34;color&#34;]
+
+    for i, lambd, simpl_lambd, method, ax in zip(range(len(methods)), lambdas, simpl_lambdas, methods, axes.flatten()):
+        params, _ = _generate_random_params(100000, sample_method=StochasticMethod.RAND)
+
+        # Run  Monte Carlo on full model
+        Y1 = _compute_stochastics([lambd], [method], params)
+        d1 = Y1[Y1.columns[0]]
+
+        # Run monte carlo of simplified model
+        Y2 = _compute_stochastics([simpl_lambd], [method], params)
+        d2 = Y2[Y2.columns[0]]
+
+        r_value = r_squared(Y1, Y2)
+
+        title = impact_names[method] if impact_names else method[0]
+
+        _graph(d1, method, title, ax=ax, box=box, alpha=0.6, color=colors[0])
+        _graph(d2, method, title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
+
+        ax.text(0.9, 0.65, &#34;R² : %0.3g&#34; % r_value, transform=ax.transAxes, fontsize=14,
+                verticalalignment=&#39;top&#39;, ha=&#39;right&#39;)
+
+
+    # Hide missing graphs
+    for i in range(0, -len(methods) % nb_cols):
+        ax = axes.flatten()[-(i + 1)]
+        ax.axis(&#34;off&#34;)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.graphs"><code class="name flex">
+<span>def <span class="ident">graphs</span></span>(<span>model, methods, Y=None, nb_cols=1, box=False, axes=None, title=None, impact_names=None, unit_overrides=None, scales=None, height=10, width=15)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Show distributions together with statistical outcomes</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def graphs(
+        model, methods,
+        Y=None, nb_cols=1, box=False, axes=None, title=None, impact_names=None,
+        unit_overrides=None,
+        scales=None,
+        height=10,
+        width=15):
+    &#34;&#34;&#34; Show distributions together with statistical outcomes&#34;&#34;&#34;
+
+    if Y is None:
+        _, _, Y = _stochastics(model, methods, n=100000, salt=False)
+
+    if axes is None:
+        nb_rows = math.ceil(len(methods) / nb_cols)
+        fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+
+    if isinstance(axes, np.ndarray):
+        axes = axes.flatten()
+    else:
+        axes = [axes]
+
+    plt.subplots_adjust(hspace=0.4)
+
+    for i, method, ax in zip(range(len(methods)), methods, axes):
+        data = Y[Y.columns[i]]
+        _graph(data, method,
+              title if title else impact_names[method] if impact_names else str(method[2]),
+              unit_overrides=unit_overrides, scales=scales,
+              ax=ax, box=box)
+
+    for i in range(0, -len(methods) % nb_cols):
+        ax = axes.flatten()[-(i + 1)]
+        ax.axis(&#34;off&#34;)
+
+    return Y</code></pre>
+</details>
+</dd>
 <dt id="lca_algebraic.stats.incer_stochastic_dashboard"><code class="name flex">
 <span>def <span class="ident">incer_stochastic_dashboard</span></span>(<span>model, methods, n=1000, var_params=None)</span>
 </code></dt>
@@ -527,23 +914,23 @@ By default use all the parameters with distribution not FIXED</p></section>
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(model, methods, n, var_params)
+    problem, _, Y = _stochastics(model, methods, n, var_params)
     param_names = problem[&#39;names&#39;]
 
     print(&#34;Processing Sobol indices ...&#34;)
-    s1, s2, st = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y)
 
     def violin():
         _incer_stochastic_violin(methods, Y)
 
     def variation():
-        _incer_stochastic_variations(methods, param_names, Y, s1)
+        _incer_stochastic_variations(methods, param_names, Y, sob.s1)
 
     def matrix():
-        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)
+        _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob.st)
 
     def data():
-        _incer_stochastic_data(methods, problem[&#39;names&#39;], Y, s1, st)
+        _incer_stochastic_data(methods, problem[&#39;names&#39;], Y, sob.s1, sob.st)
 
     _display_tabs([
         (&#34;Violin graphs&#34;, violin),
@@ -575,12 +962,12 @@ By default use all the parameters with distribution not FIXED</p></section>
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(modelOrLambdas, methods, n, var_params)
+    problem, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     print(&#34;Processing Sobol indices ...&#34;)
-    s1, s2, st = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y)
 
-    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, st)</code></pre>
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob.st)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.incer_stochastic_violin"><code class="name flex">
@@ -605,7 +992,7 @@ By default use all the parameters with distribution not FIXED</p></section>
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(modelOrLambdas, methods, n, var_params)
+    _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     _incer_stochastic_violin(methods, Y)</code></pre>
 </details>
@@ -640,6 +1027,7 @@ By default use all the parameters with distribution not FIXED</p></section>
     impacts : set of methods
     param: parameter to analyse
     n: number of samples of the parameter
+
     &#39;&#39;&#39;
 
     if all_param_names == None:
@@ -719,15 +1107,15 @@ By default use all the parameters with distribution not FIXED</p></section>
 <pre><code class="python">def oat_dashboard_interact(model, methods):
     &#39;&#39;&#39;Interative dashboard, with a dropdown for selecting parameter&#39;&#39;&#39;
 
-    lambdas, required_params = preMultiLCAAlgebric(model, methods)
-
-    required_params = _expanded_names_to_names(required_params)
+    lambdas = preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
-        oat_dasboard(lambdas, methods, _param_registry()[param], all_param_names=required_params)
+        oat_dasboard(lambdas, methods, _param_registry()[param])
 
-    paramlist = list(_variable_params(required_params).keys())
-    interact(process_func, param=paramlist)</code></pre>
+    param_list = _expanded_names_to_names(lambdas[0].expanded_params)
+    param_list = list(_variable_params(param_list).keys())
+
+    interact(process_func, param=param_list)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.oat_matrix"><code class="name flex">
@@ -743,9 +1131,9 @@ By default use all the parameters with distribution not FIXED</p></section>
     &#39;&#39;&#39;Generates a heatmap of the incertitude of the model, varying input parameters one a a time.&#39;&#39;&#39;
 
     # Compile model into lambda functions for fast LCA
-    lambdas, required_params = preMultiLCAAlgebric(model, impacts)
+    lambdas = preMultiLCAAlgebric(model, impacts)
 
-    required_param_names = _expanded_names_to_names(required_params)
+    required_param_names = _expanded_names_to_names(lambdas[0].expanded_params)
     required_params = {key: _param_registry()[key] for key in required_param_names}
     var_params = _variable_params(required_param_names)
 
@@ -770,62 +1158,95 @@ By default use all the parameters with distribution not FIXED</p></section>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.sobol_simplify_model"><code class="name flex">
-<span>def <span class="ident">sobol_simplify_model</span></span>(<span>model, methods, min_ratio=0.8, n=1000, var_params=None)</span>
+<span>def <span class="ident">sobol_simplify_model</span></span>(<span>model, methods, min_ratio=0.8, n=10000, var_params=None, fixed_mode='median', sob=None, num_digits=3)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
-Then generates simplified models for thoses parameters.</p>
+Then generates simplified models for those parameters.</p>
 <h2 id="parameters">parameters</h2>
 <dl>
-<dt><strong><code>min_ratio</code></strong> :&ensp;[<code>0</code>, <code>1</code>] <code>minimum</code> <code>amount</code> of <code>variation</code> <code>to</code> <code>explain</code></dt>
+<dt><strong><code>min_ratio</code></strong> :&ensp;[<code>0</code>, <code>1</code>] <code>minimum</code> <code>amount</code> of <code>first</code> <code>order</code> <code>variation</code> (<code>sum</code> of <code>S1</code>) <code>to</code> <code>explain</code></dt>
+<dd>&nbsp;</dd>
+<dt>var_params: Optional list of parameters to vary.</dt>
+<dt><strong><code>fixed_mode</code></strong> :&ensp;<code>What</code> <code>to</code> <code>replace</code> <code>minor</code> <code>parameters</code> <code>with</code> : <code>MEDIAN</code> <code>by</code> default</dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>sob</code></strong> :&ensp;[optional] <code>Pre</code>-<code>computed</code> <code>sobol</code> <code>indices</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>returns</code></strong></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>_______</code></strong></dt>
 <dd>&nbsp;</dd>
 </dl>
-<p>var_params: Optional list of parameters to vary.
-By default use all the parameters with distribution not FIXED</p></section>
+<p>List of LambdaWithParamNames, one per impact : with wraps the simplified expression together with the
+list of required parameters and a fast complied lambda function for fast evaluation.</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def sobol_simplify_model(model, methods, min_ratio=0.8, n=1000, var_params=None) :
+<pre><code class="python">def sobol_simplify_model(model, methods,
+                         min_ratio=0.8, n=10000, var_params=None,
+                         fixed_mode = FixedParamMode.MEDIAN,
+                         sob=None, num_digits=3) :
     &#39;&#39;&#39;
     Computes Sobol indices and selects main parameters for explaining sensibility of at least &#39;min_ratio&#39;,
-    Then generates simplified models for thoses parameters.
+    Then generates simplified models for those parameters.
 
     parameters
     ----------
-    min_ratio: [0, 1] minimum amount of variation to explain
+    min_ratio: [0, 1] minimum amount of first order variation (sum of S1) to explain
     var_params: Optional list of parameters to vary.
-    By default use all the parameters with distribution not FIXED
+    fixed_mode : What to replace minor parameters with : MEDIAN by default
+    sob: [optional] Pre-computed sobol indices
+
+    returns
+    _______
+
+    List of LambdaWithParamNames, one per impact : with wraps the simplified expression together with the
+    list of required parameters and a fast complied lambda function for fast evaluation.
     &#39;&#39;&#39;
 
-    problem, X, Y = _stochastics(model, methods, n, var_params)
-    param_names = problem[&#39;names&#39;]
+    # Default var param names
+    if var_params is None :
+        var_params = _variable_params().values()
 
-    print(&#34;Processing Sobol indices ...&#34;)
-    s1, s2, st = _sobols(methods, problem, Y)
+    var_param_names = list([param.name for param in var_params])
+
+    if sob==None :
+
+        problem, _, Y = _stochastics(model, methods, n, var_params)
+
+        print(&#34;Processing Sobol indices ...&#34;)
+        sob = _sobols(methods, problem, Y)
+
+    s1, s2 = sob.s1, sob.s2
+
+    res = []
 
     for imethod, method in enumerate(methods) :
 
         print(&#34;&gt; Method : &#34;, method_name(method))
 
-        s1s2 = np.sum(s1[:, imethod]) + np.sum(s2[:, :, imethod]) / 2
-        print(&#34;S1 + S2&#34;, s1s2)
+        s1_sum = np.sum(s1[:, imethod])
+        s2_sum = np.sum(s2[:, :, imethod]) / 2
+        print(&#39;S1: &#39;, s1_sum)
+        print(&#39;S2: &#39;, s2_sum)
+        print(&#39;ST: &#39;, np.sum(sob.st[:, imethod]))
 
         sum = 0
-        sorted_param_indices = list(range(0, len(param_names)))
+        sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
         for iparam, param in enumerate(sorted_param_indices) :
 
-            selected_params.append(param_names[param])
+            selected_params.append(var_param_names[param])
 
             # S1
             sum += s1[param, imethod]
 
             # S2
-            for iparam2 in range(0, iparam) :
-                param2 = sorted_param_indices[iparam2]
-                sum += s2[param, param2, imethod]
+            #for iparam2 in range(0, iparam) :
+            #    param2 = sorted_param_indices[iparam2]
+            #    sum += s2[param, param2, imethod]
 
             if sum &gt; min_ratio :
                 break
@@ -834,16 +1255,105 @@ By default use all the parameters with distribution not FIXED</p></section>
         fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
 
         # Generate simplified model
-        simplified_models = simplifiedModel(
+        simplified_expr = simplifiedModel(
             model,
             [method],
-            extraFixedParams=fixedParams)
-        display(simplified_models[0])</code></pre>
+            fixed_mode=fixed_mode,
+            extraFixedParams=fixedParams)[0]
+
+        simplified_expr = _round_expr(simplified_expr, num_digits)
+
+        display(simplified_expr)
+
+        # Lambdify the expression
+        lambd = LambdaWithParamNames(simplified_expr, params=selected_params)
+
+        res.append(lambd)
+
+    return res</code></pre>
 </details>
 </dd>
 </dl>
 </section>
 <section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="lca_algebraic.stats.SobolResults"><code class="flex name class">
+<span>class <span class="ident">SobolResults</span></span>
+<span>(</span><span>s1, s2, st, s1_conf=None, s2_conf=None, st_conf=None)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class SobolResults :
+
+    def __init__(self, s1, s2, st, s1_conf=None, s2_conf=None, st_conf=None):
+        self.s1 = s1
+        self.s2 = s2
+        self.st = st
+        self.s1_conf = s1_conf
+        self.s2_conf = s2_conf
+        self.st_conf = st_conf</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.stats.StochasticMethod"><code class="flex name class">
+<span>class <span class="ident">StochasticMethod</span></span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class StochasticMethod :
+    SALTELLI = &#34;saltelli&#34;
+    RAND = &#34;rand&#34;
+    SOBOL=&#34;sobol&#34;</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.stats.StochasticMethod.RAND"><code class="name">var <span class="ident">RAND</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.stats.StochasticMethod.SALTELLI"><code class="name">var <span class="ident">SALTELLI</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.stats.StochasticMethod.SOBOL"><code class="name">var <span class="ident">SOBOL</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+</dl>
+</dd>
+</dl>
 </section>
 </article>
 <nav id="sidebar">
@@ -859,6 +1369,8 @@ By default use all the parameters with distribution not FIXED</p></section>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
+<li><code><a title="lca_algebraic.stats.compare_simplified" href="#lca_algebraic.stats.compare_simplified">compare_simplified</a></code></li>
+<li><code><a title="lca_algebraic.stats.graphs" href="#lca_algebraic.stats.graphs">graphs</a></code></li>
 <li><code><a title="lca_algebraic.stats.incer_stochastic_dashboard" href="#lca_algebraic.stats.incer_stochastic_dashboard">incer_stochastic_dashboard</a></code></li>
 <li><code><a title="lca_algebraic.stats.incer_stochastic_matrix" href="#lca_algebraic.stats.incer_stochastic_matrix">incer_stochastic_matrix</a></code></li>
 <li><code><a title="lca_algebraic.stats.incer_stochastic_violin" href="#lca_algebraic.stats.incer_stochastic_violin">incer_stochastic_violin</a></code></li>
@@ -866,6 +1378,21 @@ By default use all the parameters with distribution not FIXED</p></section>
 <li><code><a title="lca_algebraic.stats.oat_dashboard_interact" href="#lca_algebraic.stats.oat_dashboard_interact">oat_dashboard_interact</a></code></li>
 <li><code><a title="lca_algebraic.stats.oat_matrix" href="#lca_algebraic.stats.oat_matrix">oat_matrix</a></code></li>
 <li><code><a title="lca_algebraic.stats.sobol_simplify_model" href="#lca_algebraic.stats.sobol_simplify_model">sobol_simplify_model</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="lca_algebraic.stats.SobolResults" href="#lca_algebraic.stats.SobolResults">SobolResults</a></code></h4>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.stats.StochasticMethod" href="#lca_algebraic.stats.StochasticMethod">StochasticMethod</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.stats.StochasticMethod.RAND" href="#lca_algebraic.stats.StochasticMethod.RAND">RAND</a></code></li>
+<li><code><a title="lca_algebraic.stats.StochasticMethod.SALTELLI" href="#lca_algebraic.stats.StochasticMethod.SALTELLI">SALTELLI</a></code></li>
+<li><code><a title="lca_algebraic.stats.StochasticMethod.SOBOL" href="#lca_algebraic.stats.StochasticMethod.SOBOL">SOBOL</a></code></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>

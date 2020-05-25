@@ -64,6 +64,12 @@ class DistributionType:
     FIXED = &#34;fixed&#34;
 
 
+class FixedParamMode:
+    &#34;&#34;&#34; Enum describing what value to set for fixed params &#34;&#34;&#34;
+    DEFAULT = &#34;default&#34;
+    MEDIAN = &#34;median&#34;
+    MEAN = &#34;mean&#34;
+
 class ParamDef(Symbol):
     &#39;&#39;&#39;Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
@@ -96,6 +102,23 @@ class ParamDef(Symbol):
             raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
         self.std = std
 
+
+    def stat_value(self, mode : FixedParamMode):
+        &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
+        if mode == FixedParamMode.DEFAULT :
+            return self.default
+        else :
+            rnd = np.random.rand(1000)
+            x = self.rand(rnd)
+
+            if mode == FixedParamMode.MEAN :
+                return np.mean(x)
+            elif mode == FixedParamMode.MEDIAN :
+                return np.median(x)
+            else :
+                raise Exception(&#34;Unkown mode &#34; + mode)
+
+
     def label(self):
         if self.label is not None:
             return self.label
@@ -109,6 +132,10 @@ class ParamDef(Symbol):
 
     def rand(self, alpha):
         &#34;&#34;&#34;Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter&#34;&#34;&#34;
+
+        if self.distrib == DistributionType.FIXED :
+            return self.default
+        
         if self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
@@ -179,6 +206,14 @@ class EnumParam(ParamDef):
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
+
+        # A dict of weights was passed
+        if isinstance(currValue, dict) :
+            res = { &#34;%s_%s&#34; % (self.name, key) : val / self.sum for key, val in currValue.items()}
+            res[&#34;%s_default&#34; % self.name] = 0
+            return res
+
+        # Normal case
         values = self.values + [None]
         res = dict()
         for enum_val in values:
@@ -216,6 +251,14 @@ class EnumParam(ParamDef):
     def range(self, n):
         return self.values
 
+    def stat_value(self, mode : FixedParamMode):
+        if mode == FixedParamMode.DEFAULT :
+            return self.default
+        else :
+            # For statistical analysis we setup enum as its weights of values,
+            # This distrib is then expanded as float parameters, for better fit of the distribution
+            return self.weights
+
 
 def newParamDef(name, type, **kwargs):
     &#34;&#34;&#34;Creates a param and register it into a global registry and as a brightway parameter&#34;&#34;&#34;
@@ -244,7 +287,6 @@ def newFloatParam(name, default, **kwargs):
 
 def newBoolParam(name, default, **kwargs):
     return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
-
 
 def newEnumParam(name, default, **kwargs):
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
@@ -306,11 +348,11 @@ def resetParams(db_name):
 
 def list_parameters():
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.std, param.distrib, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
-    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;unit&#34;])))</code></pre>
+    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;std&#34;, &#34;distrib&#34;, &#34;unit&#34;])))</code></pre>
 </details>
 </section>
 <section>
@@ -331,11 +373,11 @@ def list_parameters():
 </summary>
 <pre><code class="python">def list_parameters():
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.std, param.distrib, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
-    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;unit&#34;])))</code></pre>
+    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;std&#34;, &#34;distrib&#34;, &#34;unit&#34;])))</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newBoolParam"><code class="name flex">
@@ -470,6 +512,7 @@ def list_parameters():
 <li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.stat_value" href="#lca_algebraic.params.ParamDef.stat_value">stat_value</a></code></li>
 </ul>
 </li>
 </ul>
@@ -571,6 +614,14 @@ Statistics weight can be attached to values by providing a dict.</p></section>
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
+
+        # A dict of weights was passed
+        if isinstance(currValue, dict) :
+            res = { &#34;%s_%s&#34; % (self.name, key) : val / self.sum for key, val in currValue.items()}
+            res[&#34;%s_default&#34; % self.name] = 0
+            return res
+
+        # Normal case
         values = self.values + [None]
         res = dict()
         for enum_val in values:
@@ -606,7 +657,15 @@ Statistics weight can be attached to values by providing a dict.</p></section>
         return values[inds - 1]
 
     def range(self, n):
-        return self.values</code></pre>
+        return self.values
+
+    def stat_value(self, mode : FixedParamMode):
+        if mode == FixedParamMode.DEFAULT :
+            return self.default
+        else :
+            # For statistical analysis we setup enum as its weights of values,
+            # This distrib is then expanded as float parameters, for better fit of the distribution
+            return self.weights</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -631,6 +690,14 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def expandParams(self, currValue=None):
+
+    # A dict of weights was passed
+    if isinstance(currValue, dict) :
+        res = { &#34;%s_%s&#34; % (self.name, key) : val / self.sum for key, val in currValue.items()}
+        res[&#34;%s_default&#34; % self.name] = 0
+        return res
+
+    # Normal case
     values = self.values + [None]
     res = dict()
     for enum_val in values:
@@ -678,9 +745,65 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.stat_value" href="#lca_algebraic.params.ParamDef.stat_value">stat_value</a></code></li>
 </ul>
 </li>
 </ul>
+</dd>
+<dt id="lca_algebraic.params.FixedParamMode"><code class="flex name class">
+<span>class <span class="ident">FixedParamMode</span></span>
+</code></dt>
+<dd>
+<section class="desc"><p>Enum describing what value to set for fixed params</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class FixedParamMode:
+    &#34;&#34;&#34; Enum describing what value to set for fixed params &#34;&#34;&#34;
+    DEFAULT = &#34;default&#34;
+    MEDIAN = &#34;median&#34;
+    MEAN = &#34;mean&#34;</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.params.FixedParamMode.DEFAULT"><code class="name">var <span class="ident">DEFAULT</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.FixedParamMode.MEAN"><code class="name">var <span class="ident">MEAN</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+<dt id="lca_algebraic.params.FixedParamMode.MEDIAN"><code class="name">var <span class="ident">MEDIAN</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
+</dl>
 </dd>
 <dt id="lca_algebraic.params.ParamDef"><code class="flex name class">
 <span>class <span class="ident">ParamDef</span></span>
@@ -727,6 +850,23 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
             raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
         self.std = std
 
+
+    def stat_value(self, mode : FixedParamMode):
+        &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
+        if mode == FixedParamMode.DEFAULT :
+            return self.default
+        else :
+            rnd = np.random.rand(1000)
+            x = self.rand(rnd)
+
+            if mode == FixedParamMode.MEAN :
+                return np.mean(x)
+            elif mode == FixedParamMode.MEDIAN :
+                return np.median(x)
+            else :
+                raise Exception(&#34;Unkown mode &#34; + mode)
+
+
     def label(self):
         if self.label is not None:
             return self.label
@@ -740,6 +880,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 
     def rand(self, alpha):
         &#34;&#34;&#34;Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter&#34;&#34;&#34;
+
+        if self.distrib == DistributionType.FIXED :
+            return self.default
+        
         if self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
@@ -859,6 +1003,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 </summary>
 <pre><code class="python">def rand(self, alpha):
     &#34;&#34;&#34;Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter&#34;&#34;&#34;
+
+    if self.distrib == DistributionType.FIXED :
+        return self.default
+    
     if self.distrib == DistributionType.LINEAR:
         return self.min + alpha * (self.max - self.min)
 
@@ -897,6 +1045,31 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
     step = (self.max - self.min) / (n - 1)
     return list(i * step + self.min for i in range(0, n))</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamDef.stat_value"><code class="name flex">
+<span>def <span class="ident">stat_value</span></span>(<span>self, mode)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Method used to compute fixed statistic value to use for fixed variables</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def stat_value(self, mode : FixedParamMode):
+    &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
+    if mode == FixedParamMode.DEFAULT :
+        return self.default
+    else :
+        rnd = np.random.rand(1000)
+        x = self.rand(rnd)
+
+        if mode == FixedParamMode.MEAN :
+            return np.mean(x)
+        elif mode == FixedParamMode.MEDIAN :
+            return np.median(x)
+        else :
+            raise Exception(&#34;Unkown mode &#34; + mode)</code></pre>
 </details>
 </dd>
 </dl>
@@ -1003,6 +1176,14 @@ errors defaults to 'strict'.</p></section>
 </ul>
 </li>
 <li>
+<h4><code><a title="lca_algebraic.params.FixedParamMode" href="#lca_algebraic.params.FixedParamMode">FixedParamMode</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.FixedParamMode.DEFAULT" href="#lca_algebraic.params.FixedParamMode.DEFAULT">DEFAULT</a></code></li>
+<li><code><a title="lca_algebraic.params.FixedParamMode.MEAN" href="#lca_algebraic.params.FixedParamMode.MEAN">MEAN</a></code></li>
+<li><code><a title="lca_algebraic.params.FixedParamMode.MEDIAN" href="#lca_algebraic.params.FixedParamMode.MEDIAN">MEDIAN</a></code></li>
+</ul>
+</li>
+<li>
 <h4><code><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></code></h4>
 <ul class="two-column">
 <li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
@@ -1011,6 +1192,7 @@ errors defaults to 'strict'.</p></section>
 <li><code><a title="lca_algebraic.params.ParamDef.names" href="#lca_algebraic.params.ParamDef.names">names</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.stat_value" href="#lca_algebraic.params.ParamDef.stat_value">stat_value</a></code></li>
 </ul>
 </li>
 <li>

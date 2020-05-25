@@ -25,21 +25,22 @@ This notebook presents **lca-algebraic** a small libray above **brightay2**, des
     * parametrize / update existing background activities (extending the class **Activity**)
 * Definition of parameters
 * Computation of LCAs 
-* Computation of statistics 
+* Computation of statistics (including Sobols indices)
+* Compute simplified parametric model by fixing minor input parameters
 
   
 # Principles 
 
 The main idea of this libray is to move from **procedural definition** of models (slow and prone to errors) to a **declarative / purely functionnal** definition of parametric models (models as **pure functions**). 
 
-This enables **fast computation of LCA impacts**. 
-We leverage the **power of symbolic calculus** provided by the great libary [SymPy](https://www.sympy.org/en/index.html).
+This enables **fast computation of LCA impacts**, useful for Monte Carlo methods and statistical analysis. 
+We leverage the **power of symbolic calculus** provided by the library [SymPy](https://www.sympy.org/en/index.html).
 
 We define our model in a **separate database**, as a nested combination of : 
 * other foreground activities
 * background activities :
     * Technical, refering **ecoinvent DB**
-    * Biopshere, refering **brightway2** biosphere activities
+    * Biosphere, refering **brightway2** biosphere activities
     
 The **amounts** in exchanges are expressed either as **static amounts**, or **symbolic expressions** of pre-defined **parameters**.
 
@@ -78,6 +79,7 @@ import brightway2 as bw
 
 # Custom utils defined for inter-acv
 from lca_algebraic import *
+from lca_algebraic.stats import * 
 import lca_algebraic
 from sympy import init_printing, simplify
 
@@ -98,7 +100,7 @@ importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 # Choose any name
 USER_DB = 'MyModelName'
 
-# This is better to cleanup the whole foreground model each time, 
+# This is better to cleanup the whole foreground model each time, and redefine it in the notebook
 # instead of relying on a state or previous run.
 # Any persistent state is prone to errors.
 resetDb(USER_DB)
@@ -125,7 +127,7 @@ from sympy import symbols
 # create sympy symbol
 a = symbols("a")
 
-# Expression are not directly evaluated 
+# Expressions are not directly evaluated 
 f = a * 2 + 4 
 f 
 ```
@@ -140,17 +142,16 @@ In practice, you don't need to care about Sympy. Just remember that :
 * Any **valid python expression** containing a **sympy symbol** will create a **sympy symbolic expression**
 
 
-# Define parameters
+# Define input parameters
 
-We define the parameters of the model.
+First, we define the input parameters of the model together with their distribution.
 
 The numeric parameters are **instances of sympy 'Symbol'**. 
 
-Thus, any python arithmetic expression composed of parameters will result in a **symbolic expression** for later evaluation, instead of a numeric result.
+Thus, any python arithmetic expression composed of parameters will result in a **symbolic expression** to be used later in the definition of the model, rather than a static numeric result.
 
 ```{python}
 # Example of 'float' parameters
-
 a = newFloatParam(
     'a', 
     default=0.5, min=0, max=2,  distrib=DistributionType.TRIANGLE, # Distribution type, linear by default
@@ -166,7 +167,7 @@ share_recycled_aluminium = newFloatParam(
     default=0.6, min=0, max=1, std=0.2, distrib=DistributionType.NORMAL, # Normal distrib, with std dev
     description="Share of reycled aluminium")
 
-# Yuo can define boolean parameters, taking only discrete values 0 or 1
+# You can define boolean parameters, taking only discrete values 0 or 1
 bool_param = newBoolParam(
     'bool_param', 
     default=1)
@@ -177,21 +178,29 @@ bool_param = newBoolParam(
 # and should be used with the 'newSwitchAct' method 
 elec_switch_param = newEnumParam(
     'elec_switch_param', 
-    values=["us", "eu"], 
+    values=["us", "eu"], # If provided as list, all possibilities have te same probability
     default="us", 
     description="Switch on electricty mix")
 
 # Another example enum param
 techno_param = newEnumParam(
     'techno_param', 
-    values=["technoA", "technoB", "technoC"], 
+    values={
+        "technoA":0.4, 
+        "technoB":0.1,
+        "technoC":0.5}, # You can provide a statistical weight for each value, by using a dict
     default="technoA", 
     description="Choice of techonoly")
 ```
 
+```{python}
+# List of parameters
+list_parameters()
+```
+
 # Get references to background activities
 
-`utils` provide two functions for easy and fast (indexed) search of activities in reference databases : 
+We provide two functions for easy and fast (indexed) search of activities in reference databases : 
 * **findBioAct** : Search activity in **biosphere3** db
 * **findTechAct** : Search activity in **ecoinvent** db
 
@@ -201,8 +210,8 @@ They will **fail with an error** if **more than one activity** matches, preventi
 
 ```{python}
 # Biosphere activities
-ground_occupuation = findBioAct('Occupation, industrial area')
-heat = findBioAct('Heat, waste', categories=['air'])
+ground_occupuation = findBioAct('Occupation, industrial area') # Search by name
+heat = findBioAct('Heat, waste', categories=['air']) # Add category selector
 
 # Technosphere activities
 
@@ -235,7 +244,6 @@ activity1 = newActivity(USER_DB, # We define foreground activities in our own DB
     })
 
 # You can create a virtual "switch" activity combining several activities with a switch parameter
-
 elec_mix = newSwitchAct(USER_DB, 
     "elect mix", # Name
     elec_switch_param, # Sith parameter
@@ -276,13 +284,20 @@ alu2.addExchanges({alu_scrap :  12})
 ```
 
 ## Final model
-The final model is just the root foreground activity referencing the others
+
+Usually, we normalize the final model as the whole LCI divided by the functional value (production of the system)
+
 
 ```{python}
+functional_value = a + 5
+
 model = newActivity(USER_DB, "model", "kg", {
     activity1 : b * 5 + a + 1, # Reference the activity we just created
     alu2: 3 * share_recycled_aluminium, 
     alu:0.4 * a})
+
+normalized_model = newActivity(USER_DB, "normalized model", "kg", {
+    model : 1 / functional_value})
 ```
 
 ## Display activities
@@ -295,6 +310,7 @@ Note that symbolic expressions have not been evaluated at this stage
 # Print_act displays activities as tables
 printAct(activity1) 
 printAct(model)
+printAct(normalized_model)
 ```
 
 ```{python}
@@ -323,7 +339,7 @@ We provide two methods  for computing LCA :
 ```{python}
 # Uses brightway2 parameters
 multiLCA(
-    model, 
+    normalized_model, 
     impacts, 
                    
     # Parameters of the model
@@ -336,29 +352,18 @@ multiLCA(
 ```{python}
 # Compute with algebric implementation : the values should be the same
 multiLCAAlgebric(
-    model, # The model 
+    normalized_model, # The model 
     impacts, # Impacts
     
     # Parameters of the model
     a=1, 
+    b=2,
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```
 
 ```{python}
-# Here is what the symbolic model looks like :
-expr, _ = actToExpression(model)
-expr
-```
-
-```{python}
-# This method provides a symbolic expresion of the model, it can be simplified by fixing additional parameters
-ex = simplifiedModel(model, impacts, extraFixedParams=[a])
-ex[0]
-```
-
-```{python}
-# You can compute several LCAs at a time :
+# You can compute several LCAs at a time and compare them:
 multiLCAAlgebric(
     [alu, alu2], # The models
     
@@ -377,7 +382,7 @@ multiLCAAlgebric(
     
     # Parameters of the model
     a=list(range(1, 1000000)), # All lists should have the same size
-    share_recycled_aluminium=1,
+    share_recycled_aluminium=1, # Those parameters are fixed
     elec_switch_param="eu")
 ```
 
@@ -452,6 +457,65 @@ It also shows total variation of impacts. This last graph could be improved by s
 
 ```{python}
 incer_stochastic_dashboard(model, impacts)
+```
+
+# Producing simplified models 
+
+One of te outcome of the statisticall analysis above would be to identify main input parameters and produce simplidied models, fixing the minor ones.
+
+We provide several functions for doing this.
+
+## Explore initial algrebraic model
+
+```{python}
+# First, let's look at the full expression defining our model
+expr, _ = actToExpression(normalized_model)
+expr
+```
+
+```{python}
+# For each impact, this expression is developped by replacing background activities with their impact value
+# Here is an internal method used by #LCAAlgebraic 
+lambdas = preMultiLCAAlgebric(normalized_model, impacts)
+
+# "lamddas" wrap the expression together with list of required parameters and a 
+# compiled (lambidfy) version of it, ready for fast compuation 
+
+# Here is for example the algebraic expression for the first impact
+lambdas[0].expr
+```
+
+## Compute simplified models
+
+We provide some method to automatically select a subset of parameters, based on the **sobol indices**, and then compute simplified models for it.
+
+```{python}
+# We provide some method to automatically select a subset of parameters, 
+# based on the sobol indices, and then copute simplified models for it
+```
+
+```{python}
+simplified = sobol_simplify_model(
+    normalized_model, 
+    impacts,
+    n=10000, # For large model, you may test other value and ensure ST and sum(S1) are close to 1.0 
+    fixed_mode = FixedParamMode.MEDIAN, # We replace minor parameters by median by default
+)
+```
+
+```{python}
+# Let's look at the expression for first impact again 
+# much simpler ! 
+simplified[0].expr
+```
+
+## Compare simplified model with full model
+
+Finally, we can compare the distribution of those simplified model against the full model. We provide a function for graphical display of it, and compuation of de R-Square score.
+
+
+```{python}
+compare_simplified(normalized_model, impacts, simplified)
 ```
 
 ```{python}
