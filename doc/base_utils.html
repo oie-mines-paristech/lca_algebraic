@@ -133,7 +133,13 @@ def as_np_array(a) :
     if type(a) == list :
         return np.asarray(a)
     else :
-        return a</code></pre>
+        return a
+
+def r_squared(y, y_hat):
+    y_bar = y.mean()
+    ss_tot = ((y - y_bar) ** 2).sum()
+    ss_res = ((y - y_hat) ** 2).sum()
+    return 1 - (ss_res / ss_tot)</code></pre>
 </details>
 </section>
 <section>
@@ -257,6 +263,22 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
     return y1 + (y2 - y1) * (x - x1) / (x2 - x1)</code></pre>
 </details>
 </dd>
+<dt id="lca_algebraic.base_utils.r_squared"><code class="name flex">
+<span>def <span class="ident">r_squared</span></span>(<span>y, y_hat)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def r_squared(y, y_hat):
+    y_bar = y.mean()
+    ss_tot = ((y - y_bar) ** 2).sum()
+    ss_res = ((y - y_hat) ** 2).sum()
+    return 1 - (ss_res / ss_tot)</code></pre>
+</details>
+</dd>
 </dl>
 </section>
 <section>
@@ -282,6 +304,7 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
 <li><code><a title="lca_algebraic.base_utils.displayWithExportButton" href="#lca_algebraic.base_utils.displayWithExportButton">displayWithExportButton</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.error" href="#lca_algebraic.base_utils.error">error</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.interpolate" href="#lca_algebraic.base_utils.interpolate">interpolate</a></code></li>
+<li><code><a title="lca_algebraic.base_utils.r_squared" href="#lca_algebraic.base_utils.r_squared">r_squared</a></code></li>
 </ul>
 </li>
 </ul>

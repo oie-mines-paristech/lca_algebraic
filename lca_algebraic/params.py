@@ -38,6 +38,12 @@ class DistributionType:
     FIXED = "fixed"
 
 
+class FixedParamMode:
+    """ Enum describing what value to set for fixed params """
+    DEFAULT = "default"
+    MEDIAN = "median"
+    MEAN = "mean"
+
 class ParamDef(Symbol):
     '''Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
@@ -70,6 +76,23 @@ class ParamDef(Symbol):
             raise Exception("Standard deviation is mandatory for normal distribution")
         self.std = std
 
+
+    def stat_value(self, mode : FixedParamMode):
+        """Method used to compute fixed statistic value to use for fixed variables"""
+        if mode == FixedParamMode.DEFAULT :
+            return self.default
+        else :
+            rnd = np.random.rand(1000)
+            x = self.rand(rnd)
+
+            if mode == FixedParamMode.MEAN :
+                return np.mean(x)
+            elif mode == FixedParamMode.MEDIAN :
+                return np.median(x)
+            else :
+                raise Exception("Unkown mode " + mode)
+
+
     def label(self):
         if self.label is not None:
             return self.label
@@ -83,6 +106,10 @@ class ParamDef(Symbol):
 
     def rand(self, alpha):
         """Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter"""
+
+        if self.distrib == DistributionType.FIXED :
+            return self.default
+        
         if self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
@@ -153,6 +180,14 @@ class EnumParam(ParamDef):
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
+
+        # A dict of weights was passed
+        if isinstance(currValue, dict) :
+            res = { "%s_%s" % (self.name, key) : val / self.sum for key, val in currValue.items()}
+            res["%s_default" % self.name] = 0
+            return res
+
+        # Normal case
         values = self.values + [None]
         res = dict()
         for enum_val in values:
@@ -190,6 +225,14 @@ class EnumParam(ParamDef):
     def range(self, n):
         return self.values
 
+    def stat_value(self, mode : FixedParamMode):
+        if mode == FixedParamMode.DEFAULT :
+            return self.default
+        else :
+            # For statistical analysis we setup enum as its weights of values,
+            # This distrib is then expanded as float parameters, for better fit of the distribution
+            return self.weights
+
 
 def newParamDef(name, type, **kwargs):
     """Creates a param and register it into a global registry and as a brightway parameter"""
@@ -218,7 +261,6 @@ def newFloatParam(name, default, **kwargs):
 
 def newBoolParam(name, default, **kwargs):
     return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
-
 
 def newEnumParam(name, default, **kwargs):
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
@@ -280,8 +322,8 @@ def resetParams(db_name):
 
 def list_parameters():
     """ Print a pretty list of all defined parameters """
-    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.unit] for param in
+    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.std, param.distrib, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
-    return HTML((tabulate(sorted_params, tablefmt="html", headers=["Phase", "param", "default", "min", "max", "unit"])))
+    return HTML((tabulate(sorted_params, tablefmt="html", headers=["Phase", "param", "default", "min", "max", "std", "distrib", "unit"])))

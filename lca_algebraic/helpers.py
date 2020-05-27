@@ -314,10 +314,19 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
     if code:
         acts = [getActByCode(db_name, code)]
     else:
-        name_key = name if name else in_name
+        search = name if name else in_name
+
+        search = search.lower()
+        search = search.replace(',', ' ')
+        search = re.sub('\w*[^a-zA-Z ]+\w*', ' ', search)
+
+        # print(search)
 
         # Find candidates via index
-        candidates = _find_candidates(db_name, name_key)
+        # candidates = _find_candidates(db_name, name_key)
+        candidates = _getDb(db_name).search(search, limit=200)
+
+        # print(candidates)
 
         # Exact match
         acts = list(filter(act_filter, candidates))
