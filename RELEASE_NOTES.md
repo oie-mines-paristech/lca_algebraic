@@ -1,3 +1,7 @@
+# 0.0.10
+
+Fixed [issue #4](https://github.com/oie-mines-paristech/lca_algebraic/issues/4) : Added back handling of default params
+
 # 0.0.9 
 
 * Removed cache for **find{Bio/Tech}Act**, in order to lower memory usage.
