@@ -284,7 +284,7 @@ def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
 
-def _completeParamValues(params):
+def _completeParamValues(params, required_params : List[str]=None):
     """Check parameters and expand enum params.
 
     Returns
@@ -292,9 +292,13 @@ def _completeParamValues(params):
         Dict of param_name => float value
     """
 
-    # undef_params = param_registry.keys() - params.keys()
-    # if undef_params :
-    #    raise Exception("Some model parameters are not set : %s" % undef_params)
+    # Add default values for required params
+    if required_params :
+        for param_name in required_params :
+            param = _param_registry()[param_name]
+            if not param_name in params :
+                params[param_name] = param.default
+                _eprint("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
 
     res = dict()
     for key, val in params.items():

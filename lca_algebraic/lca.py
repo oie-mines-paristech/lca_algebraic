@@ -126,8 +126,10 @@ class LambdaWithParamNames :
         """
         self.expr = expr
         self.params = params
-        if  expanded_params is None :
+        if expanded_params is None :
             expanded_params = _expand_param_names(params)
+        if self.params is None :
+            self.params = _expanded_names_to_names(expanded_params)
 
         self.lambd = lambdify(expanded_params, expr, 'numpy')
         self.expanded_params = expanded_params
@@ -168,12 +170,8 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
         **params : Parameters of the model
     '''
 
-    # Check and expand enum params
-    params = _completeParamValues(params)
-
-    # Expand parameters as list of parameters
+    # Check length of parameter values
     param_length = 1
-
     for key, val in params.items():
         if isinstance(val, list):
             if param_length == 1:
@@ -181,20 +179,30 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
             elif param_length != len(val):
                 raise Exception("Parameters should be a single value or a list of same number of values")
 
-    # Expand params and transform lists to np.array for vector computation
-    for key in params.keys():
-        val = params[key]
-        if not isinstance(val, list):
-            val = list([val] * param_length)
-        params[key] = np.array(val, float)
+    def complete_params(required_param_names) :
 
+        # Check and expand enum params, add default values
+        res = _completeParamValues(params, required_param_names)
+
+        # Expand single params and transform them to np.array
+        for key in res.keys():
+            val = res[key]
+            if not isinstance(val, list):
+                val = list([val] * param_length)
+            res[key] = np.array(val, float)
+        return res
+
+    # Init output
     res = np.zeros((len(methods), param_length), float)
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
         imethod = args[0]
         lambd_with_params : LambdaWithParamNames = args[1]
-        value = alpha * lambd_with_params.compute(**params)
+
+        completed_params = complete_params(lambd_with_params.params)
+
+        value = alpha * lambd_with_params.compute(**completed_params)
         return (imethod, value)
 
     # Use multithread for that

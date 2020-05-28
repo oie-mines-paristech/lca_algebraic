@@ -592,7 +592,8 @@ def _vline(x, ymin, ymax, linewidth=1, linestyle='solid'):
 
 def _graph(data, method, title, ax,
            unit_overrides=None, box=False, scales=None,
-           alpha=1, textboxtop=0.95, textboxright=0.95, color=None):
+           alpha=1, textboxtop=0.95, textboxright=0.95, color=None, limit_xrange=False):
+
     def unit(method):
         if unit_overrides and method in unit_overrides:
             return unit_overrides[method]
@@ -604,22 +605,19 @@ def _graph(data, method, title, ax,
     else:
         ax = plt.gca()
 
-    if method[2] == 'total energy kwh':
-        data = 1 / data
-
     if scales and method in scales:
         data = data * scales[method]
 
     median = np.median(data)
     std = np.std(data)
     mean = np.mean(data)
+    xmin= np.min(data)
     p1 = np.percentile(data, 1)
+    p9995 = np.percentile(data, 99.95)
     p99 = np.percentile(data, 99)
     q1 = np.percentile(data, 25)
     q3 = np.percentile(data, 75)
-    median = np.percentile(data, 50)
-
-    min_ylim, max_ylim = plt.ylim()
+    variability = std / mean
 
     if box:
 
@@ -651,18 +649,10 @@ def _graph(data, method, title, ax,
         args = dict()
         if color:
             args['color'] = color
-        p = plt.hist(data, 200, alpha=alpha, **args)
-        xmin, xmax = plt.xlim()
 
-    # Box of text
-    median = np.median(data)
-    std = np.std(data)
-    mean = np.mean(data)
-    p1 = np.percentile(data, 1)
-    p99 = np.percentile(data, 99)
-    q1 = np.percentile(data, 25)
-    q3 = np.percentile(data, 75)
-    variability = std / mean
+        if limit_xrange :
+            plt.xlim(xmin, p9995)
+        plt.hist(data, 200, alpha=alpha, **args)
 
     textstr = '\n'.join((
         r'$\mu=%.3g$' % (mean,),
@@ -684,11 +674,10 @@ def _graph(data, method, title, ax,
 
 def graphs(
         model, methods,
-        Y=None, nb_cols=1, box=False, axes=None, title=None, impact_names=None,
-        unit_overrides=None,
-        scales=None,
-        height=10,
-        width=15):
+        Y=None, nb_cols=1, axes=None, title=None,
+        impact_names=None,
+        invert=None,
+        height=10, width=15, **kwargs):
     """ Show distributions together with statistical outcomes"""
 
     if Y is None:
@@ -706,11 +695,17 @@ def graphs(
     plt.subplots_adjust(hspace=0.4)
 
     for i, method, ax in zip(range(len(methods)), methods, axes):
+
         data = Y[Y.columns[i]]
-        _graph(data, method,
-              title if title else impact_names[method] if impact_names else str(method[2]),
-              unit_overrides=unit_overrides, scales=scales,
-              ax=ax, box=box)
+
+        if invert and method in invert:
+            data = 1 / data
+
+        _graph(
+            data, method,
+            title if title else impact_names[method] if impact_names else str(method[2]),
+            ax=ax,
+            **kwargs)
 
     for i in range(0, -len(methods) % nb_cols):
         ax = axes.flatten()[-(i + 1)]
