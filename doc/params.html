@@ -33,7 +33,7 @@ import brightway2 as bw
 from tabulate import tabulate
 from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
-from scipy.stats import triang, truncnorm
+from scipy.stats import triang, truncnorm, norm, beta
 from sympy import Symbol
 
 from .base_utils import _eprint, as_np_array
@@ -57,9 +57,19 @@ class ParamType:
 
 
 class DistributionType:
-    &#39;&#39;&#39;Type of distribution&#39;&#39;&#39;
+    &#39;&#39;&#39;
+        Type of statistic distribution of a parameter.
+        Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+
+        * **LINEAR** : uniform distribution between *min* and *max*
+        * **NORMAL** : Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*
+        * **TRIANGLE** : Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value
+        * **BETA** : Beta distribution with extra params *a* and *b*, using *default* value as &#39;loc&#39; (0 of beta distribution) and *std* as &#39;scale&#39; (1 of beta distribution).
+                See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta)
+    &#39;&#39;&#39;
     LINEAR = &#34;linear&#34;
-    NORMAL = &#34;normal&#34;
+    NORMAL = &#34;normal&#34; # requires &#39;std&#39; param. &#39;default&#39; is used as the mean
+    BETA=&#34;beta&#34; # requires a, b &#39;default&#39; is used as the mean. &#39;std&#39; is used as &#39;scale&#39; factor
     TRIANGLE = &#34;triangle&#34;
     FIXED = &#34;fixed&#34;
 
@@ -82,7 +92,8 @@ class ParamDef(Symbol):
         return Symbol.__new__(cls, name)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None,
-                 group=None, distrib=DistributionType.LINEAR, std=None):
+                 group=None, distrib=None, **kwargs):
+
         self.name = name
         self.type = type
         self.default = default
@@ -95,13 +106,27 @@ class ParamDef(Symbol):
         self.group = group
         self.distrib = distrib
 
-        if type == ParamType.FLOAT and self.min is None:
-            self.distrib = DistributionType.FIXED
+        # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
+        if hasattr(self, &#34;_distrib&#34;) :
+            del self._distrib
 
-        if distrib == DistributionType.NORMAL and std is None:
-            raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
-        self.std = std
+        if not distrib :
+            if type == ParamType.FLOAT and self.min is None:
+                self.distrib = DistributionType.FIXED
+            else:
+                self.distrib = DistributionType.LINEAR
 
+        elif distrib == DistributionType.NORMAL :
+            if not &#39;std&#39; in kwargs:
+                raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
+            self.std = kwargs[&#39;std&#39;]
+
+        elif distrib == DistributionType.BETA :
+            if not &#39;a&#39; in kwargs or not &#39;b&#39; in kwargs or not &#39;std&#39; in kwargs :
+                raise Exception(&#34;Beta distribution requires params &#39;a&#39; &#39;b&#39; and &#39;std&#39; (used as scale)&#34;)
+            self.a = kwargs[&#39;a&#39;]
+            self.b = kwargs[&#39;b&#39;]
+            self.std = kwargs[&#39;std&#39;]
 
     def stat_value(self, mode : FixedParamMode):
         &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
@@ -136,12 +161,12 @@ class ParamDef(Symbol):
         if self.distrib == DistributionType.FIXED :
             return self.default
         
-        if self.distrib == DistributionType.LINEAR:
+        elif self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
         else :
-
             if not hasattr(self, &#34;_distrib&#34;):
+
                 if self.distrib == DistributionType.TRIANGLE:
                     scale = self.max - self.min
                     c = (self.default - self.min) / scale
@@ -149,11 +174,26 @@ class ParamDef(Symbol):
 
                 elif self.distrib == DistributionType.NORMAL:
 
-                    self._distrib = truncnorm(
-                        (self.min - self.default) / self.std,
-                        (self.max - self.min) / self.std,
+                    if self.min :
+                        # Truncated normal
+                        self._distrib = truncnorm(
+                            (self.min - self.default) / self.std,
+                            (self.max - self.min) / self.std,
+                            loc=self.default,
+                            scale=self.std)
+                    else :
+                        # Normal
+                        self._distrib = norm(
+                            loc=self.default,
+                            scale=self.std)
+
+                elif self.distrib == DistributionType.BETA:
+                    self._distrib = beta(
+                        self.a,
+                        self.b,
                         loc=self.default,
                         scale=self.std)
+
                 else:
                     raise Exception(&#34;Unkown distribution type &#34; + self.distrib)
 
@@ -310,7 +350,7 @@ def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
 
-def _completeParamValues(params):
+def _completeParamValues(params, required_params : List[str]=None):
     &#34;&#34;&#34;Check parameters and expand enum params.
 
     Returns
@@ -318,9 +358,13 @@ def _completeParamValues(params):
         Dict of param_name =&gt; float value
     &#34;&#34;&#34;
 
-    # undef_params = param_registry.keys() - params.keys()
-    # if undef_params :
-    #    raise Exception(&#34;Some model parameters are not set : %s&#34; % undef_params)
+    # Add default values for required params
+    if required_params :
+        for param_name in required_params :
+            param = _param_registry()[param_name]
+            if not param_name in params :
+                params[param_name] = param.default
+                _eprint(&#34;Required param &#39;%s&#39; was missing, replacing by default value : %s&#34; % (param_name, str(param.default)))
 
     res = dict()
     for key, val in params.items():
@@ -521,20 +565,50 @@ def list_parameters():
 <span>class <span class="ident">DistributionType</span></span>
 </code></dt>
 <dd>
-<section class="desc"><p>Type of distribution</p></section>
+<section class="desc"><p>Type of statistic distribution of a parameter.
+Some type of distribution requires extra parameters, in italic, to be provided in the constructor of <strong>ParamDef</strong>()</p>
+<ul>
+<li><strong>LINEAR</strong> : uniform distribution between <em>min</em> and <em>max</em></li>
+<li><strong>NORMAL</strong> : Normal distribution, centered on <em>default</em> value (mean), with deviation of <em>std</em> and truncated between <em>min</em> and <em>max</em></li>
+<li><strong>TRIANGLE</strong> : Triangle distribution between <em>min</em> and <em>max</em> (set to zero probability), with highest probability at <em>default</em> value</li>
+<li><strong>BETA</strong> : Beta distribution with extra params <em>a</em> and <em>b</em>, using <em>default</em> value as 'loc' (0 of beta distribution) and <em>std</em> as 'scale' (1 of beta distribution).
+See <a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta">scipy doc</a></li>
+</ul></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class DistributionType:
-    &#39;&#39;&#39;Type of distribution&#39;&#39;&#39;
+    &#39;&#39;&#39;
+        Type of statistic distribution of a parameter.
+        Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+
+        * **LINEAR** : uniform distribution between *min* and *max*
+        * **NORMAL** : Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*
+        * **TRIANGLE** : Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value
+        * **BETA** : Beta distribution with extra params *a* and *b*, using *default* value as &#39;loc&#39; (0 of beta distribution) and *std* as &#39;scale&#39; (1 of beta distribution).
+                See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta)
+    &#39;&#39;&#39;
     LINEAR = &#34;linear&#34;
-    NORMAL = &#34;normal&#34;
+    NORMAL = &#34;normal&#34; # requires &#39;std&#39; param. &#39;default&#39; is used as the mean
+    BETA=&#34;beta&#34; # requires a, b &#39;default&#39; is used as the mean. &#39;std&#39; is used as &#39;scale&#39; factor
     TRIANGLE = &#34;triangle&#34;
     FIXED = &#34;fixed&#34;</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
+<dt id="lca_algebraic.params.DistributionType.BETA"><code class="name">var <span class="ident">BETA</span></code></dt>
+<dd>
+<section class="desc"><p>str(object='') -&gt; str
+str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
+<p>Create a new string object from the given object. If encoding or
+errors is specified, then the object must expose a data buffer
+that will be decoded using the given encoding and error handler.
+Otherwise, returns the result of object.<strong>str</strong>() (if defined)
+or repr(object).
+encoding defaults to sys.getdefaultencoding().
+errors defaults to 'strict'.</p></section>
+</dd>
 <dt id="lca_algebraic.params.DistributionType.FIXED"><code class="name">var <span class="ident">FIXED</span></code></dt>
 <dd>
 <section class="desc"><p>str(object='') -&gt; str
@@ -830,7 +904,8 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         return Symbol.__new__(cls, name)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None,
-                 group=None, distrib=DistributionType.LINEAR, std=None):
+                 group=None, distrib=None, **kwargs):
+
         self.name = name
         self.type = type
         self.default = default
@@ -843,13 +918,27 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         self.group = group
         self.distrib = distrib
 
-        if type == ParamType.FLOAT and self.min is None:
-            self.distrib = DistributionType.FIXED
+        # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
+        if hasattr(self, &#34;_distrib&#34;) :
+            del self._distrib
 
-        if distrib == DistributionType.NORMAL and std is None:
-            raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
-        self.std = std
+        if not distrib :
+            if type == ParamType.FLOAT and self.min is None:
+                self.distrib = DistributionType.FIXED
+            else:
+                self.distrib = DistributionType.LINEAR
 
+        elif distrib == DistributionType.NORMAL :
+            if not &#39;std&#39; in kwargs:
+                raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
+            self.std = kwargs[&#39;std&#39;]
+
+        elif distrib == DistributionType.BETA :
+            if not &#39;a&#39; in kwargs or not &#39;b&#39; in kwargs or not &#39;std&#39; in kwargs :
+                raise Exception(&#34;Beta distribution requires params &#39;a&#39; &#39;b&#39; and &#39;std&#39; (used as scale)&#34;)
+            self.a = kwargs[&#39;a&#39;]
+            self.b = kwargs[&#39;b&#39;]
+            self.std = kwargs[&#39;std&#39;]
 
     def stat_value(self, mode : FixedParamMode):
         &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
@@ -884,12 +973,12 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         if self.distrib == DistributionType.FIXED :
             return self.default
         
-        if self.distrib == DistributionType.LINEAR:
+        elif self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
         else :
-
             if not hasattr(self, &#34;_distrib&#34;):
+
                 if self.distrib == DistributionType.TRIANGLE:
                     scale = self.max - self.min
                     c = (self.default - self.min) / scale
@@ -897,11 +986,26 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 
                 elif self.distrib == DistributionType.NORMAL:
 
-                    self._distrib = truncnorm(
-                        (self.min - self.default) / self.std,
-                        (self.max - self.min) / self.std,
+                    if self.min :
+                        # Truncated normal
+                        self._distrib = truncnorm(
+                            (self.min - self.default) / self.std,
+                            (self.max - self.min) / self.std,
+                            loc=self.default,
+                            scale=self.std)
+                    else :
+                        # Normal
+                        self._distrib = norm(
+                            loc=self.default,
+                            scale=self.std)
+
+                elif self.distrib == DistributionType.BETA:
+                    self._distrib = beta(
+                        self.a,
+                        self.b,
                         loc=self.default,
                         scale=self.std)
+
                 else:
                     raise Exception(&#34;Unkown distribution type &#34; + self.distrib)
 
@@ -1007,12 +1111,12 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     if self.distrib == DistributionType.FIXED :
         return self.default
     
-    if self.distrib == DistributionType.LINEAR:
+    elif self.distrib == DistributionType.LINEAR:
         return self.min + alpha * (self.max - self.min)
 
     else :
-
         if not hasattr(self, &#34;_distrib&#34;):
+
             if self.distrib == DistributionType.TRIANGLE:
                 scale = self.max - self.min
                 c = (self.default - self.min) / scale
@@ -1020,11 +1124,26 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 
             elif self.distrib == DistributionType.NORMAL:
 
-                self._distrib = truncnorm(
-                    (self.min - self.default) / self.std,
-                    (self.max - self.min) / self.std,
+                if self.min :
+                    # Truncated normal
+                    self._distrib = truncnorm(
+                        (self.min - self.default) / self.std,
+                        (self.max - self.min) / self.std,
+                        loc=self.default,
+                        scale=self.std)
+                else :
+                    # Normal
+                    self._distrib = norm(
+                        loc=self.default,
+                        scale=self.std)
+
+            elif self.distrib == DistributionType.BETA:
+                self._distrib = beta(
+                    self.a,
+                    self.b,
                     loc=self.default,
                     scale=self.std)
+
             else:
                 raise Exception(&#34;Unkown distribution type &#34; + self.distrib)
 
@@ -1161,6 +1280,7 @@ errors defaults to 'strict'.</p></section>
 <li>
 <h4><code><a title="lca_algebraic.params.DistributionType" href="#lca_algebraic.params.DistributionType">DistributionType</a></code></h4>
 <ul class="">
+<li><code><a title="lca_algebraic.params.DistributionType.BETA" href="#lca_algebraic.params.DistributionType.BETA">BETA</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.FIXED" href="#lca_algebraic.params.DistributionType.FIXED">FIXED</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.LINEAR" href="#lca_algebraic.params.DistributionType.LINEAR">LINEAR</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.NORMAL" href="#lca_algebraic.params.DistributionType.NORMAL">NORMAL</a></code></li>

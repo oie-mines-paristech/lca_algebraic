@@ -7,7 +7,7 @@ import brightway2 as bw
 from tabulate import tabulate
 from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
-from scipy.stats import triang, truncnorm
+from scipy.stats import triang, truncnorm, norm, beta
 from sympy import Symbol
 
 from .base_utils import _eprint, as_np_array
@@ -31,9 +31,19 @@ class ParamType:
 
 
 class DistributionType:
-    '''Type of distribution'''
+    '''
+        Type of statistic distribution of a parameter.
+        Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+
+        * **LINEAR** : uniform distribution between *min* and *max*
+        * **NORMAL** : Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*
+        * **TRIANGLE** : Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value
+        * **BETA** : Beta distribution with extra params *a* and *b*, using *default* value as 'loc' (0 of beta distribution) and *std* as 'scale' (1 of beta distribution).
+                See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta)
+    '''
     LINEAR = "linear"
-    NORMAL = "normal"
+    NORMAL = "normal" # requires 'std' param. 'default' is used as the mean
+    BETA="beta" # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
     TRIANGLE = "triangle"
     FIXED = "fixed"
 
@@ -56,7 +66,8 @@ class ParamDef(Symbol):
         return Symbol.__new__(cls, name)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
-                 group=None, distrib=DistributionType.LINEAR, std=None):
+                 group=None, distrib=None, **kwargs):
+
         self.name = name
         self.type = type
         self.default = default
@@ -69,13 +80,27 @@ class ParamDef(Symbol):
         self.group = group
         self.distrib = distrib
 
-        if type == ParamType.FLOAT and self.min is None:
-            self.distrib = DistributionType.FIXED
+        # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
+        if hasattr(self, "_distrib") :
+            del self._distrib
 
-        if distrib == DistributionType.NORMAL and std is None:
-            raise Exception("Standard deviation is mandatory for normal distribution")
-        self.std = std
+        if not distrib :
+            if type == ParamType.FLOAT and self.min is None:
+                self.distrib = DistributionType.FIXED
+            else:
+                self.distrib = DistributionType.LINEAR
 
+        elif distrib == DistributionType.NORMAL :
+            if not 'std' in kwargs:
+                raise Exception("Standard deviation is mandatory for normal distribution")
+            self.std = kwargs['std']
+
+        elif distrib == DistributionType.BETA :
+            if not 'a' in kwargs or not 'b' in kwargs or not 'std' in kwargs :
+                raise Exception("Beta distribution requires params 'a' 'b' and 'std' (used as scale)")
+            self.a = kwargs['a']
+            self.b = kwargs['b']
+            self.std = kwargs['std']
 
     def stat_value(self, mode : FixedParamMode):
         """Method used to compute fixed statistic value to use for fixed variables"""
@@ -110,12 +135,12 @@ class ParamDef(Symbol):
         if self.distrib == DistributionType.FIXED :
             return self.default
         
-        if self.distrib == DistributionType.LINEAR:
+        elif self.distrib == DistributionType.LINEAR:
             return self.min + alpha * (self.max - self.min)
 
         else :
-
             if not hasattr(self, "_distrib"):
+
                 if self.distrib == DistributionType.TRIANGLE:
                     scale = self.max - self.min
                     c = (self.default - self.min) / scale
@@ -123,11 +148,26 @@ class ParamDef(Symbol):
 
                 elif self.distrib == DistributionType.NORMAL:
 
-                    self._distrib = truncnorm(
-                        (self.min - self.default) / self.std,
-                        (self.max - self.min) / self.std,
+                    if self.min :
+                        # Truncated normal
+                        self._distrib = truncnorm(
+                            (self.min - self.default) / self.std,
+                            (self.max - self.min) / self.std,
+                            loc=self.default,
+                            scale=self.std)
+                    else :
+                        # Normal
+                        self._distrib = norm(
+                            loc=self.default,
+                            scale=self.std)
+
+                elif self.distrib == DistributionType.BETA:
+                    self._distrib = beta(
+                        self.a,
+                        self.b,
                         loc=self.default,
                         scale=self.std)
+
                 else:
                     raise Exception("Unkown distribution type " + self.distrib)
 

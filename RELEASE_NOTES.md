@@ -1,3 +1,7 @@
+# 0.0.11
+
+Added **BETA** distribution type. See [online doc](https://oie-mines-paristech.github.io/lca_algebraic/doc/params.html#lca_algebraic.params.DistributionType)
+
 # 0.0.10
 
 Fixed [issue #4](https://github.com/oie-mines-paristech/lca_algebraic/issues/4) : Added back handling of default params
