@@ -831,7 +831,7 @@ def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impa
         Y2 = _compute_stochastics([simpl_lambd], [method], params)
         d2 = Y2[Y2.columns[0]]
 
-        r_value = r_squared(Y1, Y2)
+        r_value = r_squared(d1, d2)
 
         title = method_name(method)
 
