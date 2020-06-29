@@ -5,11 +5,11 @@ from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
 from matplotlib import pyplot as plt
-from sympy import Float, Number
+from sympy import Float, Number, Add, AtomicExpr
 from time import time
 from .base_utils import _method_unit, _eprint
 from .lca import *
-from .lca import _expanded_names_to_names
+from .lca import _expanded_names_to_names, _filter_param_values
 from .params import _variable_params, _param_registry, FixedParamMode
 
 
@@ -32,21 +32,27 @@ def _heatmap(df, title, vmax, ints=False):
     ax.tick_params(axis="y", labelsize=18)
 
 
-def oat_matrix(model, impacts, n=10):
+def extract_var_params(lambdas):
+    required_param_names = set()
+    for lamb in lambdas :
+        required_param_names.update(_expanded_names_to_names(lamb.expanded_params))
+    var_params = _variable_params(required_param_names)
+    return sorted(var_params.values(), key=lambda p: (p.group, p.name))
+
+
+def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
     lambdas = preMultiLCAAlgebric(model, impacts)
 
-    required_param_names = _expanded_names_to_names(lambdas[0].expanded_params)
-    required_params = {key: _param_registry()[key] for key in required_param_names}
-    var_params = _variable_params(required_param_names)
+    # Sort params by category
+    sorted_params = extract_var_params(lambdas)
 
+    change = np.zeros((len(sorted_params), len(impacts)))
 
-    change = np.zeros((len(var_params), len(impacts)))
-
-    for iparam, param in enumerate(var_params.values()):
-        params = {param.name: param.default for param in required_params.values()}
+    for iparam, param in enumerate(sorted_params):
+        params = {param.name: param.default for param in sorted_params}
 
         # Compute range of values for given param
         params[param.name] = param.range(n)
@@ -57,9 +63,13 @@ def oat_matrix(model, impacts, n=10):
         # Compute change
         change[iparam] = (df.max() - df.min()) / df.median() * 100
 
+
+
     # Build final heatmap
-    change = pd.DataFrame(change, index=var_params.keys(), columns=[imp[2] for imp in impacts])
-    _heatmap(change.transpose(), 'Change of impacts per variability of the input parameters (%)', 100, ints=True)
+    change = pd.DataFrame(change,
+                index=[param.get_label() for param in sorted_params],
+                columns=[method_name(imp) for imp in impacts])
+    _heatmap(change.transpose(), title, 100, ints=True)
 
 
 def _display_tabs(titlesAndContentF):
@@ -293,13 +303,19 @@ def _sobols(methods, problem, Y) -> SobolResults :
 
 
 
-def _incer_stochastic_matrix(methods, param_names, Y, st):
+def _incer_stochastic_matrix(methods, param_names, Y, sob):
     ''' Internal method computing matrix of parameter importance '''
 
-    def draw(mode):
 
-        if mode == 'sobol':
-            data = st
+
+    def draw(indice, mode):
+        '''
+        Mode comes as ('s1' || 'st', 'raw' || 'percent')
+        '''
+
+        sx = sob.s1 if indice == "s1" else sob.st
+        if mode == 'raw':
+            data = sx
         else:
             # If percent, express result as percentage of standard deviation / mean
             data = np.zeros((len(param_names), len(methods)))
@@ -308,19 +324,25 @@ def _incer_stochastic_matrix(methods, param_names, Y, st):
                 var = np.var(Y[Y.columns[i]])
                 mean = np.mean(Y[Y.columns[i]])
                 if mean != 0:
-                    data[:, i] = np.sqrt((st[:, i] * var)) / mean * 100
+                    data[:, i] = np.sqrt((sx[:, i] * var)) / mean * 100
 
-        df = pd.DataFrame(data, index=param_names, columns=[method_name(method) for method in methods])
+        param_labels = [_param_registry()[name].get_label() for name in param_names]
+        df = pd.DataFrame(data, index=param_labels, columns=[method_name(method) for method in methods])
         _heatmap(
             df.transpose(),
             title="Relative deviation of impacts (%)" if mode == 'percent' else "Sobol indices (part of variability)",
             vmax=100 if mode == 'percent' else 1,
             ints=mode == 'percent')
 
-    interact(draw, mode=[('Raw sobol indices (ST)', 'sobol'), ('Deviation (ST) / mean', 'percent')])
+    interact(draw,
+             indice=['s1', 'st'],
+             mode=[
+                 ('Raw indices', 'raw'),
+                 ('Relative to mean (%)', 'percent')]
+             )
 
 
-def incer_stochastic_matrix(modelOrLambdas, methods, n=1000, var_params=None):
+def incer_stochastic_matrix(model, methods, n=1000):
     '''
     Method computing matrix of parameter importance
 
@@ -330,12 +352,15 @@ def incer_stochastic_matrix(modelOrLambdas, methods, n=1000, var_params=None):
     By default use all the parameters with distribution not FIXED
     '''
 
-    problem, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
+    lambdas = preMultiLCAAlgebric(model, methods)
+    var_params = extract_var_params(lambdas)
+
+    problem, _, Y = _stochastics(lambdas, methods, n, var_params)
 
     print("Processing Sobol indices ...")
     sob = _sobols(methods, problem, Y)
 
-    _incer_stochastic_matrix(methods, problem['names'], Y, sob.st)
+    _incer_stochastic_matrix(methods, problem['names'], Y, sob)
 
 
 def _incer_stochastic_violin(methods, Y):
@@ -466,7 +491,7 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None):
         _incer_stochastic_variations(methods, param_names, Y, sob.s1)
 
     def matrix():
-        _incer_stochastic_matrix(methods, problem['names'], Y, sob.st)
+        _incer_stochastic_matrix(methods, problem['names'], Y, sob)
 
     def data():
         _incer_stochastic_data(methods, problem['names'], Y, sob.s1, sob.st)
@@ -483,10 +508,12 @@ def _round_expr(expr, num_digits):
     ''' Round all number in sympy expression with n digits'''
     return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
 
-def sobol_simplify_model(model, methods,
-                         min_ratio=0.8, n=10000, var_params=None,
-                         fixed_mode = FixedParamMode.MEDIAN,
-                         sob=None, num_digits=3) :
+def sobol_simplify_model(
+    model, methods,
+    min_ratio=0.8, n=2000, var_params=None,
+    fixed_mode = FixedParamMode.MEDIAN,
+    num_digits=3) :
+
     '''
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
     Then generates simplified models for those parameters.
@@ -511,12 +538,8 @@ def sobol_simplify_model(model, methods,
 
     var_param_names = list([param.name for param in var_params])
 
-    if sob==None :
-
-        problem, _, Y = _stochastics(model, methods, n, var_params)
-
-        print("Processing Sobol indices ...")
-        sob = _sobols(methods, problem, Y)
+    problem, params, Y = _stochastics(model, methods, n, var_params)
+    sob = _sobols(methods, problem, Y)
 
     s1, s2 = sob.s1, sob.s2
 
@@ -563,14 +586,66 @@ def sobol_simplify_model(model, methods,
 
         simplified_expr = _round_expr(simplified_expr, num_digits)
 
-        display(simplified_expr)
-
         # Lambdify the expression
         lambd = LambdaWithParamNames(simplified_expr, params=selected_params)
 
-        res.append(lambd)
+        # Extra step of simplification : siplofiy sum with neligeable terms
+        simplified_expr = simplify(simplify_sums(lambd, params))
+
+        res.append(LambdaWithParamNames(simplified_expr, params=selected_params))
+
 
     return res
+
+TERM_MIN_LEVEL = 0.01
+
+def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
+
+    # Gather all terms of any sum
+    terms = dict()
+    def pexp(expr):
+        for arg in expr.args :
+            if expr.func == Add:
+                terms[str(arg)] = arg
+            pexp(arg)
+    pexp(lambdaWithParams.expr)
+
+    # Lambdify all terms
+    lambd_terms = {key : lambdify(lambdaWithParams.expanded_params, exp) for key, exp in terms.items()}
+
+    completed_params = lambdaWithParams.complete_params(params_values)
+    filtered_params = _filter_param_values(completed_params, lambdaWithParams.expanded_params)
+
+    # Compute their values
+    term_max = dict()
+    for key, lamb in lambd_terms.items() :
+
+        values = lamb(**filtered_params)
+        term_max[key] = np.max(np.abs(values))
+
+    # Cleanup :keep only most relevant terms
+    def cleanup(exp):
+
+        if issubclass(exp.func, AtomicExpr):
+            return exp
+
+        # For sum, only select terms than are relevant
+        if exp.func == Add :
+
+            # Compute max term
+            mx = max([term_max[str(arg)] for arg in exp.args])
+
+            # Only keep term above level
+            args = [arg for arg in exp.args if term_max[str(arg)] > (TERM_MIN_LEVEL * mx)]
+        else:
+            args = exp.args
+
+        args = [cleanup(arg) for arg in args]
+
+        return exp.func(*args)
+
+    print(lambdaWithParams.expr)
+    return cleanup(lambdaWithParams.expr)
 
 
 def _text(x, y, val):
@@ -590,23 +665,14 @@ def _vline(x, ymin, ymax, linewidth=1, linestyle='solid'):
     plt.axvline(x, color='k', ymin=ymin, ymax=ymax, linewidth=linewidth, linestyle=linestyle)
 
 
-def _graph(data, method, title, ax,
-           unit_overrides=None, box=False, scales=None,
-           alpha=1, textboxtop=0.95, textboxright=0.95, color=None, limit_xrange=False):
-
-    def unit(method):
-        if unit_overrides and method in unit_overrides:
-            return unit_overrides[method]
-        else:
-            return _method_unit(method)
+def _graph(data, unit, title, ax, box=False,
+           alpha=1, textboxtop=0.95, textboxright=0.95, color=None,
+           limit_xrange=False):
 
     if ax is not None:
         plt.sca(ax)
     else:
         ax = plt.gca()
-
-    if scales and method in scales:
-        data = data * scales[method]
 
     median = np.median(data)
     std = np.std(data)
@@ -667,21 +733,30 @@ def _graph(data, method, title, ax,
             verticalalignment='top', ha='right', bbox=props)
 
     # Axes
-    ax.set_xlabel(unit(method) + " / kWh", dict(fontsize=14))
+    ax.set_xlabel(unit, dict(fontsize=14))
     ax.set_yticks([])
     ax.set_title(title, dict(fontsize=16))
 
+    return dict(
+        median=median,
+        std=std,
+        p1=p1,
+        p99=p99,
+        mean=mean,
+        var=variability)
 
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
         impact_names=None,
         invert=None,
+        scales=None, # Dict of method => scale
+        unit_overrides=None,
         height=10, width=15, **kwargs):
     """ Show distributions together with statistical outcomes"""
 
     if Y is None:
-        _, _, Y = _stochastics(model, methods, n=100000, salt=False)
+        _, _, Y = _stochastics(model, methods, n=10000, salt=False)
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)
@@ -694,6 +769,8 @@ def graphs(
 
     plt.subplots_adjust(hspace=0.4)
 
+
+    res=dict()
     for i, method, ax in zip(range(len(methods)), methods, axes):
 
         data = Y[Y.columns[i]]
@@ -701,17 +778,31 @@ def graphs(
         if invert and method in invert:
             data = 1 / data
 
-        _graph(
-            data, method,
-            title if title else impact_names[method] if impact_names else str(method[2]),
+        if scales and method in scales:
+            data = data * scales[method]
+
+        graph_title = title if title else impact_names[method] if impact_names else str(method[2])
+
+        if unit_overrides and method in unit_overrides:
+            unit = unit_overrides[method]
+        else:
+            unit = _method_unit(method)
+
+        unit += " / kWh"
+
+        stats = _graph(
+            data, unit,
+            graph_title,
             ax=ax,
             **kwargs)
+
+        res[graph_title + (' [%s]' % unit)] = stats
 
     for i in range(0, -len(methods) % nb_cols):
         ax = axes.flatten()[-(i + 1)]
         ax.axis("off")
 
-    return Y
+    return pd.DataFrame(res)
 
 
 def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impact_names=None):
@@ -742,14 +833,13 @@ def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impa
 
         r_value = r_squared(Y1, Y2)
 
-        title = impact_names[method] if impact_names else method[0]
+        title = method_name(method)
 
-        _graph(d1, method, title, ax=ax, box=box, alpha=0.6, color=colors[0])
-        _graph(d2, method, title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
+        _graph(d1, _method_unit(method), title, ax=ax, box=box, alpha=0.6, color=colors[0])
+        _graph(d2, _method_unit(method), title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
 
         ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
                 verticalalignment='top', ha='right')
-
 
     # Hide missing graphs
     for i in range(0, -len(methods) % nb_cols):

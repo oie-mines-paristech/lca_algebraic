@@ -68,6 +68,7 @@ def _method_unit(method) :
 
 
 def _actName(act: Activity):
+    
     """Generate pretty name for activity, appending location if not 'GLO' """
     res = act['name']
     if act['location'] != 'GLO':

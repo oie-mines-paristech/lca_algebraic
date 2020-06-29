@@ -328,6 +328,14 @@ printAct(alu, alu2)
 ```{python}
 # List of impacts to consider
 impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
+
+```
+
+```{python}
+# You can provide alternate names for soResource uageme methods
+set_custom_impact_labels({
+    impacts[0] : 'Resource usage',
+    impacts[1]: 'Climate change'})
 ```
 
 # Compute LCA
@@ -374,6 +382,27 @@ multiLCAAlgebric(
     elec_switch_param="us")
 ```
 
+## Evaluate the contribution of a subset of activites to global impact
+
+You can extract the contribution of a subset of activites to the global impact of the model
+
+```{python}
+# Contribution of impact of aluminium
+multiLCAAlgebric(
+    normalized_model, # The model 
+    impacts, # Impacts
+    
+    # List of sub activites to consider
+    extract_activities = [alu, alu2],
+    
+    # Parameters of the model
+    a=1, b=2, 
+    elec_switch_param="us",
+    share_recycled_aluminium=0.4)
+```
+
+## Fast computation of many parameter values
+
 ```{python}
 # Fast computation for millions of separate samples
 multiLCAAlgebric(
@@ -381,7 +410,7 @@ multiLCAAlgebric(
     impacts, # Impacts
     
     # Parameters of the model
-    a=list(range(1, 1000000)), # All lists should have the same size
+    a=list(range(1, 100000)), # All lists should have the same size
     share_recycled_aluminium=1, # Those parameters are fixed
     elec_switch_param="eu")
 ```
@@ -499,8 +528,8 @@ simplified = sobol_simplify_model(
     normalized_model, 
     impacts,
     n=10000, # For large model, you may test other value and ensure ST and sum(S1) are close to 1.0 
-    fixed_mode = FixedParamMode.MEDIAN, # We replace minor parameters by median by default
-)
+    fixed_mode = FixedParamMode.MEDIAN, # We replace minor parameters by median by default,
+    min_ratio=0.8) # Min ratio of varaibility to explain
 ```
 
 ```{python}
@@ -516,8 +545,4 @@ Finally, we can compare the distribution of those simplified model against the f
 
 ```{python}
 compare_simplified(normalized_model, impacts, simplified)
-```
-
-```{python}
-
 ```

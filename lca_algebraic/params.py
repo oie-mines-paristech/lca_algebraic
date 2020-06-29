@@ -23,6 +23,7 @@ def _param_registry():
     return builtins.param_registry
 
 
+
 class ParamType:
     '''Type of parameters'''
     ENUM = "enum"
@@ -118,8 +119,10 @@ class ParamDef(Symbol):
                 raise Exception("Unkown mode " + mode)
 
 
-    def label(self):
-        if self.label is not None:
+    def get_label(self):
+        if self.label_fr is not None :
+            return self.label_fr
+        elif self.label is not None:
             return self.label
         else:
             return self.name.replace("_", " ")
@@ -366,7 +369,7 @@ def resetParams(db_name):
 
 def list_parameters():
     """ Print a pretty list of all defined parameters """
-    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.std, param.distrib, param.unit] for param in
+    params = [[param.group, param.get_label(), param.default, param.min, param.max, param.std if hasattr(param, 'std') else None, param.distrib, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))

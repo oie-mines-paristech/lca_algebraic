@@ -1,3 +1,9 @@
+# 0.0.12
+
+* Added a step of simplification of models in **sobol_simplify_model** by remveing minor terms of sums
+* Added support for alternate names for impact methods with the function **set_custom_impact_labels**
+* Added parameter **extract_activities** to **multiLCAAlgebric** in order to compute contribution of a subset of activities to the global impact 
+
 # 0.0.11
 
 Added **BETA** distribution type. See [online doc](https://oie-mines-paristech.github.io/lca_algebraic/doc/params.html#lca_algebraic.params.DistributionType)

@@ -320,8 +320,6 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         search = search.replace(',', ' ')
         search = re.sub('\w*[^a-zA-Z ]+\w*', ' ', search)
 
-        # print(search)
-
         # Find candidates via index
         # candidates = _find_candidates(db_name, name_key)
         candidates = _getDb(db_name).search(search, limit=200)
