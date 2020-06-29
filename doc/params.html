@@ -49,6 +49,7 @@ def _param_registry():
     return builtins.param_registry
 
 
+
 class ParamType:
     &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
     ENUM = &#34;enum&#34;
@@ -144,8 +145,10 @@ class ParamDef(Symbol):
                 raise Exception(&#34;Unkown mode &#34; + mode)
 
 
-    def label(self):
-        if self.label is not None:
+    def get_label(self):
+        if self.label_fr is not None :
+            return self.label_fr
+        elif self.label is not None:
             return self.label
         else:
             return self.name.replace(&#34;_&#34;, &#34; &#34;)
@@ -392,7 +395,7 @@ def resetParams(db_name):
 
 def list_parameters():
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.std, param.distrib, param.unit] for param in
+    params = [[param.group, param.get_label(), param.default, param.min, param.max, param.std if hasattr(param, &#39;std&#39;) else None, param.distrib, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
@@ -417,7 +420,7 @@ def list_parameters():
 </summary>
 <pre><code class="python">def list_parameters():
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.label_fr or param.label or param.name, param.default, param.min, param.max, param.std, param.distrib, param.unit] for param in
+    params = [[param.group, param.get_label(), param.default, param.min, param.max, param.std if hasattr(param, &#39;std&#39;) else None, param.distrib, param.unit] for param in
               _param_registry().values()]
     groups = list({p[0] for p in params})
     sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
@@ -956,8 +959,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
                 raise Exception(&#34;Unkown mode &#34; + mode)
 
 
-    def label(self):
-        if self.label is not None:
+    def get_label(self):
+        if self.label_fr is not None :
+            return self.label_fr
+        elif self.label is not None:
             return self.label
         else:
             return self.name.replace(&#34;_&#34;, &#34; &#34;)
@@ -1067,8 +1072,8 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     return {self.name: value}</code></pre>
 </details>
 </dd>
-<dt id="lca_algebraic.params.ParamDef.label"><code class="name flex">
-<span>def <span class="ident">label</span></span>(<span>self)</span>
+<dt id="lca_algebraic.params.ParamDef.get_label"><code class="name flex">
+<span>def <span class="ident">get_label</span></span>(<span>self)</span>
 </code></dt>
 <dd>
 <section class="desc"></section>
@@ -1076,8 +1081,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def label(self):
-    if self.label is not None:
+<pre><code class="python">def get_label(self):
+    if self.label_fr is not None :
+        return self.label_fr
+    elif self.label is not None:
         return self.label
     else:
         return self.name.replace(&#34;_&#34;, &#34; &#34;)</code></pre>
@@ -1308,7 +1315,7 @@ errors defaults to 'strict'.</p></section>
 <ul class="two-column">
 <li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.expandParams" href="#lca_algebraic.params.ParamDef.expandParams">expandParams</a></code></li>
-<li><code><a title="lca_algebraic.params.ParamDef.label" href="#lca_algebraic.params.ParamDef.label">label</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamDef.get_label" href="#lca_algebraic.params.ParamDef.get_label">get_label</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.names" href="#lca_algebraic.params.ParamDef.names">names</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
