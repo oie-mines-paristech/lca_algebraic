@@ -186,8 +186,11 @@ class ParamDef(Symbol):
         return {self.name: value}
 
     # Useful for enum param, having several names
-    def names(self):
-        return [self.name]
+    def names(self, use_label=False):
+        if use_label :
+            return [self.get_label()]
+        else:
+            return [self.name]
 
     def __repr__(self):
         return self.name
@@ -246,8 +249,12 @@ class EnumParam(ParamDef):
             raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
         return Symbol(self.name + '_' + enumValue)
 
-    def names(self):
-        return ["%s_%s" % (self.name, value) for value in (self.values + ["default"])]
+    def names(self, use_label=False):
+        if use_label :
+            base_name = self.get_label()
+        else :
+            base_name = self.name
+        return ["%s_%s" % (base_name, value) for value in (self.values + ["default"])]
 
     def rand(self, alpha):
         alpha = as_np_array(alpha)

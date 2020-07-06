@@ -392,21 +392,22 @@ def actToExpression(act: Activity, extraFixedParams=None, fixed_mode=FixedParamM
             input_db, input_code = exch['input']
             sub_act = _getDb(input_db).get(input_code)
 
+
             # If list of extract activites requested, we only integrate activites below a tracked one
+            exch_in_path = in_extract_path
             if extract_activities is not None:
-                exch_in_path = in_extract_path or (sub_act in extract_activities)
-            else:
-                exch_in_path = in_extract_path
+                if sub_act in extract_activities :
+                    exch_in_path = in_extract_path or (sub_act in extract_activities)
 
             # Background DB => reference it as a symbol
             if input_db in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]  :
 
-                if in_extract_path :
+                if exch_in_path :
                     # Add to dict of background symbols
                     if not (input_db, input_code) in act_symbols:
                         act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
                     act_expr = act_symbols[(input_db, input_code)]
-                else :
+                else:
                     continue
 
             # Our model : recursively it to a symbolic expression
@@ -421,7 +422,7 @@ def actToExpression(act: Activity, extraFixedParams=None, fixed_mode=FixedParamM
 
         return res / outputAmount
 
-    expr = rec_func(act, extract_activities is  None)
+    expr = rec_func(act, extract_activities is None)
 
     fixed_params = set(_fixed_params().values())
     if extraFixedParams :
