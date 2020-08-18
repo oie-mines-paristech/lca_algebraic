@@ -110,8 +110,20 @@ def as_np_array(a) :
     else :
         return a
 
-def r_squared(y, y_hat):
-    y_bar = y.mean()
-    ss_tot = ((y - y_bar) ** 2).sum()
-    ss_res = ((y - y_hat) ** 2).sum()
-    return 1 - (ss_res / ss_tot)
+
+def r_squared(y, y_hat, varCount=None, sampleSize=None):
+    if varCount:
+        y_bar = y.mean()
+        ss_tot = ((y - y_bar) ** 2).sum()
+        ss_res = ((y - y_hat) ** 2).sum()
+        #p = len(varCount)
+        dft = sampleSize - 1
+        dfe = sampleSize - varCount - 1
+        return 1 - ((ss_res/dfe) / (ss_tot/dft))
+
+    else:
+        y_bar = y.mean()
+        ss_tot = ((y - y_bar) ** 2).sum()
+        ss_res = ((y - y_hat) ** 2).sum()
+
+        return 1 - (ss_res / ss_tot)

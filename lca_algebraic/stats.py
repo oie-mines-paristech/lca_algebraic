@@ -830,17 +830,28 @@ def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impa
         # Run monte carlo of simplified model
         Y2 = _compute_stochastics([simpl_lambd], [method], params)
         d2 = Y2[Y2.columns[0]]
-
-        r_value = r_squared(d1, d2)
+        varCount= len(extract_var_params([simpl_lambd]))
+        r_value = r_squared(d1, d2, varCount, 100000)
 
         title = method_name(method)
 
         _graph(d1, _method_unit(method), title, ax=ax, box=box, alpha=0.6, color=colors[0])
         _graph(d2, _method_unit(method), title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
 
-        ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
-                verticalalignment='top', ha='right')
+        R2_print = str(np.round(r_value, decimals=3))
+        if varCount==None:
+            textSTR = ("R² : " + R2_print )
+        else:
+            variablesPrint = str(varCount)
+            textSTR = ("Adjusted R² = " + R2_print + '\n'  + 'N° of variables=' + variablesPrint)
 
+        ax.text(0.9, 0.65, textSTR , transform=ax.transAxes, fontsize=14, verticalalignment='top', ha='right')
+        #ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14, verticalalignment='top', ha='right')
+        
+        # plt.savefig(r'LCIA_Results/_PerformancePlot_/' + method[1] + ' - ' + method[2] + '.png',
+        #          transparent=False,
+        #          bbox_inches='tight',
+        #          dpi=600)
     # Hide missing graphs
     for i in range(0, -len(methods) % nb_cols):
         ax = axes.flatten()[-(i + 1)]
