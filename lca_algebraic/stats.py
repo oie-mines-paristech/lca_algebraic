@@ -13,7 +13,7 @@ from .lca import _expanded_names_to_names, _filter_param_values
 from .params import _variable_params, _param_registry, FixedParamMode
 
 
-PARALLEL=False
+PARALLEL=True
 
 def _parallel_map(f, items) :
     if PARALLEL :
@@ -512,7 +512,8 @@ def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
-    num_digits=3) :
+    num_digits=3,
+    compare=True ) :
 
     '''
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -544,6 +545,7 @@ def sobol_simplify_model(
     s1, s2 = sob.s1, sob.s2
 
     res = []
+    models =[]
 
     for imethod, method in enumerate(methods) :
 
@@ -556,9 +558,11 @@ def sobol_simplify_model(
         print('ST: ', np.sum(sob.st[:, imethod]))
 
         sum = 0
+        sum_tmp = 0
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
+        print('\n S1 indeces ')
         for iparam, param in enumerate(sorted_param_indices) :
 
             selected_params.append(var_param_names[param])
@@ -573,6 +577,12 @@ def sobol_simplify_model(
 
             if sum > min_ratio :
                 break
+            # S2
+            #print('\n S2 indeces')
+            #for iparam2 in range(0, iparam):
+            #    param2 = sorted_param_indices[iparam2]
+            #    sum += s2[param, param2, imethod]
+            #    print(s2[param, param2, imethod], var_param_names[param])
         print("Selected params : ", selected_params, "explains: ", sum)
 
         fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
@@ -593,6 +603,11 @@ def sobol_simplify_model(
         simplified_expr = simplify(simplify_sums(lambd, params))
 
         res.append(LambdaWithParamNames(simplified_expr, params=selected_params))
+        models.append(simplified_expr)
+        display(models[0])
+
+        if compare :
+            compare_simplified(model, [method], res)
 
 
     return res
@@ -644,7 +659,7 @@ def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
 
         return exp.func(*args)
 
-    print(lambdaWithParams.expr)
+    #print(lambdaWithParams.expr)
     return cleanup(lambdaWithParams.expr)
 
 
@@ -736,6 +751,10 @@ def _graph(data, unit, title, ax, box=False,
     ax.set_xlabel(unit, dict(fontsize=14))
     ax.set_yticks([])
     ax.set_title(title, dict(fontsize=16))
+    # plt.savefig('out.png',
+    #         transparent=False,
+    #         bbox_inches='tight',
+    #         dpi=600)
 
     return dict(
         median=median,
@@ -744,6 +763,7 @@ def _graph(data, unit, title, ax, box=False,
         p99=p99,
         mean=mean,
         var=variability)
+
 
 def graphs(
         model, methods,
@@ -760,7 +780,7 @@ def graphs(
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)
-        fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+        fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows), dpi=1200)
 
     if isinstance(axes, np.ndarray):
         axes = axes.flatten()
@@ -814,7 +834,7 @@ def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impa
     lambdas = preMultiLCAAlgebric(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
-    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows))
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows), dpi=300)
 
     plt.subplots_adjust(hspace=0.4)
 
@@ -830,17 +850,28 @@ def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impa
         # Run monte carlo of simplified model
         Y2 = _compute_stochastics([simpl_lambd], [method], params)
         d2 = Y2[Y2.columns[0]]
-
-        r_value = r_squared(Y1, Y2)
+        varCount= len(extract_var_params([simpl_lambd]))
+        r_value = r_squared(Y1, Y2, varCount, 100000)
 
         title = method_name(method)
 
         _graph(d1, _method_unit(method), title, ax=ax, box=box, alpha=0.6, color=colors[0])
         _graph(d2, _method_unit(method), title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
 
-        ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
-                verticalalignment='top', ha='right')
+        R2_print = str(np.round(r_value, decimals=3))
+        if varCount==None:
+            textSTR = ("R² : " + R2_print )
+        else:
+            variablesPrint = str(varCount)
+            textSTR = ("Adjusted R² = " + R2_print + '\n'  + 'N° of variables=' + variablesPrint)
 
+        ax.text(0.9, 0.65, textSTR , transform=ax.transAxes, fontsize=14, verticalalignment='top', ha='right')
+        #ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14, verticalalignment='top', ha='right')
+
+        # plt.savefig(r'LCIA_Results/_PerformancePlot_/' + method[1] + ' - ' + method[2] + '.png',
+        #          transparent=False,
+        #          bbox_inches='tight',
+        #          dpi=600)
     # Hide missing graphs
     for i in range(0, -len(methods) % nb_cols):
         ax = axes.flatten()[-(i + 1)]
