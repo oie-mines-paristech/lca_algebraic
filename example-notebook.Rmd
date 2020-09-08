@@ -332,7 +332,7 @@ impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in s
 ```
 
 ```{python}
-# You can provide alternate names for soResource uageme methods
+# You can provide alternate names for some methods
 set_custom_impact_labels({
     impacts[0] : 'Resource usage',
     impacts[1]: 'Climate change'})
@@ -441,7 +441,13 @@ This functions draws a dashboard showing :
 * A graph of "bars" representing the variation of each impact for this parameter (similar to the information given in oat_matrix) 
 
 ```{python}
-oat_dashboard_interact(model, impacts)
+oat_dashboard_interact(
+    model, impacts, 
+    
+    # Optionnal layout parameters
+    figspace=(0.5,0.5),
+    figsize=(15, 15),
+    sharex=True)
 ```
 
 <!-- #region -->
@@ -470,12 +476,30 @@ $$RelativeDeviation = \frac{\sqrt{sobol(param) \times totalVariance(impact))}}{m
 incer_stochastic_matrix(model, impacts)
 ```
 
-### Violin graphs
+###  Graphs of impacts and their distribution
 
 We provide a dashboard showing **violin graphs** : the exact probabilistic distribution for each impact. Together with medians of the impacts.
 
 ```{python}
-incer_stochastic_violin(model, impacts)
+incer_stochastic_violin(
+    model, impacts,
+    
+    # Optionnal layout parameters
+    figspace=(0.5,0.5),
+    figsize=(15, 15),
+    sharex=True, 
+    nb_cols=3)
+```
+
+```{python}
+##### Alternatively, graphs can be shown horizontally, together with a box of statistical outcomes
+graphs(
+    model, impacts,
+    
+    # Optionnal layout parameters
+    height=7, width=15,
+    nb_cols=2,
+    percentiles=[5, 95])
 ```
 
 ### Full dashboard
@@ -518,18 +542,17 @@ lambdas[0].expr
 
 We provide some method to automatically select a subset of parameters, based on the **sobol indices**, and then compute simplified models for it.
 
-```{python}
-# We provide some method to automatically select a subset of parameters, 
-# based on the sobol indices, and then copute simplified models for it
-```
+We also round numerical expression to 3 digits, and we remove terms in sums that are less than 1% of total.
 
 ```{python}
 simplified = sobol_simplify_model(
-    normalized_model, 
-    impacts,
+    normalized_model, # The model
+    impacts, # Impacts to consider
     n=10000, # For large model, you may test other value and ensure ST and sum(S1) are close to 1.0 
     fixed_mode = FixedParamMode.MEDIAN, # We replace minor parameters by median by default,
-    min_ratio=0.8) # Min ratio of varaibility to explain
+    min_ratio=0.8, # Min ratio of variability to explain
+
+    num_digits=3)
 ```
 
 ```{python}
@@ -545,4 +568,8 @@ Finally, we can compare the distribution of those simplified model against the f
 
 ```{python}
 compare_simplified(normalized_model, impacts, simplified)
+```
+
+```{python}
+
 ```

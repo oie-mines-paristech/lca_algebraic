@@ -212,8 +212,11 @@ class ParamDef(Symbol):
         return {self.name: value}
 
     # Useful for enum param, having several names
-    def names(self):
-        return [self.name]
+    def names(self, use_label=False):
+        if use_label :
+            return [self.get_label()]
+        else:
+            return [self.name]
 
     def __repr__(self):
         return self.name
@@ -272,8 +275,12 @@ class EnumParam(ParamDef):
             raise Exception(&#34;enumValue should be one of %s. Was %s&#34; % (str(self.values), enumValue))
         return Symbol(self.name + &#39;_&#39; + enumValue)
 
-    def names(self):
-        return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]
+    def names(self, use_label=False):
+        if use_label :
+            base_name = self.get_label()
+        else :
+            base_name = self.name
+        return [&#34;%s_%s&#34; % (base_name, value) for value in (self.values + [&#34;default&#34;])]
 
     def rand(self, alpha):
         alpha = as_np_array(alpha)
@@ -714,8 +721,12 @@ Statistics weight can be attached to values by providing a dict.</p></section>
             raise Exception(&#34;enumValue should be one of %s. Was %s&#34; % (str(self.values), enumValue))
         return Symbol(self.name + &#39;_&#39; + enumValue)
 
-    def names(self):
-        return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]
+    def names(self, use_label=False):
+        if use_label :
+            base_name = self.get_label()
+        else :
+            base_name = self.name
+        return [&#34;%s_%s&#34; % (base_name, value) for value in (self.values + [&#34;default&#34;])]
 
     def rand(self, alpha):
         alpha = as_np_array(alpha)
@@ -784,7 +795,7 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 </details>
 </dd>
 <dt id="lca_algebraic.params.EnumParam.names"><code class="name flex">
-<span>def <span class="ident">names</span></span>(<span>self)</span>
+<span>def <span class="ident">names</span></span>(<span>self, use_label=False)</span>
 </code></dt>
 <dd>
 <section class="desc"></section>
@@ -792,8 +803,12 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def names(self):
-    return [&#34;%s_%s&#34; % (self.name, value) for value in (self.values + [&#34;default&#34;])]</code></pre>
+<pre><code class="python">def names(self, use_label=False):
+    if use_label :
+        base_name = self.get_label()
+    else :
+        base_name = self.name
+    return [&#34;%s_%s&#34; % (base_name, value) for value in (self.values + [&#34;default&#34;])]</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.EnumParam.symbol"><code class="name flex">
@@ -1026,8 +1041,11 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         return {self.name: value}
 
     # Useful for enum param, having several names
-    def names(self):
-        return [self.name]
+    def names(self, use_label=False):
+        if use_label :
+            return [self.get_label()]
+        else:
+            return [self.name]
 
     def __repr__(self):
         return self.name</code></pre>
@@ -1091,7 +1109,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 </details>
 </dd>
 <dt id="lca_algebraic.params.ParamDef.names"><code class="name flex">
-<span>def <span class="ident">names</span></span>(<span>self)</span>
+<span>def <span class="ident">names</span></span>(<span>self, use_label=False)</span>
 </code></dt>
 <dd>
 <section class="desc"></section>
@@ -1099,8 +1117,11 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def names(self):
-    return [self.name]</code></pre>
+<pre><code class="python">def names(self, use_label=False):
+    if use_label :
+        return [self.get_label()]
+    else:
+        return [self.name]</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.ParamDef.rand"><code class="name flex">

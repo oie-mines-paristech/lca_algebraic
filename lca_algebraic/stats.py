@@ -90,9 +90,11 @@ def _display_tabs(titlesAndContentF):
     display(res)
 
 
-def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None):
+def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None,
+                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True):
     '''
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
+    The result heatmap shows percentage of variation relative to median value.
 
     Parameters
     ----------
@@ -100,7 +102,9 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     impacts : set of methods
     param: parameter to analyse
     n: number of samples of the parameter
-
+    figsize: Size of figure fro graphs : (15, 15 by default)
+    figspace: Space between figures for graphs : (0.5, 0.5) by default
+    sharex: Shared X axes ? True by default
     '''
 
     if all_param_names == None:
@@ -135,10 +139,11 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 
             nb_rows = len(impacts) // 3 + 1
 
-            fig, axes = plt.subplots(figsize=(15, 15))
+            fig, axes = plt.subplots(figsize=figsize)
+            plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
 
             axes = df.plot(
-                ax=axes, sharex=True, subplots=True,
+                ax=axes, sharex=sharex, subplots=True,
                 layout=(nb_rows, 3),
                 # legend=None,
                 kind='line' if varying_param.type == ParamType.FLOAT else 'bar')
@@ -168,13 +173,20 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     ])
 
 
-def oat_dashboard_interact(model, methods):
-    '''Interative dashboard, with a dropdown for selecting parameter'''
+def oat_dashboard_interact(model, methods, **kwparams):
+    '''Interactive dashboard, with a dropdown for selecting parameter
+
+    Parameters
+    ----------
+    figsize: Size of figure fro graphs : (15, 15 by default)
+    figspace: Space between figures for graphs : (0.5, 0.5) by default
+    sharex: Shared X axes ? True by default
+    '''
 
     lambdas = preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
-        oat_dasboard(lambdas, methods, _param_registry()[param])
+        oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
     param_list = list(_variable_params(param_list).keys())
@@ -363,11 +375,21 @@ def incer_stochastic_matrix(model, methods, n=1000):
     _incer_stochastic_matrix(methods, problem['names'], Y, sob)
 
 
-def _incer_stochastic_violin(methods, Y):
-    ''' Internal method for computing violin graph of impacts '''
+def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, nb_cols=3):
+    ''' Internal method for computing violin graph of impacts
+    Parameters
+    ----------
+    methods: list of impact methods
+    Y : output
+    figsize: Size of figure for graphs : (15, 15 by default)
+    figspace: Space between figures for graphs : (0.5, 0.5) by default
+    sharex: Shared X axes ? True by default
+    nb_cols: Number of colums. 3 by default
+    '''
 
-    nb_rows = math.ceil(len(methods) / 3)
-    fig, axes = plt.subplots(nb_rows, 3, figsize=(15, 15), sharex=True)
+    nb_rows = math.ceil(len(methods) / nb_cols)
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=figsize, sharex=sharex)
+    plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
 
     for imethod, method, ax in zip(range(len(methods)), methods, axes.flatten()):
 
@@ -376,11 +398,11 @@ def _incer_stochastic_violin(methods, Y):
         std = np.std(data)
         mean = np.mean(data)
 
-        #ax.hist(Y[Y.columns[imethod]])
         ax.violinplot(data, showmedians=True)
         ax.title.set_text(method_name(method))
         ax.set_ylim(ymin=0)
         ax.set_ylabel(_method_unit(method))
+        ax.set_xticklabels([])
 
         # Add text
         textstr = '\n'.join((
@@ -397,7 +419,7 @@ def _incer_stochastic_violin(methods, Y):
     plt.show(fig)
 
 
-def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None):
+def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
     '''
     Method for computing violin graph of impacts
 
@@ -409,7 +431,7 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None):
 
     _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
-    _incer_stochastic_violin(methods, Y)
+    _incer_stochastic_violin(methods, Y, **kwparams)
 
 _percentiles = [10, 90, 25, 50, 75]
 def _incer_stochastic_variations(methods, param_names, Y, sob1):
@@ -441,7 +463,7 @@ def _incer_stochastic_variations(methods, param_names, Y, sob1):
         sum += curr_bar
         plots.append(curr_plt[0])
 
-    plt.legend(plots, ['Higher order'] + param_names)
+    plt.legend(plots, ['Higher order'] + param_names, loc=(1, 0))
     plt.xticks(np.arange(len(method_names)), method_names, rotation=90)
     plt.title("variance / mean² (%)")
     plt.show(fig)
@@ -469,13 +491,16 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
     displayWithExportButton(df)
 
-def incer_stochastic_dashboard(model, methods, n=1000, var_params=None):
+def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
     ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
     parameters
     ----------
     var_params: Optional list of parameters to vary.
     By default use all the parameters with distribution not FIXED
+    figsize: Size of figure for violin plots : (15, 15) by default
+    figspace: Space between violin graphs (0.5, 0.5) by default
+    sharex: Share X axe for violin graph : True by default
     '''
 
     problem, _, Y = _stochastics(model, methods, n, var_params)
@@ -485,7 +510,7 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None):
     sob = _sobols(methods, problem, Y)
 
     def violin():
-        _incer_stochastic_violin(methods, Y)
+        _incer_stochastic_violin(methods, Y, **kwparams)
 
     def variation():
         _incer_stochastic_variations(methods, param_names, Y, sob.s1)
@@ -665,9 +690,9 @@ def _vline(x, ymin, ymax, linewidth=1, linestyle='solid'):
     plt.axvline(x, color='k', ymin=ymin, ymax=ymax, linewidth=linewidth, linestyle=linestyle)
 
 
-def _graph(data, unit, title, ax, box=False,
-           alpha=1, textboxtop=0.95, textboxright=0.95, color=None,
-           limit_xrange=False):
+def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, color=None,
+           limit_xrange=False, percentiles=[5,95]):
+
 
     if ax is not None:
         plt.sca(ax)
@@ -678,56 +703,30 @@ def _graph(data, unit, title, ax, box=False,
     std = np.std(data)
     mean = np.mean(data)
     xmin= np.min(data)
-    p1 = np.percentile(data, 1)
+
     p9995 = np.percentile(data, 99.95)
-    p99 = np.percentile(data, 99)
-    q1 = np.percentile(data, 25)
-    q3 = np.percentile(data, 75)
+
+    pvals = [np.percentile(data, perc) for perc in percentiles]
+
     variability = std / mean
 
-    if box:
+    args = dict()
+    if color:
+        args['color'] = color
 
-        low = 0.3
-        high = 0.5
-        mid = (low + high) / 2
+    if limit_xrange :
+        plt.xlim(xmin, p9995)
+    plt.hist(data, 200, alpha=alpha, **args)
 
-        xmin = np.min(data)
-        xmax = np.max(data)
-        plt.xlim(left=xmin, right=xmax)
+    perc_strs = [r'$p%d=%.3g$' % (p,pval) for p, pval in zip(percentiles, pvals)]
 
-        # P1 -> Q1
-        _hline(p1, q1, mid, linewidth=3)
-
-        # Q1 -> Q3
-        _vline(q1, low, high)
-        _hline(q1, q3, low, linewidth=1)
-        _hline(q1, q3, high, linewidth=1)
-        _vline(q3, low, high)
-
-        # p50
-        _vline(mean, low, high, linestyle="dashed")
-        _vline(median, low, high)
-
-        # Q3 -> p99
-        _hline(q3, p99, mid, linewidth=3)
-
-    else:
-        args = dict()
-        if color:
-            args['color'] = color
-
-        if limit_xrange :
-            plt.xlim(xmin, p9995)
-        plt.hist(data, 200, alpha=alpha, **args)
-
-    textstr = '\n'.join((
+    textstr = '\n'.join([
         r'$\mu=%.3g$' % (mean,),
         r'$\mathrm{median}=%.3g$' % (median,),
         r'$\sigma=%.3g$' % (std,),
-        r'$\sigma/\mu=%.3g$' % (variability,),
-        r'$p1=%.3g$' % (p1,),
-        r'$p99=%.3g$' % (p99,)
-    ))
+        r'$\sigma/\mu=%.3g$' % (variability,)
+    ] + perc_strs)
+
     props = dict(boxstyle='round', facecolor='wheat' if not color else color, alpha=0.5)
     ax.text(textboxright, textboxtop, textstr, transform=ax.transAxes, fontsize=12,
             verticalalignment='top', ha='right', bbox=props)
@@ -740,23 +739,35 @@ def _graph(data, unit, title, ax, box=False,
     return dict(
         median=median,
         std=std,
-        p1=p1,
-        p99=p99,
+        p=pvals,
         mean=mean,
         var=variability)
 
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
-        impact_names=None,
         invert=None,
         scales=None, # Dict of method => scale
         unit_overrides=None,
         height=10, width=15, **kwargs):
-    """ Show distributions together with statistical outcomes"""
+    """
+    Show distributions together with statistical outcomes
+
+    parameters
+    ----------
+    model: normalized model
+    methods: List of impacts
+    Y: output of processing. If None, monte carlo will be processed again
+    nb_cols : number of colons to display graphs on
+    invert : list of methods for which result should be inverted (1/X). None by default
+    scales : Dict of method => scale, for multiplying results. To be used with unit overrides
+    unit_overrides : Dict of method => string for overriding unit, in respect to custom scales
+    height: Height of graph : 10 inches be default
+    width : Width of graphs : 15 inches by default
+    """
 
     if Y is None:
-        _, _, Y = _stochastics(model, methods, n=10000, salt=False)
+        _, _, Y = _stochastics(model, methods, n=10000)
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)
@@ -781,7 +792,7 @@ def graphs(
         if scales and method in scales:
             data = data * scales[method]
 
-        graph_title = title if title else impact_names[method] if impact_names else str(method[2])
+        graph_title = title if title else method_name(method)
 
         if unit_overrides and method in unit_overrides:
             unit = unit_overrides[method]
@@ -805,9 +816,17 @@ def graphs(
     return pd.DataFrame(res)
 
 
-def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impact_names=None):
+def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     '''
     Compare distribution of simplified model with full model
+
+    Parameters
+    ----------
+    model: Model
+    methods : Impact methods
+    simpl_lambdas : Simplified lambdas, as returned by sobol_simplify_model(...)
+    nb_cols: number of columns for displaying graphs
+    percentiles: List of percentiles to compute [5, 95] by default
     '''
 
     # Raw model
@@ -835,8 +854,8 @@ def compare_simplified(model, methods, simpl_lambdas, box=False, nb_cols=2, impa
 
         title = method_name(method)
 
-        _graph(d1, _method_unit(method), title, ax=ax, box=box, alpha=0.6, color=colors[0])
-        _graph(d2, _method_unit(method), title, ax=ax, box=box, alpha=0.6, textboxright=0.6, color=colors[1])
+        _graph(d1, _method_unit(method), title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
+        _graph(d2, _method_unit(method), title, ax=ax, alpha=0.6, textboxright=0.6, color=colors[1], **kwargs)
 
         ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
                 verticalalignment='top', ha='right')

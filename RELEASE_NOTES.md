@@ -1,3 +1,9 @@
+# 0.0.14
+
+* Internal change for generated webapp 
+* Add several display options to graphs()
+* Fix overlapping graph bug
+
 # 0.0.13 
 
 * Fixed bug in param **extract_activities** of **multiLCAAlgebric**

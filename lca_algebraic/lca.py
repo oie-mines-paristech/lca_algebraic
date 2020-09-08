@@ -20,6 +20,7 @@ def _impact_labels():
     return builtins._impact_labels
 
 def set_custom_impact_labels(impact_labels:Dict) :
+    """ Global function to override name of impact method in graphs """
     _impact_labels().update(impact_labels)
 
 def _multiLCA(activities, methods):
@@ -143,19 +144,29 @@ class LambdaWithParamNames :
     """
     This class represents a compiled (lambdified) expression together with the list of requirement parameters and the source expression
     """
-    def __init__(self, expr, expanded_params=None, params=None):
+    def __init__(self, exprOrDict, expanded_params=None, params=None):
         """ Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
-        self.expr = expr
-        self.params = params
-        if expanded_params is None :
-            expanded_params = _expand_param_names(params)
-        if self.params is None :
-            self.params = _expanded_names_to_names(expanded_params)
 
-        self.lambd = lambdify(expanded_params, expr, 'numpy')
-        self.expanded_params = expanded_params
+        if isinstance(exprOrDict, dict) :
+            obj = exprOrDict
+            # Parse
+            self.params = obj["params"]
+            self.expanded_params = _expand_param_names(self.params)
+            self.expr = parse_expr(obj["expr"])
+            self.lambd = lambdify(self.expanded_params, self.expr, 'numpy')
+
+        else :
+            self.expr = exprOrDict
+            self.params = params
+            if expanded_params is None :
+                expanded_params = _expand_param_names(params)
+            if self.params is None :
+                self.params = _expanded_names_to_names(expanded_params)
+
+            self.lambd = lambdify(expanded_params, exprOrDict, 'numpy')
+            self.expanded_params = expanded_params
 
     def complete_params(self, params):
 
@@ -177,6 +188,11 @@ class LambdaWithParamNames :
         # Filter on required parameters
         params = _filter_param_values(params, self.expanded_params)
         return self.lambd(**params)
+
+    def serialize(self) :
+        return dict(
+            params=self.params,
+            expr=str(self.expr))
 
 def preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:List[Activity]=None):
     '''
