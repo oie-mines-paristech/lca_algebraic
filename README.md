@@ -27,7 +27,7 @@ If you already have Anaconda & Jupyter installed, you can install the library wi
 
 ## Pre-packaged installer for Windows
 
-Alternatively, you can download and execute [this installer](https://github.com/oie-mines-paristech/lca_algebraic/releases/download/0.0.9/incer-acv-model-installer.exe). It will setup a full anaconda environment with **Jupyter**, 
+Alternatively, you can download and execute [this installer](https://github.com/oie-mines-paristech/lca_algebraic/releases/download/0.0.14/incer-acv-model-installer.exe). It will setup a full anaconda environment with **Jupyter**, 
 **Brightway2** and **LCA Algebraic**.
 
 # Usage & documentation 
