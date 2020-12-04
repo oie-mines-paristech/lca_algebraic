@@ -10,9 +10,11 @@ from bw2data.parameters import ActivityParameter, ProjectParameter, DatabasePara
 from scipy.stats import triang, truncnorm, norm, beta
 from sympy import Symbol
 
+import lca_algebraic.base_utils
 from .base_utils import _eprint, as_np_array
 
 DEFAULT_PARAM_GROUP = "acv"
+
 
 
 def _param_registry():
@@ -108,6 +110,7 @@ class ParamDef(Symbol):
         if mode == FixedParamMode.DEFAULT :
             return self.default
         else :
+            # Compute statistical value for replacement
             rnd = np.random.rand(1000)
             x = self.rand(rnd)
 
@@ -120,7 +123,7 @@ class ParamDef(Symbol):
 
 
     def get_label(self):
-        if self.label_fr is not None :
+        if lca_algebraic.base_utils.LANG == "fr " and self.label_fr is not None :
             return self.label_fr
         elif self.label is not None:
             return self.label

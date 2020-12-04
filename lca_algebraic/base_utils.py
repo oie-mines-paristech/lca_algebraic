@@ -11,6 +11,12 @@ from IPython.core.display import display
 import numpy as np
 
 DEBUG=False
+LANG="fr"
+
+
+def set_lang(lang):
+    global LANG
+    LANG=lang
 
 def debug(*args, **kwargs) :
     if DEBUG :
@@ -71,7 +77,7 @@ def _actName(act: Activity):
     
     """Generate pretty name for activity, appending location if not 'GLO' """
     res = act['name']
-    if act['location'] != 'GLO':
+    if 'location' in act and act['location'] != 'GLO':
         res += "[%s]" % act["location"]
     return res
 

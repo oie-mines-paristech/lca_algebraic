@@ -1,6 +1,7 @@
 import warnings
 import random
 import seaborn as sns
+import math
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
@@ -9,7 +10,7 @@ from sympy import Float, Number, Add, AtomicExpr
 from time import time
 from .base_utils import _method_unit, _eprint
 from .lca import *
-from .lca import _expanded_names_to_names, _filter_param_values
+from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
 from .params import _variable_params, _param_registry, FixedParamMode
 
 
@@ -28,6 +29,7 @@ def _heatmap(df, title, vmax, ints=False):
     fig, ax = plt.subplots(figsize=(17, 17))
     sns.heatmap(df.transpose(), cmap="gist_heat_r", vmax=vmax, annot=True, fmt='.0f' if ints else '.2f', square=True)
     plt.title(title, fontsize=20)
+    plt.yticks(rotation=0)
     ax.tick_params(axis="x", labelsize=18)
     ax.tick_params(axis="y", labelsize=18)
 
@@ -73,7 +75,7 @@ def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
 
 
 def _display_tabs(titlesAndContentF):
-    '''Generate tabs'''
+    """Generate tabs"""
     tabs = []
     titles = []
     for title, content_f in titlesAndContentF:
@@ -91,7 +93,7 @@ def _display_tabs(titlesAndContentF):
 
 
 def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None,
-                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True):
+                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, cols=3, func_unit="kWh"):
     '''
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
     The result heatmap shows percentage of variation relative to median value.
@@ -137,14 +139,14 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
-            nb_rows = len(impacts) // 3 + 1
+            nb_rows = int(math.ceil(len(impacts) /cols))
 
             fig, axes = plt.subplots(figsize=figsize)
             plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
 
             axes = df.plot(
                 ax=axes, sharex=sharex, subplots=True,
-                layout=(nb_rows, 3),
+                layout=(nb_rows, cols),
                 # legend=None,
                 kind='line' if varying_param.type == ParamType.FLOAT else 'bar')
 
@@ -152,7 +154,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 
             for ax, impact in zip(axes, impacts):
                 ax.set_ylim(ymin=0)
-                ax.set_ylabel(_method_unit(impact))
+                ax.set_ylabel(_method_unit(impact) + " / " + func_unit)
 
             plt.show(fig)
 
@@ -246,7 +248,6 @@ def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_para
     elif sample_method == StochasticMethod.RAND:
         X = np.random.rand(n, len(var_param_names))
     elif sample_method == StochasticMethod.SOBOL:
-        print("sobol !")
         X = sobol_sequence.sample(n * (len(var_param_names) * 2 + 2), len(var_param_names))
     # elif sample_method == StochasticMethod.LATIN :
     #    X = latin.sample(problem, n)
@@ -537,7 +538,8 @@ def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
-    num_digits=3) :
+    num_digits=3,
+    simple_sums=True) :
 
     '''
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -549,6 +551,7 @@ def sobol_simplify_model(
     var_params: Optional list of parameters to vary.
     fixed_mode : What to replace minor parameters with : MEDIAN by default
     sob: [optional] Pre-computed sobol indices
+    simplify_sums: If true (default) remove terms in sums that are lower than 1%
 
     returns
     _______
@@ -570,6 +573,9 @@ def sobol_simplify_model(
 
     res = []
 
+    # Generate simplified model
+    exprs, _ = _modelToExpr(model, methods)
+
     for imethod, method in enumerate(methods) :
 
         print("> Method : ", method_name(method))
@@ -584,12 +590,16 @@ def sobol_simplify_model(
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
+        sobols = dict()
         for iparam, param in enumerate(sorted_param_indices) :
 
-            selected_params.append(var_param_names[param])
 
             # S1
             sum += s1[param, imethod]
+
+            param_name = var_param_names[param]
+            selected_params.append(param_name)
+            sobols[param_name] = s1[param, imethod]
 
             # S2
             #for iparam2 in range(0, iparam) :
@@ -600,25 +610,27 @@ def sobol_simplify_model(
                 break
         print("Selected params : ", selected_params, "explains: ", sum)
 
-        fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = exprs[imethod]
 
-        # Generate simplified model
-        simplified_expr = simplifiedModel(
-            model,
-            [method],
-            fixed_mode=fixed_mode,
-            extraFixedParams=fixedParams)[0]
+        # Replace extra fixed params
+        extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = _replace_fixed_params(expr, extraFixedParams, fixed_mode=fixed_mode)
 
-        simplified_expr = _round_expr(simplified_expr, num_digits)
+        # Sympy simplification
+        expr = simplify(expr)
+
+        # Round numerical values to 3 digits
+        expr = _round_expr(expr, num_digits)
 
         # Lambdify the expression
-        lambd = LambdaWithParamNames(simplified_expr, params=selected_params)
+        lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
-        # Extra step of simplification : siplofiy sum with neligeable terms
-        simplified_expr = simplify(simplify_sums(lambd, params))
+        # Extra step of simplification : siplify sums with neligeable terms
+        expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
 
-        res.append(LambdaWithParamNames(simplified_expr, params=selected_params))
+        simplified_expr = simplify(expr)
 
+        res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
 
     return res
 
@@ -672,10 +684,6 @@ def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
     print(lambdaWithParams.expr)
     return cleanup(lambdaWithParams.expr)
 
-
-def _text(x, y, val):
-    txt = plt.text(x, y, val, fontsize=14)
-    txt.set_path_effects([patheffects.withStroke(linewidth=3, foreground='w')])
 
 
 def _hline(x1, x2, y, linewidth=1, linestyle='solid'):
@@ -743,13 +751,34 @@ def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, c
         mean=mean,
         var=variability)
 
+def distrib(*args, **kwargs) :
+    """
+       Show distributions together with statistical outcomes
+
+       parameters
+       ----------
+       model: normalized model
+       methods: List of impacts
+       Y: output of processing. If None, monte carlo will be processed again
+       nb_cols : number of colons to display graphs on
+       invert : list of methods for which result should be inverted (1/X). None by default
+       scales : Dict of method => scale, for multiplying results. To be used with unit overrides
+       unit_overrides : Dict of method => string for overriding unit, in respect to custom scales
+       height: Height of graph : 10 inches be default
+       width : Width of graphs : 15 inches by default
+       """
+    return graphs(*args, **kwargs)
+
+
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
         invert=None,
         scales=None, # Dict of method => scale
         unit_overrides=None,
-        height=10, width=15, **kwargs):
+        height=10, width=15,
+        func_unit="kWh",
+        **kwargs):
     """
     Show distributions together with statistical outcomes
 
@@ -799,7 +828,7 @@ def graphs(
         else:
             unit = _method_unit(method)
 
-        unit += " / kWh"
+        unit += " / " + func_unit
 
         stats = _graph(
             data, unit,
@@ -814,6 +843,8 @@ def graphs(
         ax.axis("off")
 
     return pd.DataFrame(res)
+
+
 
 
 def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):

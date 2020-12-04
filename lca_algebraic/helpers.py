@@ -10,7 +10,7 @@ from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from sympy import symbols
 
 from .base_utils import *
-from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula
+from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula, _actName
 from .params import *
 from .params import _param_registry, _completeParamValues
 
@@ -481,7 +481,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def printAct(*activities, **params):
+def printAct(*args, **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly
@@ -489,10 +489,17 @@ def printAct(*activities, **params):
     tables = []
     names = []
 
+    activities = args
+
     for act in activities:
-        df = pd.DataFrame(index=['input', 'amount', 'unit', 'type'])
+        inputs_by_ex_name = dict()
+        df = pd.DataFrame(index=['input', 'amount', 'unit'])
         data = dict()
         for (i, exc) in enumerate(act.exchanges()):
+
+            if exc['type'] == 'production' :
+                continue
+
             input = bw.get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
 
@@ -501,19 +508,29 @@ def printAct(*activities, **params):
                 new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                 amount = amount.subs(new_params)
 
-            name = exc['name']
-            if 'location' in input and input['location'] != "GLO":
-                name += "#%s" % input['location']
-            if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-                name += " {user-db}"
+            ex_name = exc['name']
+            #if 'location' in input and input['location'] != "GLO":
+            #    name += "#%s" % input['location']
+            #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+            #    name += " {user-db}"
 
-            iname = name
+            # Unique name : some exchanges may havve same names
+            _name = ex_name
             i = 1
-            while iname in data:
-                iname = "%s#%d" % (name, i)
+            while ex_name in data:
+                ex_name = "%s#%d" % (_name, i)
                 i += 1
 
-            data[iname] = [str(input), amount, exc.unit, exc['type']]
+            inputs_by_ex_name[ex_name] = input
+
+            input_name = _actName(input)
+            if input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                input_name += "{user-db}"
+
+            data[ex_name] = [input_name, amount, exc.unit]
+
+        # Provide impact calculation if impact provided
+
 
         for key, values in data.items():
             df[key] = values
@@ -523,6 +540,7 @@ def printAct(*activities, **params):
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 
+    # Highlight differences in case two activites are provided
     if len(activities) == 2:
         yellow = "background-color:yellow"
         iamount1 = full.columns.get_loc((names[0], "amount"))

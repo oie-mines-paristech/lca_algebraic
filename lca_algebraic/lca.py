@@ -6,6 +6,7 @@ from sympy import lambdify, simplify, sympify
 from .base_utils import _actName, _eprint, _getDb
 from .base_utils import _getAmountOrFormula
 from .helpers import *
+from .helpers import _actDesc
 from .params import _param_registry, _completeParamValues, _fixed_params
 
 
@@ -58,28 +59,45 @@ def multiLCA(model, methods, **params):
     return _multiLCA(activities, methods).transpose()
 
 
+# Cache of (act, method) => values
+BG_IMPACTS_CACHE = dict()
+
+""" Compute LCA and return (act, method) => value """
+def _multiLCAWithCache(acts, methods) :
+
+    # List activities with at least one missing value
+    remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in BG_IMPACTS_CACHE))
+
+    print("LCA with cache %d of %d remaining acts to compute" % (len(remaining_acts), len(acts)))
+
+    if (len(remaining_acts) > 0) :
+        lca = _multiLCA(
+            [{act: 1} for act in remaining_acts],
+            methods)
+    
+        # Set output from dataframe
+        for imethod, method in enumerate(methods) :
+            for iact, act in enumerate(remaining_acts) :
+                BG_IMPACTS_CACHE[(act, method)] = lca.iloc[imethod, iact]
+
+    return BG_IMPACTS_CACHE
+
+
 def _modelToExpr(
         model: ActivityExtended,
         methods,
-        extraFixedParams=None,
-        fixed_mode=FixedParamMode.DEFAULT,
         extract_activities=None) :
     '''
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
-
 
     Return
     ------
     <list of expressions (one per impact)>, <list of required param names>
 
     '''
-    dbname = model.key[0]
-
     # print("computing model to expression for %s" % model)
     expr, actBySymbolName = actToExpression(
         model,
-        extraFixedParams=extraFixedParams,
-        fixed_mode=fixed_mode,
         extract_activities=extract_activities)
 
     # Required params
@@ -87,7 +105,7 @@ def _modelToExpr(
     act_names = set([str(symb) for symb in actBySymbolName.keys()])
     expected_names = free_names - act_names
 
-    # If we expect an enu param name, we also expect the other ones : enumparam_val1 => enumparam_val1, enumparam_val2, ...
+    # If we expect an enum param name, we also expect the other ones : enumparam_val1 => enumparam_val1, enumparam_val2, ...
     expected_names = _expand_param_names(_expanded_names_to_names(expected_names))
 
     # Create dummy reference to biosphere
@@ -95,33 +113,22 @@ def _modelToExpr(
     # We create a technosphere activity mapping exactly to 1 biosphere item
     pureTechActBySymbol = OrderedDict()
     for name, act in actBySymbolName.items():
-        if act[0] == BIOSPHERE3_DB_NAME:
-            act = _getOrCreateDummyBiosphereActCopy(dbname, act[1])
-        else:
-            act = getActByCode(*act)
-        pureTechActBySymbol[name] = act
+        pureTechActBySymbol[name] = _createTechProxyForBio(act)
 
-    # List of activities, ordered
-    acts = pureTechActBySymbol.values()
-
-    # Transform to [{act1:1], {act2:1}, etc] for MultiLCA
-    actsWithAmount = [{act: 1} for act in acts]
-
-    # Compute LCA for all background activities and methods
-    lca = _multiLCA(actsWithAmount, methods)
+    # Compute LCA for background activities
+    lcas = _multiLCAWithCache(pureTechActBySymbol.values(), methods)
 
     # For each method, compute an algebric expression with activities replaced by their values
     exprs = []
-    for imethod, method in enumerate(methods):
-        # print("Generating lamba function for %s / %s" % (model, method))
-
+    for method in methods:
         # Replace activities by their value in expression for this method
-        sub = dict({symbol: lca.iloc[imethod, iact] for iact, symbol in enumerate(pureTechActBySymbol.keys())})
+        sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
         exprs.append(expr.xreplace(sub))
 
     return exprs, expected_names
 
-def simplifiedModel(model, impacts, extraFixedParams=None, fixed_mode=FixedParamMode.DEFAULT) :
+
+def simplifiedModel(model, impacts) :
     '''
     Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.
 
@@ -133,8 +140,7 @@ def simplifiedModel(model, impacts, extraFixedParams=None, fixed_mode=FixedParam
     ----------
     extraFixedParams : List of extra parameters to fix
     '''
-    exprs, expected_names = _modelToExpr(model, impacts, extraFixedParams=extraFixedParams, fixed_mode=fixed_mode)
-
+    exprs, expected_names = _modelToExpr(model, impacts)
     return [simplify(ex) for ex in exprs]
 
 def _filter_param_values(params, expanded_param_names) :
@@ -144,7 +150,7 @@ class LambdaWithParamNames :
     """
     This class represents a compiled (lambdified) expression together with the list of requirement parameters and the source expression
     """
-    def __init__(self, exprOrDict, expanded_params=None, params=None):
+    def __init__(self, exprOrDict, expanded_params=None, params=None, sobols=None):
         """ Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
@@ -156,6 +162,7 @@ class LambdaWithParamNames :
             self.expanded_params = _expand_param_names(self.params)
             self.expr = parse_expr(obj["expr"])
             self.lambd = lambdify(self.expanded_params, self.expr, 'numpy')
+            self.sobols = obj["sobols"]
 
         else :
             self.expr = exprOrDict
@@ -167,6 +174,7 @@ class LambdaWithParamNames :
 
             self.lambd = lambdify(expanded_params, exprOrDict, 'numpy')
             self.expanded_params = expanded_params
+            self.sobols = sobols
 
     def complete_params(self, params):
 
@@ -192,7 +200,14 @@ class LambdaWithParamNames :
     def serialize(self) :
         return dict(
             params=self.params,
-            expr=str(self.expr))
+            expr=str(self.expr),
+            sobols=self.sobols)
+
+    def __repr__(self):
+        return repr(self.expr)
+
+    def _repr_latex_(self):
+        return self.expr._repr_latex_()
 
 def preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:List[Activity]=None):
     '''
@@ -322,6 +337,8 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
         if type(model) is tuple:
             model, alpha = model
 
+        # print(model, type(model), methods)
+
         # Fill default values
         lambdas = preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
 
@@ -329,6 +346,8 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
         df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
         model_name = _actName(model)
+        while model_name in dfs :
+            model_name += "'"
 
         # Single params ? => give the single row the name of the model activity
         if df.shape[0] == 1:
@@ -344,11 +363,17 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
         return pd.concat(list(dfs.values()))
 
 
-def _getOrCreateDummyBiosphereActCopy(dbname, code):
+def _createTechProxyForBio(act):
     """
         We cannot reference directly biosphere in the model, since LCA can only be applied to products
         We create a dummy activity in our DB, with same code, and single exchange of amount '1'
     """
+    dbname = act[0]
+    code = act[1]
+
+    # Not biosphere ? No need to create proxy
+    if dbname != BIOSPHERE3_DB_NAME :
+        return getActByCode(dbname, code)
 
     code_to_find = code + "#asTech"
     try:
@@ -360,7 +385,13 @@ def _getOrCreateDummyBiosphereActCopy(dbname, code):
         return res
 
 
-def actToExpression(act: Activity, extraFixedParams=None, fixed_mode=FixedParamMode.DEFAULT, extract_activities=None):
+def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT) :
+    """Replace fixed params with their value."""
+    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
+    return expr.xreplace(sub)
+
+
+def actToExpression(act: Activity, extract_activities=None):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
@@ -440,19 +471,113 @@ def actToExpression(act: Activity, extraFixedParams=None, fixed_mode=FixedParamM
 
     expr = rec_func(act, extract_activities is None)
 
-    fixed_params = set(_fixed_params().values())
-    if extraFixedParams :
-        fixed_params |= set(extraFixedParams)
-
-    # Replace fixed values
-    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
-
-    if isinstance(expr, float) :
+    if  isinstance(expr, float) :
         expr = simplify(expr)
-    expr = expr.xreplace(sub)
+    else:
+        # Replace fixed params with their default value
+        expr = _replace_fixed_params(expr, _fixed_params().values())
+
 
     return (expr, _reverse_dict(act_symbols))
 
 
 def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
+
+
+
+def exploreImpacts(impact, *activities, **params):
+    """
+    Display all exchanges of one or several activities and their impacts.
+    If parameter values are provided, formulas will be evaluated accordingly.
+    If two activities are provided, they will be shown side by side and compared.
+    """
+    tables = []
+    names = []
+
+    diffOnly = params.pop("diffOnly", False)
+
+    for main_act in activities:
+
+        inputs_by_ex_name = dict()
+        data = dict()
+
+        for (i, exc) in enumerate(main_act.exchanges()):
+
+            if exc['type'] == 'production' :
+                continue
+
+            input = bw.get_activity(exc.input.key)
+            amount = _getAmountOrFormula(exc)
+
+            # Params provided ? Evaluate formulas
+            if len(params) > 0 and isinstance(amount, Basic):
+                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
+                amount = amount.subs(new_params)
+
+            ex_name = exc['name']
+            i = 1
+            while ex_name in data:
+                ex_name = "%s#%d" % (exc['name'], i)
+                i += 1
+
+            inputs_by_ex_name[ex_name] = _createTechProxyForBio(input)
+
+            input_name = _actName(input)
+            if input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                input_name += "{user-db}"
+
+            data[ex_name] = [input_name, amount]
+
+        # Provide impact calculation if impact provided
+        all_acts = list(set(inputs_by_ex_name.values()))
+        res = multiLCAAlgebric(all_acts, [impact], **params)
+        impacts = res[res.columns.tolist()[0]].to_list()
+
+        impact_by_act = {act : value for act, value in zip(all_acts, impacts)}
+
+        for ex_name, vals in data.items() :
+            amount = vals[1]
+            act = inputs_by_ex_name[ex_name]
+            vals.append(amount * impact_by_act[act])
+
+        # To dataframe
+        df = pd.DataFrame(index=['input', 'amount', 'impact'])
+        for key, values in data.items():
+            df[key] = values
+
+        tables.append(df.T)
+        names.append(_actDesc(main_act))
+
+    full = pd.concat(tables, axis=1, keys=names, sort=True)
+
+
+
+    # Highlight differences in case two activites are provided
+    if len(activities) == 2:
+        YELLOW = "background-color:NavajoWhite"
+        diff_cols = ["amount", "input", "impact"]
+        cols1 = dict()
+        cols2 = dict()
+        for col_name in diff_cols :
+            cols1[col_name] = full.columns.get_loc((names[0], col_name))
+            cols2[col_name] = full.columns.get_loc((names[1], col_name))
+
+        if diffOnly:
+            def isDiff(row):
+                return row[cols1['impact']] != row[cols2['impact']]
+
+            full = full.loc[isDiff]
+
+        def same_amount(row):
+            res = [""] * len(row)
+            for col_name in diff_cols :
+                if row[cols1[col_name]] != row[cols2[col_name]] :
+                    res[cols1[col_name]] = YELLOW
+                    res[cols2[col_name]] = YELLOW
+            return res
+        full = full.style.apply(same_amount, axis=1)
+
+
+
+    display(full)
