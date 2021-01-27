@@ -465,11 +465,7 @@ def actToExpression(act: Activity, extract_activities=None):
 
                 act_expr = rec_func(sub_act, exch_in_path)
 
-            avoidedBurden = 1
-            if exch['type'] == 'production' and not exch['input'] == exch['output']:
-                avoidedBurden = -1
-                
-            res += formula * act_expr * avoidedBurden 
+            res += formula * act_expr
 
         return res / outputAmount
 
