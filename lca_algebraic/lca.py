@@ -68,13 +68,11 @@ def _multiLCAWithCache(acts, methods) :
     # List activities with at least one missing value
     remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in BG_IMPACTS_CACHE))
 
-    print("LCA with cache %d of %d remaining acts to compute" % (len(remaining_acts), len(acts)))
-
     if (len(remaining_acts) > 0) :
         lca = _multiLCA(
             [{act: 1} for act in remaining_acts],
             methods)
-    
+
         # Set output from dataframe
         for imethod, method in enumerate(methods) :
             for iact, act in enumerate(remaining_acts) :

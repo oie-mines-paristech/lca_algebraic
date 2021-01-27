@@ -15,8 +15,6 @@ from .base_utils import _eprint, as_np_array
 
 DEFAULT_PARAM_GROUP = "acv"
 
-
-
 def _param_registry():
     # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:
@@ -203,7 +201,9 @@ class BooleanDef(ParamDef):
     """Parameter with discrete value 0 or 1"""
 
     def __init__(self, name, **argv):
-        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
+        if not "min" in argv:
+            argv = dict(argv, min=None, max=None)
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, **argv)
 
     def range(self, n):
         return [0, 1]
@@ -219,7 +219,10 @@ class EnumParam(ParamDef):
     """
 
     def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
-        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
+
+        if not "min" in argv :
+            argv = dict(argv, min=None, max=None)
+        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
         if type(values) == list :
             self.values = values
             self.weights = {key:1 for key in values}
@@ -302,10 +305,48 @@ def newParamDef(name, type, **kwargs):
     _param_registry()[name] = param
 
     # Save in brightway2 project
-    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
+    # bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
+    # bw.parameters.new_project_parameters(bwParams)
+    return param
+
+
+def persistParams() :
+    """ Persist parameters into Brightway project """
+    bwParams = []
+    for name, param in _param_registry().items() :
+        bwParam = dict(name=name)
+        bwParam.update(param.__dict__)
+        bwParams.append(bwParam)
+
     bw.parameters.new_project_parameters(bwParams)
 
-    return param
+def loadParams():
+    """Load parameters from Brightway database"""
+    for bwParam in ProjectParameter.select():
+
+        name = bwParam.name
+        data = dict(bwParam.data)
+
+
+        if not 'type' in data :
+            print('No type found for param %s : skipping' % name)
+            continue
+
+        type = data['type']
+        del data['type']
+
+
+        if type == ParamType.BOOL :
+            param = BooleanDef(name, **data)
+        elif type == ParamType.ENUM :
+            param = EnumParam(name, **data)
+        elif type == ParamType.FLOAT :
+            param = ParamDef(name, ParamType.FLOAT, **data)
+        else:
+            _eprint("Unknown type %s for param %s : skipping" % (type, name))
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param
 
 
 def newFloatParam(name, default, **kwargs):
@@ -317,7 +358,6 @@ def newBoolParam(name, default, **kwargs):
 
 def newEnumParam(name, default, **kwargs):
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
-
 
 def _variable_params(param_names=None):
     if param_names is None :
