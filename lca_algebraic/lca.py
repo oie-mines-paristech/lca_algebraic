@@ -416,7 +416,7 @@ def actToExpression(act: Activity, extract_activities=None):
 
         return symbols(slug)
 
-    def rec_func(act: Activity, in_extract_path):
+    def rec_func(act: Activity, in_extract_path, parents=[]):
 
         res = 0
         outputAmount = 1
@@ -463,7 +463,11 @@ def actToExpression(act: Activity, extract_activities=None):
                 if input_db == act['database'] and input_code == act['code']:
                     raise Exception("Recursive exchange : %s" % (act.__dict__))
 
-                act_expr = rec_func(sub_act, exch_in_path)
+                parents = parents + [act]
+                if sub_act in parents :
+                    raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
+
+                act_expr = rec_func(sub_act, exch_in_path, parents)
 
             res += formula * act_expr
 
