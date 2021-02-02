@@ -447,7 +447,7 @@ def actToExpression(act: Activity, extract_activities=None):
                     exch_in_path = in_extract_path or (sub_act in extract_activities)
 
             # Background DB => reference it as a symbol
-            if input_db in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]  :
+            if input_db != USER_DB() :
 
                 if exch_in_path :
                     # Add to dict of background symbols
@@ -528,7 +528,7 @@ def exploreImpacts(impact, *activities, **params):
             inputs_by_ex_name[ex_name] = _createTechProxyForBio(input)
 
             input_name = _actName(input)
-            if input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+            if input.key[0] == USER_DB():
                 input_name += "{user-db}"
 
             data[ex_name] = [input_name, amount]
