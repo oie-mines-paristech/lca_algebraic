@@ -9,12 +9,13 @@ from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from scipy.stats import triang, truncnorm, norm, beta
 from sympy import Symbol
+from collections import defaultdict
 
 import lca_algebraic.base_utils
 from .base_utils import _eprint, as_np_array
 
 DEFAULT_PARAM_GROUP = "acv"
-
+UNCERTAINTY_TYPE = "uncertainty type"
 
 def _param_registry():
     # Prevent reset upon auto reload in jupyter notebook
@@ -48,6 +49,31 @@ class DistributionType:
     BETA="beta" # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
     TRIANGLE = "triangle"
     FIXED = "fixed"
+
+
+class _UncertaintyType :
+    '''Enum of uncertainty types of Brightway.
+    See https://stats-arrays.readthedocs.io/en/latest/
+    '''
+    UNDEFINED = 0
+    FIXED = 1
+    NORMAL = 3
+    UNIFORM = 4
+    TRIANGLE = 5
+    DISCRETE = 7
+    BETA = 10
+
+
+# Map to Brightay2 / stats-arrays Distribution Type
+_DistributionTypeMap = {
+    DistributionType.LINEAR : _UncertaintyType.UNIFORM,
+    DistributionType.BETA : _UncertaintyType.BETA,
+    DistributionType.NORMAL : _UncertaintyType.NORMAL,
+    DistributionType.TRIANGLE : _UncertaintyType.TRIANGLE,
+    DistributionType.FIXED : _UncertaintyType.FIXED, # I made that up
+}
+
+_DistributionTypeMapReverse = {val:key for key, val in _DistributionTypeMap.items()}
 
 
 class FixedParamMode:
@@ -202,7 +228,10 @@ class BooleanDef(ParamDef):
     """Parameter with discrete value 0 or 1"""
 
     def __init__(self, name, **argv):
-        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
+        if not "min" in argv:
+            argv = dict(argv, min=None, max=None)
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, **argv)
+
 
     def range(self, n):
         return [0, 1]
@@ -218,7 +247,10 @@ class EnumParam(ParamDef):
     """
 
     def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
-        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
+
+        if not "min" in argv :
+            argv = dict(argv, min=None, max=None)
+        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
         if type(values) == list :
             self.values = values
             self.weights = {key:1 for key in values}
@@ -286,7 +318,7 @@ class EnumParam(ParamDef):
             return self.weights
 
 
-def newParamDef(name, type, **kwargs):
+def newParamDef(name, type, save=True, **kwargs):
     """Creates a param and register it into a global registry and as a brightway parameter"""
     if type == ParamType.ENUM:
         param = EnumParam(name, **kwargs)
@@ -301,10 +333,159 @@ def newParamDef(name, type, **kwargs):
     _param_registry()[name] = param
 
     # Save in brightway2 project
-    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
-    bw.parameters.new_project_parameters(bwParams)
+    if save :
+        _persistParam(param)
 
     return param
+
+_BOOLEAN_UNCERTAINTY_ATTRIBUTES = {
+    UNCERTAINTY_TYPE: _UncertaintyType.DISCRETE,
+    "minimum" : 0,
+    "maximum" : 2 # upper bound + 1
+}
+
+def persistParams() :
+    """ Persist parameters into Brightway project """
+    for name, param in _param_registry().items() :
+        _persistParam(param)
+
+def _persistParam(param):
+    """ Persist parameter into Brightway project """
+    out = []
+
+    # Common attributes for all types of params
+    bwParam = dict(name=param.name, group=param.group, label=param.label, description=param.description)
+
+    if param.type == ParamType.ENUM :
+        # Enum are not real params but a set of parameters
+        for value in param.values :
+            enumValueParam = dict(bwParam)
+            enumValueParam["name"] = param.name + '_' + value
+            enumValueParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
+            # Use 'scale' as weight for this enum value
+            enumValueParam['scale'] = param.weights[value]
+            enumValueParam['amount'] = 1 if param.default == value else 0
+            out.append(enumValueParam)
+    else :
+
+        bwParam["amount"] = param.default
+
+        if param.type == ParamType.BOOL :
+            # "Discrete uniform"
+            bwParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
+
+        elif param.type == ParamType.FLOAT :
+
+            # Save uncertainty
+            bwParam[UNCERTAINTY_TYPE] = _DistributionTypeMap[param.distrib]
+            bwParam["minimum"] = param.min
+            bwParam["maximum"] = param.max
+            bwParam["loc"] = param.default
+
+            if param.distrib == DistributionType.NORMAL :
+                bwParam["scale"] = param.std
+
+            elif param.distrib == DistributionType.BETA:
+
+                bwParam["scale"] = param.std
+                bwParam["loc"] = param.a
+                bwParam["shape"] = param.b
+
+        else :
+            _eprint("Param type not supported", param.type)
+
+        out.append(bwParam)
+
+    bw.parameters.new_project_parameters(out)
+
+def _loadArgs(data) :
+    """Load persisted data attributes into ParamDef attributes"""
+    return {
+        "group": data.get("group"),
+        "default": data.get("amount"),
+        "label": data.get("label"),
+        "description": data.get("description"),
+        "min": data.get("mininum"),
+        "max": data.get("maximum"),
+    }
+
+def loadParams():
+    """Load parameters from Brightway database"""
+
+    enumParams=defaultdict(lambda : dict())
+
+    for bwParam in ProjectParameter.select():
+        data = bwParam.data
+        data["amount"] = bwParam.amount
+        name = bwParam.name
+
+        type = data.get(UNCERTAINTY_TYPE, None)
+
+        # print("Data for ", name, data)
+
+        # Common extra args
+        args = _loadArgs(data)
+
+        if type == _UncertaintyType.DISCRETE :
+            # Boolean or enum
+
+            if data.get('scale') is not None :
+                # Enum param : group them by common prefix
+                splits = name.split("_")
+                enum_value = splits.pop()
+                enum_name = "_".join(splits)
+                enumParams[enum_name][enum_value] = data
+                continue
+
+            elif data["maximum"] == 2 :
+                param = newBoolParam(name, save=False, **args)
+            else:
+                _eprint("Non boolean discrete values (max != 2) are not supported for param :", name)
+                continue
+        else :
+
+            # Uncertainty type to distribution type
+            args["distrib"] = _DistributionTypeMapReverse[type]
+
+            if type == _UncertaintyType.TRIANGLE :
+                args["default"] = data["loc"]
+
+            if type == _UncertaintyType.NORMAL:
+                args["default"] = data["loc"]
+                args["std"] = data["scale"]
+
+            elif type == _UncertaintyType.BETA:
+                args["default"] = data["loc"]
+                args["std"] = data["scale"]
+                args["a"] = data["loc"]
+                args["b"] = data["shape"]
+
+            param = newFloatParam(name, save=False, **args)
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param
+
+    # Loop on EnumParams
+    for param_name, param_values in enumParams.items() :
+        first_enum_param = list(param_values.values())[0]
+        args = _loadArgs(first_enum_param)
+        del args["default"]
+
+        # Dictionary of enum values with scale as weight
+        args["values"] = {key : data["scale"] for key, data in param_values.items()}
+
+        # Default enum value is the one with amount=1
+        defaults = list(key for key, data in param_values.items() if data.get("amount") == 1)
+        if len(defaults) == 1 :
+            default = defaults[0]
+        else :
+            default= None
+            _eprint("No default enum value found for ", param_name, defaults)
+
+        param = newEnumParam(param_name, default, save=False, **args)
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param
 
 
 def newFloatParam(name, default, **kwargs):
@@ -316,7 +497,6 @@ def newBoolParam(name, default, **kwargs):
 
 def newEnumParam(name, default, **kwargs):
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
-
 
 def _variable_params(param_names=None):
     if param_names is None :
