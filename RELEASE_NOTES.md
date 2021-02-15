@@ -1,3 +1,8 @@
+# 0.0.15
+
+* Added support for several background databases. 
+  User Db is guessed or can be specified using **SET_USER_DB**()
+  
 # 0.0.14
 
 * Internal change for generated webapp 

@@ -99,7 +99,9 @@ importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 # We use a separate DB for defining our foreground model / activities
 # Choose any name
 USER_DB = 'MyModelName'
-SET_USER_DB(USER_DB)
+
+# If the system cannot guess the name of you user DB, set it manually
+#SET_USER_DB(USER_DB)
 
 # This is better to cleanup the whole foreground model each time, and redefine it in the notebook
 # instead of relying on a state or previous run.
@@ -494,7 +496,7 @@ incer_stochastic_violin(
 
 ```{python}
 ##### Alternatively, graphs can be shown horizontally, together with a box of statistical outcomes
-graphs(
+distrib(
     model, impacts,
     
     # Optionnal layout parameters

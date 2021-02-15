@@ -60,15 +60,15 @@ def multiLCA(model, methods, **params):
 
 
 # Cache of (act, method) => values
-BG_IMPACTS_CACHE = dict()
+_BG_IMPACTS_CACHE = dict()
 
 """ Compute LCA and return (act, method) => value """
 def _multiLCAWithCache(acts, methods) :
 
     # List activities with at least one missing value
-    remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in BG_IMPACTS_CACHE))
+    remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in _BG_IMPACTS_CACHE))
 
-    print("LCA with cache %d of %d remaining acts to compute" % (len(remaining_acts), len(acts)))
+    # print("LCA with cache %d of %d remaining acts to compute" % (len(remaining_acts), len(acts)))
 
     if (len(remaining_acts) > 0) :
         lca = _multiLCA(
@@ -78,9 +78,9 @@ def _multiLCAWithCache(acts, methods) :
         # Set output from dataframe
         for imethod, method in enumerate(methods) :
             for iact, act in enumerate(remaining_acts) :
-                BG_IMPACTS_CACHE[(act, method)] = lca.iloc[imethod, iact]
+                _BG_IMPACTS_CACHE[(act, method)] = lca.iloc[imethod, iact]
 
-    return BG_IMPACTS_CACHE
+    return _BG_IMPACTS_CACHE
 
 
 def _modelToExpr(
