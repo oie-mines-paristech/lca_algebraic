@@ -755,6 +755,8 @@ def distrib(*args, **kwargs) :
     """
        Show distributions together with statistical outcomes
 
+       Synonym of graphs()
+
        parameters
        ----------
        model: normalized model

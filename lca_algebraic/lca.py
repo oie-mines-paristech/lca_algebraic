@@ -60,15 +60,15 @@ def multiLCA(model, methods, **params):
 
 
 # Cache of (act, method) => values
-BG_IMPACTS_CACHE = dict()
+_BG_IMPACTS_CACHE = dict()
 
 """ Compute LCA and return (act, method) => value """
 def _multiLCAWithCache(acts, methods) :
 
     # List activities with at least one missing value
-    remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in BG_IMPACTS_CACHE))
+    remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in _BG_IMPACTS_CACHE))
 
-    print("LCA with cache %d of %d remaining acts to compute" % (len(remaining_acts), len(acts)))
+    # print("LCA with cache %d of %d remaining acts to compute" % (len(remaining_acts), len(acts)))
 
     if (len(remaining_acts) > 0) :
         lca = _multiLCA(
@@ -78,9 +78,9 @@ def _multiLCAWithCache(acts, methods) :
         # Set output from dataframe
         for imethod, method in enumerate(methods) :
             for iact, act in enumerate(remaining_acts) :
-                BG_IMPACTS_CACHE[(act, method)] = lca.iloc[imethod, iact]
+                _BG_IMPACTS_CACHE[(act, method)] = lca.iloc[imethod, iact]
 
-    return BG_IMPACTS_CACHE
+    return _BG_IMPACTS_CACHE
 
 
 def _modelToExpr(
@@ -416,7 +416,7 @@ def actToExpression(act: Activity, extract_activities=None):
 
         return symbols(slug)
 
-    def rec_func(act: Activity, in_extract_path):
+    def rec_func(act: Activity, in_extract_path, parents=[]):
 
         res = 0
         outputAmount = 1
@@ -447,7 +447,7 @@ def actToExpression(act: Activity, extract_activities=None):
                     exch_in_path = in_extract_path or (sub_act in extract_activities)
 
             # Background DB => reference it as a symbol
-            if input_db in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]  :
+            if input_db != USER_DB() :
 
                 if exch_in_path :
                     # Add to dict of background symbols
@@ -463,7 +463,11 @@ def actToExpression(act: Activity, extract_activities=None):
                 if input_db == act['database'] and input_code == act['code']:
                     raise Exception("Recursive exchange : %s" % (act.__dict__))
 
-                act_expr = rec_func(sub_act, exch_in_path)
+                parents = parents + [act]
+                if sub_act in parents :
+                    raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
+
+                act_expr = rec_func(sub_act, exch_in_path, parents)
 
             avoidedBurden = 1
             if exch['type'] == 'production' and not exch['input'] == exch['output']:
@@ -528,7 +532,7 @@ def exploreImpacts(impact, *activities, **params):
             inputs_by_ex_name[ex_name] = _createTechProxyForBio(input)
 
             input_name = _actName(input)
-            if input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+            if input.key[0] == USER_DB():
                 input_name += "{user-db}"
 
             data[ex_name] = [input_name, amount]

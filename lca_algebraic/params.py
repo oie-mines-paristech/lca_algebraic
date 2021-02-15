@@ -16,7 +16,6 @@ from .base_utils import _eprint, as_np_array
 DEFAULT_PARAM_GROUP = "acv"
 
 
-
 def _param_registry():
     # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:

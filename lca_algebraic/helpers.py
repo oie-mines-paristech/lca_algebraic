@@ -16,6 +16,22 @@ from .params import _param_registry, _completeParamValues
 
 
 BIOSPHERE3_DB_NAME = 'biosphere3'
+_USER_DB = None
+
+def USER_DB() :
+    if _USER_DB is not None :
+        return _USER_DB
+    else:
+        # Try to guess it
+        candidates = list(key for key in bw.databases.keys() if key not in [ECOINVENT_DB_NAME(), BIOSPHERE3_DB_NAME])
+        if len(candidates) == 1 :
+            return candidates[0]
+
+        raise Exception("Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB('YourDbName')")
+
+def SET_USER_DB(userDbName) :
+    global _USER_DB
+    _USER_DB = userDbName
 
 def ECOINVENT_DB_NAME() :
     """Return the name of the ecoinvent DB"""
@@ -524,7 +540,7 @@ def printAct(*args, **params):
             inputs_by_ex_name[ex_name] = input
 
             input_name = _actName(input)
-            if input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+            if input.key[0] == USER_DB():
                 input_name += "{user-db}"
 
             data[ex_name] = [input_name, amount, exc.unit]
