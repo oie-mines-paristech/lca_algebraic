@@ -1,8 +1,15 @@
 # 0.0.15
 
+* Added explicit error when cycle is detected in activities. 
+  This usually means a Bg activity has been imported into User DB :
+  lca_algebraic does not support cycles / recursion in User Db, 
+  since those are developped as litteral formulas. 
 * Added support for several background databases. 
   User Db is guessed or can be specified using **SET_USER_DB**()
-  
+* Support coproducts in graphtraversal. 
+  See [PR #9](https://github.com/oie-mines-paristech/lca_algebraic/pull/9) by @ntropy-esa
+* 
+
 # 0.0.14
 
 * Internal change for generated webapp 
