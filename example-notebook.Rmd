@@ -1,18 +1,3 @@
----
-jupyter:
-  jupytext:
-    formats: ipynb,Rmd
-    text_representation:
-      extension: .Rmd
-      format_name: rmarkdown
-      format_version: '1.2'
-      jupytext_version: 1.3.2
-  kernelspec:
-    display_name: Python 3
-    language: python
-    name: python3
----
-
 <!-- #region -->
 # Introduction
 
@@ -69,8 +54,10 @@ Full documentation of the functions is [available here](https://oie-mines-parist
 <!-- #endregion -->
 
 ```{python}
+# Those two lines are for dev only : they watch imported libraries for changes
 # %load_ext autoreload
 # %autoreload 2
+
 import pandas as pd
 import time
 import matplotlib.pyplot as plt
@@ -100,7 +87,7 @@ importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 # Choose any name
 USER_DB = 'MyModelName'
 
-# If the system cannot guess the name of you user DB, set it manually
+# The library usually guesses the name of the user DB. If not, set it manually :
 #SET_USER_DB(USER_DB)
 
 # This is better to cleanup the whole foreground model each time, and redefine it in the notebook
@@ -108,7 +95,9 @@ USER_DB = 'MyModelName'
 # Any persistent state is prone to errors.
 resetDb(USER_DB)
 
-# Parameters are stored at project level : reset them also
+# Parameters are stored at project level : 
+# Reset them also
+# You may remove this line if you import a project and parameters from an external source
 resetParams(USER_DB)
 ```
 
@@ -132,7 +121,7 @@ a = symbols("a")
 
 # Expressions are not directly evaluated 
 f = a * 2 + 4 
-f 
+f
 ```
 
 ```{python}
@@ -199,6 +188,11 @@ techno_param = newEnumParam(
 ```{python}
 # List of parameters
 list_parameters()
+```
+
+```{python}
+# Persistance of parameters
+# By default, new parameters are persisted in the project (unless )
 ```
 
 # Get references to background activities

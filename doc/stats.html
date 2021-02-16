@@ -27,6 +27,7 @@
 <pre><code class="python">import warnings
 import random
 import seaborn as sns
+import math
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
@@ -35,7 +36,7 @@ from sympy import Float, Number, Add, AtomicExpr
 from time import time
 from .base_utils import _method_unit, _eprint
 from .lca import *
-from .lca import _expanded_names_to_names, _filter_param_values
+from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
 from .params import _variable_params, _param_registry, FixedParamMode
 
 
@@ -54,6 +55,7 @@ def _heatmap(df, title, vmax, ints=False):
     fig, ax = plt.subplots(figsize=(17, 17))
     sns.heatmap(df.transpose(), cmap=&#34;gist_heat_r&#34;, vmax=vmax, annot=True, fmt=&#39;.0f&#39; if ints else &#39;.2f&#39;, square=True)
     plt.title(title, fontsize=20)
+    plt.yticks(rotation=0)
     ax.tick_params(axis=&#34;x&#34;, labelsize=18)
     ax.tick_params(axis=&#34;y&#34;, labelsize=18)
 
@@ -99,7 +101,7 @@ def oat_matrix(model, impacts, n=10, title=&#39;Impact variability (% of mean)&#
 
 
 def _display_tabs(titlesAndContentF):
-    &#39;&#39;&#39;Generate tabs&#39;&#39;&#39;
+    &#34;&#34;&#34;Generate tabs&#34;&#34;&#34;
     tabs = []
     titles = []
     for title, content_f in titlesAndContentF:
@@ -117,7 +119,7 @@ def _display_tabs(titlesAndContentF):
 
 
 def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None,
-                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True):
+                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, cols=3, func_unit=&#34;kWh&#34;):
     &#39;&#39;&#39;
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
     The result heatmap shows percentage of variation relative to median value.
@@ -163,14 +165,14 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         with warnings.catch_warnings():
             warnings.simplefilter(&#34;ignore&#34;)
 
-            nb_rows = len(impacts) // 3 + 1
+            nb_rows = int(math.ceil(len(impacts) /cols))
 
             fig, axes = plt.subplots(figsize=figsize)
             plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
 
             axes = df.plot(
                 ax=axes, sharex=sharex, subplots=True,
-                layout=(nb_rows, 3),
+                layout=(nb_rows, cols),
                 # legend=None,
                 kind=&#39;line&#39; if varying_param.type == ParamType.FLOAT else &#39;bar&#39;)
 
@@ -178,7 +180,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 
             for ax, impact in zip(axes, impacts):
                 ax.set_ylim(ymin=0)
-                ax.set_ylabel(_method_unit(impact))
+                ax.set_ylabel(_method_unit(impact) + &#34; / &#34; + func_unit)
 
             plt.show(fig)
 
@@ -272,7 +274,6 @@ def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_para
     elif sample_method == StochasticMethod.RAND:
         X = np.random.rand(n, len(var_param_names))
     elif sample_method == StochasticMethod.SOBOL:
-        print(&#34;sobol !&#34;)
         X = sobol_sequence.sample(n * (len(var_param_names) * 2 + 2), len(var_param_names))
     # elif sample_method == StochasticMethod.LATIN :
     #    X = latin.sample(problem, n)
@@ -563,7 +564,8 @@ def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
-    num_digits=3) :
+    num_digits=3,
+    simple_sums=True) :
 
     &#39;&#39;&#39;
     Computes Sobol indices and selects main parameters for explaining sensibility of at least &#39;min_ratio&#39;,
@@ -575,6 +577,7 @@ def sobol_simplify_model(
     var_params: Optional list of parameters to vary.
     fixed_mode : What to replace minor parameters with : MEDIAN by default
     sob: [optional] Pre-computed sobol indices
+    simplify_sums: If true (default) remove terms in sums that are lower than 1%
 
     returns
     _______
@@ -596,6 +599,9 @@ def sobol_simplify_model(
 
     res = []
 
+    # Generate simplified model
+    exprs, _ = _modelToExpr(model, methods)
+
     for imethod, method in enumerate(methods) :
 
         print(&#34;&gt; Method : &#34;, method_name(method))
@@ -610,12 +616,16 @@ def sobol_simplify_model(
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
+        sobols = dict()
         for iparam, param in enumerate(sorted_param_indices) :
 
-            selected_params.append(var_param_names[param])
 
             # S1
             sum += s1[param, imethod]
+
+            param_name = var_param_names[param]
+            selected_params.append(param_name)
+            sobols[param_name] = s1[param, imethod]
 
             # S2
             #for iparam2 in range(0, iparam) :
@@ -626,25 +636,27 @@ def sobol_simplify_model(
                 break
         print(&#34;Selected params : &#34;, selected_params, &#34;explains: &#34;, sum)
 
-        fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = exprs[imethod]
 
-        # Generate simplified model
-        simplified_expr = simplifiedModel(
-            model,
-            [method],
-            fixed_mode=fixed_mode,
-            extraFixedParams=fixedParams)[0]
+        # Replace extra fixed params
+        extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = _replace_fixed_params(expr, extraFixedParams, fixed_mode=fixed_mode)
 
-        simplified_expr = _round_expr(simplified_expr, num_digits)
+        # Sympy simplification
+        expr = simplify(expr)
+
+        # Round numerical values to 3 digits
+        expr = _round_expr(expr, num_digits)
 
         # Lambdify the expression
-        lambd = LambdaWithParamNames(simplified_expr, params=selected_params)
+        lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
-        # Extra step of simplification : siplofiy sum with neligeable terms
-        simplified_expr = simplify(simplify_sums(lambd, params))
+        # Extra step of simplification : siplify sums with neligeable terms
+        expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
 
-        res.append(LambdaWithParamNames(simplified_expr, params=selected_params))
+        simplified_expr = simplify(expr)
 
+        res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
 
     return res
 
@@ -698,10 +710,6 @@ def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
     print(lambdaWithParams.expr)
     return cleanup(lambdaWithParams.expr)
 
-
-def _text(x, y, val):
-    txt = plt.text(x, y, val, fontsize=14)
-    txt.set_path_effects([patheffects.withStroke(linewidth=3, foreground=&#39;w&#39;)])
 
 
 def _hline(x1, x2, y, linewidth=1, linestyle=&#39;solid&#39;):
@@ -769,13 +777,36 @@ def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, c
         mean=mean,
         var=variability)
 
+def distrib(*args, **kwargs) :
+    &#34;&#34;&#34;
+       Show distributions together with statistical outcomes
+
+       Synonym of graphs()
+
+       parameters
+       ----------
+       model: normalized model
+       methods: List of impacts
+       Y: output of processing. If None, monte carlo will be processed again
+       nb_cols : number of colons to display graphs on
+       invert : list of methods for which result should be inverted (1/X). None by default
+       scales : Dict of method =&gt; scale, for multiplying results. To be used with unit overrides
+       unit_overrides : Dict of method =&gt; string for overriding unit, in respect to custom scales
+       height: Height of graph : 10 inches be default
+       width : Width of graphs : 15 inches by default
+       &#34;&#34;&#34;
+    return graphs(*args, **kwargs)
+
+
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
         invert=None,
         scales=None, # Dict of method =&gt; scale
         unit_overrides=None,
-        height=10, width=15, **kwargs):
+        height=10, width=15,
+        func_unit=&#34;kWh&#34;,
+        **kwargs):
     &#34;&#34;&#34;
     Show distributions together with statistical outcomes
 
@@ -825,7 +856,7 @@ def graphs(
         else:
             unit = _method_unit(method)
 
-        unit += &#34; / kWh&#34;
+        unit += &#34; / &#34; + func_unit
 
         stats = _graph(
             data, unit,
@@ -840,6 +871,8 @@ def graphs(
         ax.axis(&#34;off&#34;)
 
     return pd.DataFrame(res)
+
+
 
 
 def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
@@ -971,6 +1004,58 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
         ax.axis(&#34;off&#34;)</code></pre>
 </details>
 </dd>
+<dt id="lca_algebraic.stats.distrib"><code class="name flex">
+<span>def <span class="ident">distrib</span></span>(<span>*args, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Show distributions together with statistical outcomes</p>
+<p>Synonym of graphs()</p>
+<h2 id="parameters">parameters</h2>
+<dl>
+<dt><strong><code>model</code></strong> :&ensp;<code>normalized</code> <code>model</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>methods</code></strong> :&ensp;<code>List</code> of <code>impacts</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>Y</code></strong> :&ensp;<code>output</code> of <code>processing.</code> <code>If</code> <code>None</code>, <code>monte</code> <code>carlo</code> <code>will</code> <code>be</code> <code>processed</code> <code>again</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>nb_cols</code></strong> :&ensp;<code>number</code> of <code>colons</code> <code>to</code> <code>display</code> <a title="lca_algebraic.stats.graphs" href="#lca_algebraic.stats.graphs"><code>graphs()</code></a> <code>on</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>invert</code></strong> :&ensp;<code>list</code> of <code>methods</code> <code>for</code> <code>which</code> <code>result</code> <code>should</code> <code>be</code> <code>inverted</code> (<code>1</code>/<code>X</code>)<code>.</code> <code>None</code> <code>by</code> default</dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>scales</code></strong> :&ensp;<code>Dict</code> of <code>method</code> =&gt; <code>scale</code>, <code>for</code> <code>multiplying</code> <code>results.</code> <code>To</code> <code>be</code> <code>used</code> <code>with</code> <code>unit</code> <code>overrides</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>unit_overrides</code></strong> :&ensp;<code>Dict</code> of <code>method</code> =&gt; <code>string</code> <code>for</code> <code>overriding</code> <code>unit</code>, <code>in</code> <code>respect</code> <code>to</code> <code>custom</code> <code>scales</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>height</code></strong> :&ensp;<code>Height</code> of <code>graph</code> : <code>10</code> <code>inches</code> <code>be</code> default</dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>width</code></strong> :&ensp;<code>Width</code> of <a title="lca_algebraic.stats.graphs" href="#lca_algebraic.stats.graphs"><code>graphs()</code></a> : <code>15</code> <code>inches</code> <code>by</code> default</dt>
+<dd>&nbsp;</dd>
+</dl></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def distrib(*args, **kwargs) :
+    &#34;&#34;&#34;
+       Show distributions together with statistical outcomes
+
+       Synonym of graphs()
+
+       parameters
+       ----------
+       model: normalized model
+       methods: List of impacts
+       Y: output of processing. If None, monte carlo will be processed again
+       nb_cols : number of colons to display graphs on
+       invert : list of methods for which result should be inverted (1/X). None by default
+       scales : Dict of method =&gt; scale, for multiplying results. To be used with unit overrides
+       unit_overrides : Dict of method =&gt; string for overriding unit, in respect to custom scales
+       height: Height of graph : 10 inches be default
+       width : Width of graphs : 15 inches by default
+       &#34;&#34;&#34;
+    return graphs(*args, **kwargs)</code></pre>
+</details>
+</dd>
 <dt id="lca_algebraic.stats.extract_var_params"><code class="name flex">
 <span>def <span class="ident">extract_var_params</span></span>(<span>lambdas)</span>
 </code></dt>
@@ -989,7 +1074,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 </details>
 </dd>
 <dt id="lca_algebraic.stats.graphs"><code class="name flex">
-<span>def <span class="ident">graphs</span></span>(<span>model, methods, Y=None, nb_cols=1, axes=None, title=None, invert=None, scales=None, unit_overrides=None, height=10, width=15, **kwargs)</span>
+<span>def <span class="ident">graphs</span></span>(<span>model, methods, Y=None, nb_cols=1, axes=None, title=None, invert=None, scales=None, unit_overrides=None, height=10, width=15, func_unit='kWh', **kwargs)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Show distributions together with statistical outcomes</p>
@@ -1024,7 +1109,9 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
         invert=None,
         scales=None, # Dict of method =&gt; scale
         unit_overrides=None,
-        height=10, width=15, **kwargs):
+        height=10, width=15,
+        func_unit=&#34;kWh&#34;,
+        **kwargs):
     &#34;&#34;&#34;
     Show distributions together with statistical outcomes
 
@@ -1074,7 +1161,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
         else:
             unit = _method_unit(method)
 
-        unit += &#34; / kWh&#34;
+        unit += &#34; / &#34; + func_unit
 
         stats = _graph(
             data, unit,
@@ -1210,7 +1297,7 @@ By default use all the parameters with distribution not FIXED</p></section>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.oat_dasboard"><code class="name flex">
-<span>def <span class="ident">oat_dasboard</span></span>(<span>modelOrLambdas, impacts, varying_param, n=10, all_param_names=None, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True)</span>
+<span>def <span class="ident">oat_dasboard</span></span>(<span>modelOrLambdas, impacts, varying_param, n=10, all_param_names=None, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, cols=3, func_unit='kWh')</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
@@ -1237,7 +1324,7 @@ The result heatmap shows percentage of variation relative to median value.</p>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None,
-                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True):
+                 figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, cols=3, func_unit=&#34;kWh&#34;):
     &#39;&#39;&#39;
     Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
     The result heatmap shows percentage of variation relative to median value.
@@ -1283,14 +1370,14 @@ The result heatmap shows percentage of variation relative to median value.</p>
         with warnings.catch_warnings():
             warnings.simplefilter(&#34;ignore&#34;)
 
-            nb_rows = len(impacts) // 3 + 1
+            nb_rows = int(math.ceil(len(impacts) /cols))
 
             fig, axes = plt.subplots(figsize=figsize)
             plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
 
             axes = df.plot(
                 ax=axes, sharex=sharex, subplots=True,
-                layout=(nb_rows, 3),
+                layout=(nb_rows, cols),
                 # legend=None,
                 kind=&#39;line&#39; if varying_param.type == ParamType.FLOAT else &#39;bar&#39;)
 
@@ -1298,7 +1385,7 @@ The result heatmap shows percentage of variation relative to median value.</p>
 
             for ax, impact in zip(axes, impacts):
                 ax.set_ylim(ymin=0)
-                ax.set_ylabel(_method_unit(impact))
+                ax.set_ylabel(_method_unit(impact) + &#34; / &#34; + func_unit)
 
             plt.show(fig)
 
@@ -1458,7 +1545,7 @@ The result heatmap shows percentage of variation relative to median value.</p>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.sobol_simplify_model"><code class="name flex">
-<span>def <span class="ident">sobol_simplify_model</span></span>(<span>model, methods, min_ratio=0.8, n=2000, var_params=None, fixed_mode='median', num_digits=3)</span>
+<span>def <span class="ident">sobol_simplify_model</span></span>(<span>model, methods, min_ratio=0.8, n=2000, var_params=None, fixed_mode='median', num_digits=3, simple_sums=True)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -1471,6 +1558,8 @@ Then generates simplified models for those parameters.</p>
 <dt><strong><code>fixed_mode</code></strong> :&ensp;<code>What</code> <code>to</code> <code>replace</code> <code>minor</code> <code>parameters</code> <code>with</code> : <code>MEDIAN</code> <code>by</code> default</dt>
 <dd>&nbsp;</dd>
 <dt><strong><code>sob</code></strong> :&ensp;[optional] <code>Pre</code>-<code>computed</code> <code>sobol</code> <code>indices</code></dt>
+<dd>&nbsp;</dd>
+<dt><strong><a title="lca_algebraic.stats.simplify_sums" href="#lca_algebraic.stats.simplify_sums"><code>simplify_sums()</code></a></strong> :&ensp;<code>If</code> <code>true</code> (default) <code>remove</code> <code>terms</code> <code>in</code> <code>sums</code> <code>that</code> <code>are</code> <code>lower</code> <code>than</code> <code>1</code>%</dt>
 <dd>&nbsp;</dd>
 <dt><strong><code>returns</code></strong></dt>
 <dd>&nbsp;</dd>
@@ -1487,7 +1576,8 @@ list of required parameters and a fast complied lambda function for fast evaluat
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
-    num_digits=3) :
+    num_digits=3,
+    simple_sums=True) :
 
     &#39;&#39;&#39;
     Computes Sobol indices and selects main parameters for explaining sensibility of at least &#39;min_ratio&#39;,
@@ -1499,6 +1589,7 @@ list of required parameters and a fast complied lambda function for fast evaluat
     var_params: Optional list of parameters to vary.
     fixed_mode : What to replace minor parameters with : MEDIAN by default
     sob: [optional] Pre-computed sobol indices
+    simplify_sums: If true (default) remove terms in sums that are lower than 1%
 
     returns
     _______
@@ -1520,6 +1611,9 @@ list of required parameters and a fast complied lambda function for fast evaluat
 
     res = []
 
+    # Generate simplified model
+    exprs, _ = _modelToExpr(model, methods)
+
     for imethod, method in enumerate(methods) :
 
         print(&#34;&gt; Method : &#34;, method_name(method))
@@ -1534,12 +1628,16 @@ list of required parameters and a fast complied lambda function for fast evaluat
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
+        sobols = dict()
         for iparam, param in enumerate(sorted_param_indices) :
 
-            selected_params.append(var_param_names[param])
 
             # S1
             sum += s1[param, imethod]
+
+            param_name = var_param_names[param]
+            selected_params.append(param_name)
+            sobols[param_name] = s1[param, imethod]
 
             # S2
             #for iparam2 in range(0, iparam) :
@@ -1550,25 +1648,27 @@ list of required parameters and a fast complied lambda function for fast evaluat
                 break
         print(&#34;Selected params : &#34;, selected_params, &#34;explains: &#34;, sum)
 
-        fixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = exprs[imethod]
 
-        # Generate simplified model
-        simplified_expr = simplifiedModel(
-            model,
-            [method],
-            fixed_mode=fixed_mode,
-            extraFixedParams=fixedParams)[0]
+        # Replace extra fixed params
+        extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = _replace_fixed_params(expr, extraFixedParams, fixed_mode=fixed_mode)
 
-        simplified_expr = _round_expr(simplified_expr, num_digits)
+        # Sympy simplification
+        expr = simplify(expr)
+
+        # Round numerical values to 3 digits
+        expr = _round_expr(expr, num_digits)
 
         # Lambdify the expression
-        lambd = LambdaWithParamNames(simplified_expr, params=selected_params)
+        lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
-        # Extra step of simplification : siplofiy sum with neligeable terms
-        simplified_expr = simplify(simplify_sums(lambd, params))
+        # Extra step of simplification : siplify sums with neligeable terms
+        expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
 
-        res.append(LambdaWithParamNames(simplified_expr, params=selected_params))
+        simplified_expr = simplify(expr)
 
+        res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
 
     return res</code></pre>
 </details>
@@ -1670,6 +1770,7 @@ errors defaults to 'strict'.</p></section>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
 <li><code><a title="lca_algebraic.stats.compare_simplified" href="#lca_algebraic.stats.compare_simplified">compare_simplified</a></code></li>
+<li><code><a title="lca_algebraic.stats.distrib" href="#lca_algebraic.stats.distrib">distrib</a></code></li>
 <li><code><a title="lca_algebraic.stats.extract_var_params" href="#lca_algebraic.stats.extract_var_params">extract_var_params</a></code></li>
 <li><code><a title="lca_algebraic.stats.graphs" href="#lca_algebraic.stats.graphs">graphs</a></code></li>
 <li><code><a title="lca_algebraic.stats.incer_stochastic_dashboard" href="#lca_algebraic.stats.incer_stochastic_dashboard">incer_stochastic_dashboard</a></code></li>

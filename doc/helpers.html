@@ -36,12 +36,28 @@ from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from sympy import symbols
 
 from .base_utils import *
-from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula
+from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula, _actName
 from .params import *
 from .params import _param_registry, _completeParamValues
 
 
 BIOSPHERE3_DB_NAME = &#39;biosphere3&#39;
+_USER_DB = None
+
+def USER_DB() :
+    if _USER_DB is not None :
+        return _USER_DB
+    else:
+        # Try to guess it
+        candidates = list(key for key in bw.databases.keys() if key not in [ECOINVENT_DB_NAME(), BIOSPHERE3_DB_NAME])
+        if len(candidates) == 1 :
+            return candidates[0]
+
+        raise Exception(&#34;Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB(&#39;YourDbName&#39;)&#34;)
+
+def SET_USER_DB(userDbName) :
+    global _USER_DB
+    _USER_DB = userDbName
 
 def ECOINVENT_DB_NAME() :
     &#34;&#34;&#34;Return the name of the ecoinvent DB&#34;&#34;&#34;
@@ -507,7 +523,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def printAct(*activities, **params):
+def printAct(*args, **params):
     &#34;&#34;&#34;
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly
@@ -515,10 +531,17 @@ def printAct(*activities, **params):
     tables = []
     names = []
 
+    activities = args
+
     for act in activities:
-        df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;, &#39;type&#39;])
+        inputs_by_ex_name = dict()
+        df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;])
         data = dict()
         for (i, exc) in enumerate(act.exchanges()):
+
+            if exc[&#39;type&#39;] == &#39;production&#39; :
+                continue
+
             input = bw.get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
 
@@ -527,19 +550,29 @@ def printAct(*activities, **params):
                 new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                 amount = amount.subs(new_params)
 
-            name = exc[&#39;name&#39;]
-            if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
-                name += &#34;#%s&#34; % input[&#39;location&#39;]
-            if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-                name += &#34; {user-db}&#34;
+            ex_name = exc[&#39;name&#39;]
+            #if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
+            #    name += &#34;#%s&#34; % input[&#39;location&#39;]
+            #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+            #    name += &#34; {user-db}&#34;
 
-            iname = name
+            # Unique name : some exchanges may havve same names
+            _name = ex_name
             i = 1
-            while iname in data:
-                iname = &#34;%s#%d&#34; % (name, i)
+            while ex_name in data:
+                ex_name = &#34;%s#%d&#34; % (_name, i)
                 i += 1
 
-            data[iname] = [str(input), amount, exc.unit, exc[&#39;type&#39;]]
+            inputs_by_ex_name[ex_name] = input
+
+            input_name = _actName(input)
+            if input.key[0] == USER_DB():
+                input_name += &#34;{user-db}&#34;
+
+            data[ex_name] = [input_name, amount, exc.unit]
+
+        # Provide impact calculation if impact provided
+
 
         for key, values in data.items():
             df[key] = values
@@ -549,6 +582,7 @@ def printAct(*activities, **params):
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 
+    # Highlight differences in case two activites are provided
     if len(activities) == 2:
         yellow = &#34;background-color:yellow&#34;
         iamount1 = full.columns.get_loc((names[0], &#34;amount&#34;))
@@ -638,6 +672,41 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
             return key
 
     raise Exception(&#34;No ecoinvent DB found&#34;)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.SET_USER_DB"><code class="name flex">
+<span>def <span class="ident">SET_USER_DB</span></span>(<span>userDbName)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def SET_USER_DB(userDbName) :
+    global _USER_DB
+    _USER_DB = userDbName</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.USER_DB"><code class="name flex">
+<span>def <span class="ident">USER_DB</span></span>(<span>)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def USER_DB() :
+    if _USER_DB is not None :
+        return _USER_DB
+    else:
+        # Try to guess it
+        candidates = list(key for key in bw.databases.keys() if key not in [ECOINVENT_DB_NAME(), BIOSPHERE3_DB_NAME])
+        if len(candidates) == 1 :
+            return candidates[0]
+
+        raise Exception(&#34;Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB(&#39;YourDbName&#39;)&#34;)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.copyActivity"><code class="name flex">
@@ -978,7 +1047,7 @@ You can provide other amounts by providing a tuple of (activity, amount).</p>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.printAct"><code class="name flex">
-<span>def <span class="ident">printAct</span></span>(<span>*activities, **params)</span>
+<span>def <span class="ident">printAct</span></span>(<span>*args, **params)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Print activities and their exchanges.
@@ -987,7 +1056,7 @@ If parameter values are provided, formulas will be evaluated accordingly</p></se
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def printAct(*activities, **params):
+<pre><code class="python">def printAct(*args, **params):
     &#34;&#34;&#34;
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly
@@ -995,10 +1064,17 @@ If parameter values are provided, formulas will be evaluated accordingly</p></se
     tables = []
     names = []
 
+    activities = args
+
     for act in activities:
-        df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;, &#39;type&#39;])
+        inputs_by_ex_name = dict()
+        df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;])
         data = dict()
         for (i, exc) in enumerate(act.exchanges()):
+
+            if exc[&#39;type&#39;] == &#39;production&#39; :
+                continue
+
             input = bw.get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
 
@@ -1007,19 +1083,29 @@ If parameter values are provided, formulas will be evaluated accordingly</p></se
                 new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                 amount = amount.subs(new_params)
 
-            name = exc[&#39;name&#39;]
-            if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
-                name += &#34;#%s&#34; % input[&#39;location&#39;]
-            if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-                name += &#34; {user-db}&#34;
+            ex_name = exc[&#39;name&#39;]
+            #if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
+            #    name += &#34;#%s&#34; % input[&#39;location&#39;]
+            #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+            #    name += &#34; {user-db}&#34;
 
-            iname = name
+            # Unique name : some exchanges may havve same names
+            _name = ex_name
             i = 1
-            while iname in data:
-                iname = &#34;%s#%d&#34; % (name, i)
+            while ex_name in data:
+                ex_name = &#34;%s#%d&#34; % (_name, i)
                 i += 1
 
-            data[iname] = [str(input), amount, exc.unit, exc[&#39;type&#39;]]
+            inputs_by_ex_name[ex_name] = input
+
+            input_name = _actName(input)
+            if input.key[0] == USER_DB():
+                input_name += &#34;{user-db}&#34;
+
+            data[ex_name] = [input_name, amount, exc.unit]
+
+        # Provide impact calculation if impact provided
+
 
         for key, values in data.items():
             df[key] = values
@@ -1029,6 +1115,7 @@ If parameter values are provided, formulas will be evaluated accordingly</p></se
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 
+    # Highlight differences in case two activites are provided
     if len(activities) == 2:
         yellow = &#34;background-color:yellow&#34;
         iamount1 = full.columns.get_loc((names[0], &#34;amount&#34;))
@@ -1633,6 +1720,8 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="two-column">
 <li><code><a title="lca_algebraic.helpers.ECOINVENT_DB_NAME" href="#lca_algebraic.helpers.ECOINVENT_DB_NAME">ECOINVENT_DB_NAME</a></code></li>
+<li><code><a title="lca_algebraic.helpers.SET_USER_DB" href="#lca_algebraic.helpers.SET_USER_DB">SET_USER_DB</a></code></li>
+<li><code><a title="lca_algebraic.helpers.USER_DB" href="#lca_algebraic.helpers.USER_DB">USER_DB</a></code></li>
 <li><code><a title="lca_algebraic.helpers.copyActivity" href="#lca_algebraic.helpers.copyActivity">copyActivity</a></code></li>
 <li><code><a title="lca_algebraic.helpers.findActivity" href="#lca_algebraic.helpers.findActivity">findActivity</a></code></li>
 <li><code><a title="lca_algebraic.helpers.findBioAct" href="#lca_algebraic.helpers.findBioAct">findBioAct</a></code></li>

@@ -37,6 +37,12 @@ from IPython.core.display import display
 import numpy as np
 
 DEBUG=False
+LANG=&#34;fr&#34;
+
+
+def set_lang(lang):
+    global LANG
+    LANG=lang
 
 def debug(*args, **kwargs) :
     if DEBUG :
@@ -97,7 +103,7 @@ def _actName(act: Activity):
     
     &#34;&#34;&#34;Generate pretty name for activity, appending location if not &#39;GLO&#39; &#34;&#34;&#34;
     res = act[&#39;name&#39;]
-    if act[&#39;location&#39;] != &#39;GLO&#39;:
+    if &#39;location&#39; in act and act[&#39;location&#39;] != &#39;GLO&#39;:
         res += &#34;[%s]&#34; % act[&#34;location&#34;]
     return res
 
@@ -280,6 +286,20 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
     return 1 - (ss_res / ss_tot)</code></pre>
 </details>
 </dd>
+<dt id="lca_algebraic.base_utils.set_lang"><code class="name flex">
+<span>def <span class="ident">set_lang</span></span>(<span>lang)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def set_lang(lang):
+    global LANG
+    LANG=lang</code></pre>
+</details>
+</dd>
 </dl>
 </section>
 <section>
@@ -306,6 +326,7 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
 <li><code><a title="lca_algebraic.base_utils.error" href="#lca_algebraic.base_utils.error">error</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.interpolate" href="#lca_algebraic.base_utils.interpolate">interpolate</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.r_squared" href="#lca_algebraic.base_utils.r_squared">r_squared</a></code></li>
+<li><code><a title="lca_algebraic.base_utils.set_lang" href="#lca_algebraic.base_utils.set_lang">set_lang</a></code></li>
 </ul>
 </li>
 </ul>

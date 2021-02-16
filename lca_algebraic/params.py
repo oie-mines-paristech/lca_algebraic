@@ -27,28 +27,42 @@ def _param_registry():
 
 
 class ParamType:
-    '''Type of parameters'''
-    ENUM = "enum"
-    BOOL = "bool"
-    FLOAT = "float"
+    """Type of parameters"""
 
+    ENUM = "enum"
+    """ Enum Parameter """
+
+    BOOL = "bool"
+    """ Boolean parameter """
+
+    FLOAT = "float"
+    """Float parameter """
 
 class DistributionType:
-    '''
+    """
         Type of statistic distribution of a parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+    """
 
-        * **LINEAR** : uniform distribution between *min* and *max*
-        * **NORMAL** : Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*
-        * **TRIANGLE** : Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value
-        * **BETA** : Beta distribution with extra params *a* and *b*, using *default* value as 'loc' (0 of beta distribution) and *std* as 'scale' (1 of beta distribution).
-                See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta)
-    '''
     LINEAR = "linear"
-    NORMAL = "normal" # requires 'std' param. 'default' is used as the mean
-    BETA="beta" # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
+    """ Uniform distribution between *min* and *max*"""
+
+    NORMAL = "normal"
+    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*"""
+
+    LOGNORMAL = "lognormal"
+    """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
+
+    BETA = "beta" # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
+    """ Beta distribution with extra params *a* and *b*, 
+    using *default* value as 'loc' (0 of beta distribution) and *std* as 'scale' (1 of beta distribution)
+    See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta) """
+
     TRIANGLE = "triangle"
+    """ Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value """
+
     FIXED = "fixed"
+    """ Fixed value, not considered as a variable input for monte carlo simulation. """
 
 
 class _UncertaintyType :
@@ -57,6 +71,7 @@ class _UncertaintyType :
     '''
     UNDEFINED = 0
     FIXED = 1
+    LOGNORMAL = 2
     NORMAL = 3
     UNIFORM = 4
     TRIANGLE = 5
@@ -69,6 +84,7 @@ _DistributionTypeMap = {
     DistributionType.LINEAR : _UncertaintyType.UNIFORM,
     DistributionType.BETA : _UncertaintyType.BETA,
     DistributionType.NORMAL : _UncertaintyType.NORMAL,
+    DistributionType.LOGNORMAL: _UncertaintyType.LOGNORMAL,
     DistributionType.TRIANGLE : _UncertaintyType.TRIANGLE,
     DistributionType.FIXED : _UncertaintyType.FIXED, # I made that up
 }
@@ -79,8 +95,13 @@ _DistributionTypeMapReverse = {val:key for key, val in _DistributionTypeMap.item
 class FixedParamMode:
     """ Enum describing what value to set for fixed params """
     DEFAULT = "default"
+    """ Use the default value as the parameter """
+
     MEDIAN = "median"
+    """ Use the median of the distribution of the parameter """
+
     MEAN = "mean"
+    """ Use the mean of the distribution of the parameter """
 
 class ParamDef(Symbol):
     '''Generic definition of a parameter, with name, bound, type, distribution
@@ -118,10 +139,13 @@ class ParamDef(Symbol):
             else:
                 self.distrib = DistributionType.LINEAR
 
-        elif distrib == DistributionType.NORMAL :
+        elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
             if not 'std' in kwargs:
-                raise Exception("Standard deviation is mandatory for normal distribution")
+                raise Exception("Standard deviation is mandatory for normal / lognormal distribution")
             self.std = kwargs['std']
+
+            if distrib == DistributionType.LOGNORMAL and self.min is not None :
+                _eprint("Warning : LogNormal does not support min/max boundaries for parameter : ", self.name)
 
         elif distrib == DistributionType.BETA :
             if not 'a' in kwargs or not 'b' in kwargs or not 'std' in kwargs :
@@ -131,7 +155,7 @@ class ParamDef(Symbol):
             self.std = kwargs['std']
 
     def stat_value(self, mode : FixedParamMode):
-        """Method used to compute fixed statistic value to use for fixed variables"""
+        """ Compute a fixed value for this parameter, according to the requested FixedParamMode """
         if mode == FixedParamMode.DEFAULT :
             return self.default
         else :
@@ -156,7 +180,7 @@ class ParamDef(Symbol):
             return self.name.replace("_", " ")
 
     def range(self, n):
-        '''Used for parametric analysis'''
+        """Return N uniform values of this parameter, within its range of definition"""
         step = (self.max - self.min) / (n - 1)
         return list(i * step + self.min for i in range(0, n))
 
@@ -241,7 +265,7 @@ class BooleanDef(ParamDef):
 
 
 class EnumParam(ParamDef):
-    """Enum param is a facility representing a choice / switch as many boolean parameters.
+    """Enum param is a facility wrapping a choice / switch as many boolean parameters.
     It is not itself a Sympy symbol. use #symbol("value") to access it.
     Statistics weight can be attached to values by providing a dict.
     """
@@ -260,6 +284,9 @@ class EnumParam(ParamDef):
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
+        """ Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
+        currValue can be either a single enum value (string) of dict of enum value => weight.
+        """
 
         # A dict of weights was passed
         if isinstance(currValue, dict) :
@@ -276,7 +303,7 @@ class EnumParam(ParamDef):
         return res
 
     def symbol(self, enumValue):
-        """Access parameter for each enum value : <paramName>_<paramValue>"""
+        """Return the invididual symbol for a given enum value : <paramName>_<paramValue>"""
         if enumValue is None:
             return Symbol(self.name + '_default')
         if not enumValue in self.values:
@@ -319,7 +346,17 @@ class EnumParam(ParamDef):
 
 
 def newParamDef(name, type, save=True, **kwargs):
-    """Creates a param and register it into a global registry and as a brightway parameter"""
+    """
+        Creates a parameter and register it into a global registry and as a brightway parameter.
+
+        Parameters
+        ----------
+
+        type : Type of the parameter (From ParamType)
+        save : Boolean, persist this into Brightway2 project (True by default)
+        other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
+
+    """
     if type == ParamType.ENUM:
         param = EnumParam(name, **kwargs)
     elif type == ParamType.BOOL:
@@ -327,7 +364,7 @@ def newParamDef(name, type, save=True, **kwargs):
     else:
         param = ParamDef(name, type=type, **kwargs)
 
-    # Put it in local registry (in memory)
+    # Put it in global registry (in memory)
     if name in _param_registry():
         _eprint("Param %s was already defined : overriding" % name)
     _param_registry()[name] = param
@@ -345,7 +382,10 @@ _BOOLEAN_UNCERTAINTY_ATTRIBUTES = {
 }
 
 def persistParams() :
-    """ Persist parameters into Brightway project """
+    """ Persist parameters into Brightway project, as per :
+     https://stats-arrays.readthedocs.io/en/latest/
+    """
+
     for name, param in _param_registry().items() :
         _persistParam(param)
 
@@ -382,7 +422,7 @@ def _persistParam(param):
             bwParam["maximum"] = param.max
             bwParam["loc"] = param.default
 
-            if param.distrib == DistributionType.NORMAL :
+            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
                 bwParam["scale"] = param.std
 
             elif param.distrib == DistributionType.BETA:
@@ -410,7 +450,7 @@ def _loadArgs(data) :
     }
 
 def loadParams():
-    """Load parameters from Brightway database"""
+    """Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/"""
 
     enumParams=defaultdict(lambda : dict())
 
@@ -450,7 +490,7 @@ def loadParams():
             if type == _UncertaintyType.TRIANGLE :
                 args["default"] = data["loc"]
 
-            if type == _UncertaintyType.NORMAL:
+            if type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
                 args["default"] = data["loc"]
                 args["std"] = data["scale"]
 
@@ -489,13 +529,16 @@ def loadParams():
 
 
 def newFloatParam(name, default, **kwargs):
+    """ Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
 
 
-def newBoolParam(name, default, **kwargs):
+def newBoolParam(name, default, save=True, **kwargs):
+    """ Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
 
-def newEnumParam(name, default, **kwargs):
+def newEnumParam(name, default, save=True, **kwargs):
+    """ Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
 
 def _variable_params(param_names=None):

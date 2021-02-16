@@ -35,11 +35,13 @@ from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from scipy.stats import triang, truncnorm, norm, beta
 from sympy import Symbol
+from collections import defaultdict
 
+import lca_algebraic.base_utils
 from .base_utils import _eprint, as_np_array
 
 DEFAULT_PARAM_GROUP = &#34;acv&#34;
-
+UNCERTAINTY_TYPE = &#34;uncertainty type&#34;
 
 def _param_registry():
     # Prevent reset upon auto reload in jupyter notebook
@@ -51,28 +53,67 @@ def _param_registry():
 
 
 class ParamType:
-    &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
+    &#34;&#34;&#34;Type of parameters&#34;&#34;&#34;
+
     ENUM = &#34;enum&#34;
+
     BOOL = &#34;bool&#34;
+
     FLOAT = &#34;float&#34;
 
 
 class DistributionType:
-    &#39;&#39;&#39;
+    &#34;&#34;&#34;
         Type of statistic distribution of a parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+    &#34;&#34;&#34;
 
-        * **LINEAR** : uniform distribution between *min* and *max*
-        * **NORMAL** : Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*
-        * **TRIANGLE** : Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value
-        * **BETA** : Beta distribution with extra params *a* and *b*, using *default* value as &#39;loc&#39; (0 of beta distribution) and *std* as &#39;scale&#39; (1 of beta distribution).
-                See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta)
-    &#39;&#39;&#39;
     LINEAR = &#34;linear&#34;
-    NORMAL = &#34;normal&#34; # requires &#39;std&#39; param. &#39;default&#39; is used as the mean
-    BETA=&#34;beta&#34; # requires a, b &#39;default&#39; is used as the mean. &#39;std&#39; is used as &#39;scale&#39; factor
+    &#34;&#34;&#34; Uniform distribution between *min* and *max*&#34;&#34;&#34;
+
+    NORMAL = &#34;normal&#34;
+    &#34;&#34;&#34; Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*&#34;&#34;&#34;
+
+    LOGNORMAL = &#34;lognormal&#34;
+    &#34;&#34;&#34; Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated &#34;&#34;&#34;
+
+    BETA = &#34;beta&#34; # requires a, b &#39;default&#39; is used as the mean. &#39;std&#39; is used as &#39;scale&#39; factor
+    &#34;&#34;&#34; Beta distribution with extra params *a* and *b*, 
+    using *default* value as &#39;loc&#39; (0 of beta distribution) and *std* as &#39;scale&#39; (1 of beta distribution)
+    See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta) &#34;&#34;&#34;
+
     TRIANGLE = &#34;triangle&#34;
+    &#34;&#34;&#34; Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value &#34;&#34;&#34;
+
     FIXED = &#34;fixed&#34;
+    &#34;&#34;&#34; Fixed value, not considered as a variable input for monte carlo simulation. &#34;&#34;&#34;
+
+
+class _UncertaintyType :
+    &#39;&#39;&#39;Enum of uncertainty types of Brightway.
+    See https://stats-arrays.readthedocs.io/en/latest/
+    &#39;&#39;&#39;
+    UNDEFINED = 0
+    FIXED = 1
+    LOGNORMAL = 2
+    NORMAL = 3
+    UNIFORM = 4
+    TRIANGLE = 5
+    DISCRETE = 7
+    BETA = 10
+
+
+# Map to Brightay2 / stats-arrays Distribution Type
+_DistributionTypeMap = {
+    DistributionType.LINEAR : _UncertaintyType.UNIFORM,
+    DistributionType.BETA : _UncertaintyType.BETA,
+    DistributionType.NORMAL : _UncertaintyType.NORMAL,
+    DistributionType.LOGNORMAL: _UncertaintyType.LOGNORMAL,
+    DistributionType.TRIANGLE : _UncertaintyType.TRIANGLE,
+    DistributionType.FIXED : _UncertaintyType.FIXED, # I made that up
+}
+
+_DistributionTypeMapReverse = {val:key for key, val in _DistributionTypeMap.items()}
 
 
 class FixedParamMode:
@@ -117,10 +158,13 @@ class ParamDef(Symbol):
             else:
                 self.distrib = DistributionType.LINEAR
 
-        elif distrib == DistributionType.NORMAL :
+        elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
             if not &#39;std&#39; in kwargs:
-                raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
+                raise Exception(&#34;Standard deviation is mandatory for normal / lognormal distribution&#34;)
             self.std = kwargs[&#39;std&#39;]
+
+            if distrib == DistributionType.LOGNORMAL and self.min is not None :
+                _eprint(&#34;Warning : LogNormal does not support min/max boundaries for parameter : &#34;, self.name)
 
         elif distrib == DistributionType.BETA :
             if not &#39;a&#39; in kwargs or not &#39;b&#39; in kwargs or not &#39;std&#39; in kwargs :
@@ -134,6 +178,7 @@ class ParamDef(Symbol):
         if mode == FixedParamMode.DEFAULT :
             return self.default
         else :
+            # Compute statistical value for replacement
             rnd = np.random.rand(1000)
             x = self.rand(rnd)
 
@@ -146,7 +191,7 @@ class ParamDef(Symbol):
 
 
     def get_label(self):
-        if self.label_fr is not None :
+        if lca_algebraic.base_utils.LANG == &#34;fr &#34; and self.label_fr is not None :
             return self.label_fr
         elif self.label is not None:
             return self.label
@@ -226,7 +271,10 @@ class BooleanDef(ParamDef):
     &#34;&#34;&#34;Parameter with discrete value 0 or 1&#34;&#34;&#34;
 
     def __init__(self, name, **argv):
-        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
+        if not &#34;min&#34; in argv:
+            argv = dict(argv, min=None, max=None)
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, **argv)
+
 
     def range(self, n):
         return [0, 1]
@@ -242,7 +290,10 @@ class EnumParam(ParamDef):
     &#34;&#34;&#34;
 
     def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
-        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
+
+        if not &#34;min&#34; in argv :
+            argv = dict(argv, min=None, max=None)
+        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
         if type(values) == list :
             self.values = values
             self.weights = {key:1 for key in values}
@@ -310,8 +361,18 @@ class EnumParam(ParamDef):
             return self.weights
 
 
-def newParamDef(name, type, **kwargs):
-    &#34;&#34;&#34;Creates a param and register it into a global registry and as a brightway parameter&#34;&#34;&#34;
+def newParamDef(name, type, save=True, **kwargs):
+    &#34;&#34;&#34;
+        Creates a parameter and register it into a global registry and as a brightway parameter.
+
+        Parameters
+        ----------
+
+        type : Type of the parameter (From ParamType)
+        save : Boolean, persist this into Brightway2 project (True by default)
+        other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
+
+    &#34;&#34;&#34;
     if type == ParamType.ENUM:
         param = EnumParam(name, **kwargs)
     elif type == ParamType.BOOL:
@@ -319,28 +380,182 @@ def newParamDef(name, type, **kwargs):
     else:
         param = ParamDef(name, type=type, **kwargs)
 
-    # Put it in local registry (in memory)
+    # Put it in global registry (in memory)
     if name in _param_registry():
         _eprint(&#34;Param %s was already defined : overriding&#34; % name)
     _param_registry()[name] = param
 
     # Save in brightway2 project
-    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
-    bw.parameters.new_project_parameters(bwParams)
+    if save :
+        _persistParam(param)
 
     return param
 
+_BOOLEAN_UNCERTAINTY_ATTRIBUTES = {
+    UNCERTAINTY_TYPE: _UncertaintyType.DISCRETE,
+    &#34;minimum&#34; : 0,
+    &#34;maximum&#34; : 2 # upper bound + 1
+}
+
+def persistParams() :
+    &#34;&#34;&#34; Persist parameters into Brightway project, as per :
+     https://stats-arrays.readthedocs.io/en/latest/
+    &#34;&#34;&#34;
+
+    for name, param in _param_registry().items() :
+        _persistParam(param)
+
+def _persistParam(param):
+    &#34;&#34;&#34; Persist parameter into Brightway project &#34;&#34;&#34;
+    out = []
+
+    # Common attributes for all types of params
+    bwParam = dict(name=param.name, group=param.group, label=param.label, description=param.description)
+
+    if param.type == ParamType.ENUM :
+        # Enum are not real params but a set of parameters
+        for value in param.values :
+            enumValueParam = dict(bwParam)
+            enumValueParam[&#34;name&#34;] = param.name + &#39;_&#39; + value
+            enumValueParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
+            # Use &#39;scale&#39; as weight for this enum value
+            enumValueParam[&#39;scale&#39;] = param.weights[value]
+            enumValueParam[&#39;amount&#39;] = 1 if param.default == value else 0
+            out.append(enumValueParam)
+    else :
+
+        bwParam[&#34;amount&#34;] = param.default
+
+        if param.type == ParamType.BOOL :
+            # &#34;Discrete uniform&#34;
+            bwParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
+
+        elif param.type == ParamType.FLOAT :
+
+            # Save uncertainty
+            bwParam[UNCERTAINTY_TYPE] = _DistributionTypeMap[param.distrib]
+            bwParam[&#34;minimum&#34;] = param.min
+            bwParam[&#34;maximum&#34;] = param.max
+            bwParam[&#34;loc&#34;] = param.default
+
+            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
+                bwParam[&#34;scale&#34;] = param.std
+
+            elif param.distrib == DistributionType.BETA:
+
+                bwParam[&#34;scale&#34;] = param.std
+                bwParam[&#34;loc&#34;] = param.a
+                bwParam[&#34;shape&#34;] = param.b
+
+        else :
+            _eprint(&#34;Param type not supported&#34;, param.type)
+
+        out.append(bwParam)
+
+    bw.parameters.new_project_parameters(out)
+
+def _loadArgs(data) :
+    &#34;&#34;&#34;Load persisted data attributes into ParamDef attributes&#34;&#34;&#34;
+    return {
+        &#34;group&#34;: data.get(&#34;group&#34;),
+        &#34;default&#34;: data.get(&#34;amount&#34;),
+        &#34;label&#34;: data.get(&#34;label&#34;),
+        &#34;description&#34;: data.get(&#34;description&#34;),
+        &#34;min&#34;: data.get(&#34;mininum&#34;),
+        &#34;max&#34;: data.get(&#34;maximum&#34;),
+    }
+
+def loadParams():
+    &#34;&#34;&#34;Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/&#34;&#34;&#34;
+
+    enumParams=defaultdict(lambda : dict())
+
+    for bwParam in ProjectParameter.select():
+        data = bwParam.data
+        data[&#34;amount&#34;] = bwParam.amount
+        name = bwParam.name
+
+        type = data.get(UNCERTAINTY_TYPE, None)
+
+        # print(&#34;Data for &#34;, name, data)
+
+        # Common extra args
+        args = _loadArgs(data)
+
+        if type == _UncertaintyType.DISCRETE :
+            # Boolean or enum
+
+            if data.get(&#39;scale&#39;) is not None :
+                # Enum param : group them by common prefix
+                splits = name.split(&#34;_&#34;)
+                enum_value = splits.pop()
+                enum_name = &#34;_&#34;.join(splits)
+                enumParams[enum_name][enum_value] = data
+                continue
+
+            elif data[&#34;maximum&#34;] == 2 :
+                param = newBoolParam(name, save=False, **args)
+            else:
+                _eprint(&#34;Non boolean discrete values (max != 2) are not supported for param :&#34;, name)
+                continue
+        else :
+
+            # Uncertainty type to distribution type
+            args[&#34;distrib&#34;] = _DistributionTypeMapReverse[type]
+
+            if type == _UncertaintyType.TRIANGLE :
+                args[&#34;default&#34;] = data[&#34;loc&#34;]
+
+            if type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+                args[&#34;default&#34;] = data[&#34;loc&#34;]
+                args[&#34;std&#34;] = data[&#34;scale&#34;]
+
+            elif type == _UncertaintyType.BETA:
+                args[&#34;default&#34;] = data[&#34;loc&#34;]
+                args[&#34;std&#34;] = data[&#34;scale&#34;]
+                args[&#34;a&#34;] = data[&#34;loc&#34;]
+                args[&#34;b&#34;] = data[&#34;shape&#34;]
+
+            param = newFloatParam(name, save=False, **args)
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param
+
+    # Loop on EnumParams
+    for param_name, param_values in enumParams.items() :
+        first_enum_param = list(param_values.values())[0]
+        args = _loadArgs(first_enum_param)
+        del args[&#34;default&#34;]
+
+        # Dictionary of enum values with scale as weight
+        args[&#34;values&#34;] = {key : data[&#34;scale&#34;] for key, data in param_values.items()}
+
+        # Default enum value is the one with amount=1
+        defaults = list(key for key, data in param_values.items() if data.get(&#34;amount&#34;) == 1)
+        if len(defaults) == 1 :
+            default = defaults[0]
+        else :
+            default= None
+            _eprint(&#34;No default enum value found for &#34;, param_name, defaults)
+
+        param = newEnumParam(param_name, default, save=False, **args)
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param
+
 
 def newFloatParam(name, default, **kwargs):
+    &#34;&#34;&#34; Create a FLOAT parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
     return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
 
 
-def newBoolParam(name, default, **kwargs):
+def newBoolParam(name, default, save=True, **kwargs):
+    &#34;&#34;&#34; Create a BOOL parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
     return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
 
-def newEnumParam(name, default, **kwargs):
+def newEnumParam(name, default, save=True, **kwargs):
+    &#34;&#34;&#34; Create a ENUM parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
-
 
 def _variable_params(param_names=None):
     if param_names is None :
@@ -434,29 +649,119 @@ def list_parameters():
     return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;std&#34;, &#34;distrib&#34;, &#34;unit&#34;])))</code></pre>
 </details>
 </dd>
-<dt id="lca_algebraic.params.newBoolParam"><code class="name flex">
-<span>def <span class="ident">newBoolParam</span></span>(<span>name, default, **kwargs)</span>
+<dt id="lca_algebraic.params.loadParams"><code class="name flex">
+<span>def <span class="ident">loadParams</span></span>(<span>)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Load parameters from Brightway database, as per : <a href="https://stats-arrays.readthedocs.io/en/latest/">https://stats-arrays.readthedocs.io/en/latest/</a></p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newBoolParam(name, default, **kwargs):
+<pre><code class="python">def loadParams():
+    &#34;&#34;&#34;Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/&#34;&#34;&#34;
+
+    enumParams=defaultdict(lambda : dict())
+
+    for bwParam in ProjectParameter.select():
+        data = bwParam.data
+        data[&#34;amount&#34;] = bwParam.amount
+        name = bwParam.name
+
+        type = data.get(UNCERTAINTY_TYPE, None)
+
+        # print(&#34;Data for &#34;, name, data)
+
+        # Common extra args
+        args = _loadArgs(data)
+
+        if type == _UncertaintyType.DISCRETE :
+            # Boolean or enum
+
+            if data.get(&#39;scale&#39;) is not None :
+                # Enum param : group them by common prefix
+                splits = name.split(&#34;_&#34;)
+                enum_value = splits.pop()
+                enum_name = &#34;_&#34;.join(splits)
+                enumParams[enum_name][enum_value] = data
+                continue
+
+            elif data[&#34;maximum&#34;] == 2 :
+                param = newBoolParam(name, save=False, **args)
+            else:
+                _eprint(&#34;Non boolean discrete values (max != 2) are not supported for param :&#34;, name)
+                continue
+        else :
+
+            # Uncertainty type to distribution type
+            args[&#34;distrib&#34;] = _DistributionTypeMapReverse[type]
+
+            if type == _UncertaintyType.TRIANGLE :
+                args[&#34;default&#34;] = data[&#34;loc&#34;]
+
+            if type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+                args[&#34;default&#34;] = data[&#34;loc&#34;]
+                args[&#34;std&#34;] = data[&#34;scale&#34;]
+
+            elif type == _UncertaintyType.BETA:
+                args[&#34;default&#34;] = data[&#34;loc&#34;]
+                args[&#34;std&#34;] = data[&#34;scale&#34;]
+                args[&#34;a&#34;] = data[&#34;loc&#34;]
+                args[&#34;b&#34;] = data[&#34;shape&#34;]
+
+            param = newFloatParam(name, save=False, **args)
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param
+
+    # Loop on EnumParams
+    for param_name, param_values in enumParams.items() :
+        first_enum_param = list(param_values.values())[0]
+        args = _loadArgs(first_enum_param)
+        del args[&#34;default&#34;]
+
+        # Dictionary of enum values with scale as weight
+        args[&#34;values&#34;] = {key : data[&#34;scale&#34;] for key, data in param_values.items()}
+
+        # Default enum value is the one with amount=1
+        defaults = list(key for key, data in param_values.items() if data.get(&#34;amount&#34;) == 1)
+        if len(defaults) == 1 :
+            default = defaults[0]
+        else :
+            default= None
+            _eprint(&#34;No default enum value found for &#34;, param_name, defaults)
+
+        param = newEnumParam(param_name, default, save=False, **args)
+
+        # Save it in shared dict
+        _param_registry()[bwParam.name] = param</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.newBoolParam"><code class="name flex">
+<span>def <span class="ident">newBoolParam</span></span>(<span>name, default, save=True, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Create a BOOL parameter. See the documentation of arguments for #newParamDef().</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def newBoolParam(name, default, save=True, **kwargs):
+    &#34;&#34;&#34; Create a BOOL parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
     return newParamDef(name, ParamType.BOOL, default=default, **kwargs)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newEnumParam"><code class="name flex">
-<span>def <span class="ident">newEnumParam</span></span>(<span>name, default, **kwargs)</span>
+<span>def <span class="ident">newEnumParam</span></span>(<span>name, default, save=True, **kwargs)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Create a ENUM parameter. See the documentation of arguments for #newParamDef().</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newEnumParam(name, default, **kwargs):
+<pre><code class="python">def newEnumParam(name, default, save=True, **kwargs):
+    &#34;&#34;&#34; Create a ENUM parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)</code></pre>
 </details>
 </dd>
@@ -464,26 +769,45 @@ def list_parameters():
 <span>def <span class="ident">newFloatParam</span></span>(<span>name, default, **kwargs)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Create a FLOAT parameter. See the documentation of arguments for #newParamDef().</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def newFloatParam(name, default, **kwargs):
+    &#34;&#34;&#34; Create a FLOAT parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
     return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newParamDef"><code class="name flex">
-<span>def <span class="ident">newParamDef</span></span>(<span>name, type, **kwargs)</span>
+<span>def <span class="ident">newParamDef</span></span>(<span>name, type, save=True, **kwargs)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Creates a param and register it into a global registry and as a brightway parameter</p></section>
+<section class="desc"><p>Creates a parameter and register it into a global registry and as a brightway parameter.</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>type</code></strong> :&ensp;<code>Type</code> of <code>the</code> <code>parameter</code> (<code>From</code> <a title="lca_algebraic.params.ParamType" href="#lca_algebraic.params.ParamType"><code>ParamType</code></a>)</dt>
+<dd>&nbsp;</dd>
+<dt><strong><code>save</code></strong> :&ensp;<code>Boolean</code>, <code>persist</code> <code>this</code> <code>into</code> <code>Brightway2</code> <code>project</code> (<code>True</code> <code>by</code> default)</dt>
+<dd>&nbsp;</dd>
+</dl>
+<p>other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newParamDef(name, type, **kwargs):
-    &#34;&#34;&#34;Creates a param and register it into a global registry and as a brightway parameter&#34;&#34;&#34;
+<pre><code class="python">def newParamDef(name, type, save=True, **kwargs):
+    &#34;&#34;&#34;
+        Creates a parameter and register it into a global registry and as a brightway parameter.
+
+        Parameters
+        ----------
+
+        type : Type of the parameter (From ParamType)
+        save : Boolean, persist this into Brightway2 project (True by default)
+        other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
+
+    &#34;&#34;&#34;
     if type == ParamType.ENUM:
         param = EnumParam(name, **kwargs)
     elif type == ParamType.BOOL:
@@ -491,16 +815,35 @@ def list_parameters():
     else:
         param = ParamDef(name, type=type, **kwargs)
 
-    # Put it in local registry (in memory)
+    # Put it in global registry (in memory)
     if name in _param_registry():
         _eprint(&#34;Param %s was already defined : overriding&#34; % name)
     _param_registry()[name] = param
 
     # Save in brightway2 project
-    bwParams = [dict(name=key, amount=value) for key, value in param.expandParams().items()]
-    bw.parameters.new_project_parameters(bwParams)
+    if save :
+        _persistParam(param)
 
     return param</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.persistParams"><code class="name flex">
+<span>def <span class="ident">persistParams</span></span>(<span>)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Persist parameters into Brightway project, as per :
+<a href="https://stats-arrays.readthedocs.io/en/latest/">https://stats-arrays.readthedocs.io/en/latest/</a></p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def persistParams() :
+    &#34;&#34;&#34; Persist parameters into Brightway project, as per :
+     https://stats-arrays.readthedocs.io/en/latest/
+    &#34;&#34;&#34;
+
+    for name, param in _param_registry().items() :
+        _persistParam(param)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.resetParams"><code class="name flex">
@@ -540,7 +883,10 @@ def list_parameters():
     &#34;&#34;&#34;Parameter with discrete value 0 or 1&#34;&#34;&#34;
 
     def __init__(self, name, **argv):
-        super(BooleanDef, self).__init__(name, ParamType.BOOL, min=0, max=1, **argv)
+        if not &#34;min&#34; in argv:
+            argv = dict(argv, min=None, max=None)
+        super(BooleanDef, self).__init__(name, ParamType.BOOL, **argv)
+
 
     def range(self, n):
         return [0, 1]
@@ -576,96 +922,64 @@ def list_parameters():
 </code></dt>
 <dd>
 <section class="desc"><p>Type of statistic distribution of a parameter.
-Some type of distribution requires extra parameters, in italic, to be provided in the constructor of <strong>ParamDef</strong>()</p>
-<ul>
-<li><strong>LINEAR</strong> : uniform distribution between <em>min</em> and <em>max</em></li>
-<li><strong>NORMAL</strong> : Normal distribution, centered on <em>default</em> value (mean), with deviation of <em>std</em> and truncated between <em>min</em> and <em>max</em></li>
-<li><strong>TRIANGLE</strong> : Triangle distribution between <em>min</em> and <em>max</em> (set to zero probability), with highest probability at <em>default</em> value</li>
-<li><strong>BETA</strong> : Beta distribution with extra params <em>a</em> and <em>b</em>, using <em>default</em> value as 'loc' (0 of beta distribution) and <em>std</em> as 'scale' (1 of beta distribution).
-See <a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta">scipy doc</a></li>
-</ul></section>
+Some type of distribution requires extra parameters, in italic, to be provided in the constructor of <strong>ParamDef</strong>()</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class DistributionType:
-    &#39;&#39;&#39;
+    &#34;&#34;&#34;
         Type of statistic distribution of a parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+    &#34;&#34;&#34;
 
-        * **LINEAR** : uniform distribution between *min* and *max*
-        * **NORMAL** : Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*
-        * **TRIANGLE** : Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value
-        * **BETA** : Beta distribution with extra params *a* and *b*, using *default* value as &#39;loc&#39; (0 of beta distribution) and *std* as &#39;scale&#39; (1 of beta distribution).
-                See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta)
-    &#39;&#39;&#39;
     LINEAR = &#34;linear&#34;
-    NORMAL = &#34;normal&#34; # requires &#39;std&#39; param. &#39;default&#39; is used as the mean
-    BETA=&#34;beta&#34; # requires a, b &#39;default&#39; is used as the mean. &#39;std&#39; is used as &#39;scale&#39; factor
+    &#34;&#34;&#34; Uniform distribution between *min* and *max*&#34;&#34;&#34;
+
+    NORMAL = &#34;normal&#34;
+    &#34;&#34;&#34; Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*&#34;&#34;&#34;
+
+    LOGNORMAL = &#34;lognormal&#34;
+    &#34;&#34;&#34; Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated &#34;&#34;&#34;
+
+    BETA = &#34;beta&#34; # requires a, b &#39;default&#39; is used as the mean. &#39;std&#39; is used as &#39;scale&#39; factor
+    &#34;&#34;&#34; Beta distribution with extra params *a* and *b*, 
+    using *default* value as &#39;loc&#39; (0 of beta distribution) and *std* as &#39;scale&#39; (1 of beta distribution)
+    See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta) &#34;&#34;&#34;
+
     TRIANGLE = &#34;triangle&#34;
-    FIXED = &#34;fixed&#34;</code></pre>
+    &#34;&#34;&#34; Triangle distribution between *min* and *max* (set to zero probability), with highest probability at *default* value &#34;&#34;&#34;
+
+    FIXED = &#34;fixed&#34;
+    &#34;&#34;&#34; Fixed value, not considered as a variable input for monte carlo simulation. &#34;&#34;&#34;</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
 <dt id="lca_algebraic.params.DistributionType.BETA"><code class="name">var <span class="ident">BETA</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Beta distribution with extra params <em>a</em> and <em>b</em>,
+using <em>default</em> value as 'loc' (0 of beta distribution) and <em>std</em> as 'scale' (1 of beta distribution)
+See <a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta">scipy doc</a></p></section>
 </dd>
 <dt id="lca_algebraic.params.DistributionType.FIXED"><code class="name">var <span class="ident">FIXED</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Fixed value, not considered as a variable input for monte carlo simulation.</p></section>
 </dd>
 <dt id="lca_algebraic.params.DistributionType.LINEAR"><code class="name">var <span class="ident">LINEAR</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Uniform distribution between <em>min</em> and <em>max</em></p></section>
+</dd>
+<dt id="lca_algebraic.params.DistributionType.LOGNORMAL"><code class="name">var <span class="ident">LOGNORMAL</span></code></dt>
+<dd>
+<section class="desc"><p>Lognormal distribution, centered on <em>default</em> value (mean), with deviation of <em>std</em>, not truncated</p></section>
 </dd>
 <dt id="lca_algebraic.params.DistributionType.NORMAL"><code class="name">var <span class="ident">NORMAL</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Normal distribution, centered on <em>default</em> value (mean), with deviation of <em>std</em> and truncated between <em>min</em> and <em>max</em></p></section>
 </dd>
 <dt id="lca_algebraic.params.DistributionType.TRIANGLE"><code class="name">var <span class="ident">TRIANGLE</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Triangle distribution between <em>min</em> and <em>max</em> (set to zero probability), with highest probability at <em>default</em> value</p></section>
 </dd>
 </dl>
 </dd>
@@ -688,7 +1002,10 @@ Statistics weight can be attached to values by providing a dict.</p></section>
     &#34;&#34;&#34;
 
     def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
-        super(EnumParam, self).__init__(name, ParamType.ENUM, min=None, max=None, **argv)
+
+        if not &#34;min&#34; in argv :
+            argv = dict(argv, min=None, max=None)
+        super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
         if type(values) == list :
             self.values = values
             self.weights = {key:1 for key in values}
@@ -946,10 +1263,13 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
             else:
                 self.distrib = DistributionType.LINEAR
 
-        elif distrib == DistributionType.NORMAL :
+        elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
             if not &#39;std&#39; in kwargs:
-                raise Exception(&#34;Standard deviation is mandatory for normal distribution&#34;)
+                raise Exception(&#34;Standard deviation is mandatory for normal / lognormal distribution&#34;)
             self.std = kwargs[&#39;std&#39;]
+
+            if distrib == DistributionType.LOGNORMAL and self.min is not None :
+                _eprint(&#34;Warning : LogNormal does not support min/max boundaries for parameter : &#34;, self.name)
 
         elif distrib == DistributionType.BETA :
             if not &#39;a&#39; in kwargs or not &#39;b&#39; in kwargs or not &#39;std&#39; in kwargs :
@@ -963,6 +1283,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         if mode == FixedParamMode.DEFAULT :
             return self.default
         else :
+            # Compute statistical value for replacement
             rnd = np.random.rand(1000)
             x = self.rand(rnd)
 
@@ -975,7 +1296,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 
 
     def get_label(self):
-        if self.label_fr is not None :
+        if lca_algebraic.base_utils.LANG == &#34;fr &#34; and self.label_fr is not None :
             return self.label_fr
         elif self.label is not None:
             return self.label
@@ -1100,7 +1421,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_label(self):
-    if self.label_fr is not None :
+    if lca_algebraic.base_utils.LANG == &#34;fr &#34; and self.label_fr is not None :
         return self.label_fr
     elif self.label is not None:
         return self.label
@@ -1208,6 +1529,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     if mode == FixedParamMode.DEFAULT :
         return self.default
     else :
+        # Compute statistical value for replacement
         rnd = np.random.rand(1000)
         x = self.rand(rnd)
 
@@ -1231,9 +1553,12 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class ParamType:
-    &#39;&#39;&#39;Type of parameters&#39;&#39;&#39;
+    &#34;&#34;&#34;Type of parameters&#34;&#34;&#34;
+
     ENUM = &#34;enum&#34;
+
     BOOL = &#34;bool&#34;
+
     FLOAT = &#34;float&#34;</code></pre>
 </details>
 <h3>Class variables</h3>
@@ -1293,10 +1618,12 @@ errors defaults to 'strict'.</p></section>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="two-column">
 <li><code><a title="lca_algebraic.params.list_parameters" href="#lca_algebraic.params.list_parameters">list_parameters</a></code></li>
+<li><code><a title="lca_algebraic.params.loadParams" href="#lca_algebraic.params.loadParams">loadParams</a></code></li>
 <li><code><a title="lca_algebraic.params.newBoolParam" href="#lca_algebraic.params.newBoolParam">newBoolParam</a></code></li>
 <li><code><a title="lca_algebraic.params.newEnumParam" href="#lca_algebraic.params.newEnumParam">newEnumParam</a></code></li>
 <li><code><a title="lca_algebraic.params.newFloatParam" href="#lca_algebraic.params.newFloatParam">newFloatParam</a></code></li>
 <li><code><a title="lca_algebraic.params.newParamDef" href="#lca_algebraic.params.newParamDef">newParamDef</a></code></li>
+<li><code><a title="lca_algebraic.params.persistParams" href="#lca_algebraic.params.persistParams">persistParams</a></code></li>
 <li><code><a title="lca_algebraic.params.resetParams" href="#lca_algebraic.params.resetParams">resetParams</a></code></li>
 </ul>
 </li>
@@ -1307,10 +1634,11 @@ errors defaults to 'strict'.</p></section>
 </li>
 <li>
 <h4><code><a title="lca_algebraic.params.DistributionType" href="#lca_algebraic.params.DistributionType">DistributionType</a></code></h4>
-<ul class="">
+<ul class="two-column">
 <li><code><a title="lca_algebraic.params.DistributionType.BETA" href="#lca_algebraic.params.DistributionType.BETA">BETA</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.FIXED" href="#lca_algebraic.params.DistributionType.FIXED">FIXED</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.LINEAR" href="#lca_algebraic.params.DistributionType.LINEAR">LINEAR</a></code></li>
+<li><code><a title="lca_algebraic.params.DistributionType.LOGNORMAL" href="#lca_algebraic.params.DistributionType.LOGNORMAL">LOGNORMAL</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.NORMAL" href="#lca_algebraic.params.DistributionType.NORMAL">NORMAL</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.TRIANGLE" href="#lca_algebraic.params.DistributionType.TRIANGLE">TRIANGLE</a></code></li>
 </ul>

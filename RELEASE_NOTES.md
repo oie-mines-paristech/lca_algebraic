@@ -7,9 +7,9 @@
 * Added support for several background databases. 
   User Db is guessed or can be specified using **SET_USER_DB**()
 * Support coproducts in graphtraversal. 
-  See [PR #9](https://github.com/oie-mines-paristech/lca_algebraic/pull/9) by @ntropy-esa
+  See [PR #9] by @ntropy-esa
 * Add support for loading / saving parameters into Brightway DB, with compatibility with Brightway2 and Activity Browser.
-  See functions **loadParams**() and **persistParams()**. See also [issue #8](https://github.com/oie-mines-paristech/lca_algebraic/issues/8)
+  See functions **loadParams**() and **persistParams()**. See also issue #8.
 
 # 0.0.14
 
