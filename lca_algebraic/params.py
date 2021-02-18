@@ -7,7 +7,7 @@ import brightway2 as bw
 from tabulate import tabulate
 from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
-from scipy.stats import triang, truncnorm, norm, beta
+from scipy.stats import triang, truncnorm, norm, beta, lognorm
 from sympy import Symbol
 from collections import defaultdict
 
@@ -215,6 +215,10 @@ class ParamDef(Symbol):
                         self._distrib = norm(
                             loc=self.default,
                             scale=self.std)
+
+                elif self.distrib == DistributionType.LOGNORMAL:
+
+                    self._distrib = lognorm(self.default, self.std)
 
                 elif self.distrib == DistributionType.BETA:
                     self._distrib = beta(
