@@ -14,7 +14,7 @@ from collections import defaultdict
 import lca_algebraic.base_utils
 from .base_utils import _eprint, as_np_array
 
-DEFAULT_PARAM_GROUP = "acv"
+DEFAULT_PARAM_GROUP = "project"
 UNCERTAINTY_TYPE = "uncertainty type"
 
 def _param_registry():
@@ -453,7 +453,7 @@ def _loadArgs(data) :
         "max": data.get("maximum"),
     }
 
-def loadParams():
+def loadParams(global_variable=True):
     """Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/"""
 
     enumParams=defaultdict(lambda : dict())
@@ -464,6 +464,10 @@ def loadParams():
         name = bwParam.name
 
         type = data.get(UNCERTAINTY_TYPE, None)
+
+        if type is None :
+            _eprint("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
+            type = _UncertaintyType.UNIFORM
 
         # print("Data for ", name, data)
 
@@ -494,7 +498,7 @@ def loadParams():
             if type == _UncertaintyType.TRIANGLE :
                 args["default"] = data["loc"]
 
-            if type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+            elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
                 args["default"] = data["loc"]
                 args["std"] = data["scale"]
 
@@ -508,6 +512,9 @@ def loadParams():
 
         # Save it in shared dict
         _param_registry()[bwParam.name] = param
+
+        if global_variable :
+            globals()[bwParam.name] = name
 
     # Loop on EnumParams
     for param_name, param_values in enumParams.items() :
