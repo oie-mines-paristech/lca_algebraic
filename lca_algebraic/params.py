@@ -10,11 +10,14 @@ from bw2data.parameters import ActivityParameter, ProjectParameter, DatabasePara
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
 from sympy import Symbol
 from collections import defaultdict
+from enum import Enum
+import ipywidgets as widgets
+
 
 import lca_algebraic.base_utils
 from .base_utils import _eprint, as_np_array
 
-DEFAULT_PARAM_GROUP = "project"
+DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 
 def _param_registry():
@@ -40,7 +43,7 @@ class ParamType:
 
 class DistributionType:
     """
-        Type of statistic distribution of a parameter.
+        Type of statistic distribution of a float parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
     """
 
@@ -115,7 +118,7 @@ class ParamDef(Symbol):
         return Symbol.__new__(cls, name)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
-                 group=None, distrib=None, **kwargs):
+                 group=None, distrib:DistributionType=None, **kwargs):
 
         self.name = name
         self.type = type
@@ -133,8 +136,8 @@ class ParamDef(Symbol):
         if hasattr(self, "_distrib") :
             del self._distrib
 
-        if not distrib :
-            if type == ParamType.FLOAT and self.min is None:
+        if not distrib and type == ParamType.FLOAT  :
+            if self.min is None:
                 self.distrib = DistributionType.FIXED
             else:
                 self.distrib = DistributionType.LINEAR
@@ -449,7 +452,7 @@ def _loadArgs(data) :
         "default": data.get("amount"),
         "label": data.get("label"),
         "description": data.get("description"),
-        "min": data.get("mininum"),
+        "min": data.get("minimum"),
         "max": data.get("maximum"),
     }
 
@@ -458,16 +461,19 @@ def loadParams(global_variable=True):
 
     enumParams=defaultdict(lambda : dict())
 
+    def register(param) :
+        _param_registry()[param.name] = param
+
+        # Make it available as global var
+        if global_variable:
+            builtins.__dict__[param.name] = param
+
     for bwParam in ProjectParameter.select():
         data = bwParam.data
         data["amount"] = bwParam.amount
         name = bwParam.name
 
         type = data.get(UNCERTAINTY_TYPE, None)
-
-        if type is None :
-            _eprint("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
-            type = _UncertaintyType.UNIFORM
 
         # print("Data for ", name, data)
 
@@ -486,11 +492,16 @@ def loadParams(global_variable=True):
                 continue
 
             elif data["maximum"] == 2 :
+                del args["max"], args["min"]
                 param = newBoolParam(name, save=False, **args)
             else:
                 _eprint("Non boolean discrete values (max != 2) are not supported for param :", name)
                 continue
         else :
+            # Float parameter
+            if type is None:
+                _eprint("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
+                type = _UncertaintyType.UNIFORM
 
             # Uncertainty type to distribution type
             args["distrib"] = _DistributionTypeMapReverse[type]
@@ -510,11 +521,9 @@ def loadParams(global_variable=True):
 
             param = newFloatParam(name, save=False, **args)
 
-        # Save it in shared dict
-        _param_registry()[bwParam.name] = param
+        # Save it in shared dictionnary
+        register(param)
 
-        if global_variable :
-            globals()[bwParam.name] = name
 
     # Loop on EnumParams
     for param_name, param_values in enumParams.items() :
@@ -536,7 +545,7 @@ def loadParams(global_variable=True):
         param = newEnumParam(param_name, default, save=False, **args)
 
         # Save it in shared dict
-        _param_registry()[bwParam.name] = param
+        register(param)
 
 
 def newFloatParam(name, default, **kwargs):
@@ -609,11 +618,37 @@ def resetParams(db_name):
     DatabaseParameter.delete().execute()
     Group.delete().execute()
 
+class NameType(Enum) :
+    NAME="name"
+    LABEL="label"
 
-def list_parameters():
+def list_parameters(name_type=NameType.LABEL):
+
     """ Print a pretty list of all defined parameters """
-    params = [[param.group, param.get_label(), param.default, param.min, param.max, param.std if hasattr(param, 'std') else None, param.distrib, param.unit] for param in
-              _param_registry().values()]
+    params = [[
+        param.group,
+        name if name_type == NameType.NAME else param.get_label(),
+        #param.default,
+        widgets.FloatSlider(
+            value=7.5,
+            min=0,
+            max=10.0),
+        param.min,
+        param.max,
+        getattr(param, "std", None),
+        param.distrib,
+        param.unit] for name, param in _param_registry().items()]
+
     groups = list({p[0] for p in params})
-    sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
-    return HTML((tabulate(sorted_params, tablefmt="html", headers=["Phase", "param", "default", "min", "max", "std", "distrib", "unit"])))
+    groups = sorted(groups)
+
+    # Sort by Group / name
+    def keyf(param) :
+        group = param[0]
+        name = param[1]
+        return (None if group is None else groups.index(group), name)
+
+    sorted_params = sorted(params, key=keyf)
+
+    return HTML((tabulate(sorted_params, tablefmt="html", headers=["name", "group", "default", "min", "max", "std", "distrib", "unit"])))
+

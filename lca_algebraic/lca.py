@@ -32,8 +32,9 @@ def _multiLCA(activities, methods):
     return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
 
 
-def multiLCA(model, methods, **params):
+def multiLCA(models, methods, **params):
     """Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
+    This function does not use algebraic factorization and just calls the Brightway2 vanilla code.
 
     Parameters
     ----------
@@ -42,21 +43,37 @@ def multiLCA(model, methods, **params):
     params : Other parameters of the model
     """
 
-    # Check and expand params
-    params = _completeParamValues(params)
+    former_defaults = dict()
 
-    # Update brightway parameters
-    bwParams = [dict(name=key, amount=value) for key, value in params.items()]
-    bw.parameters.new_project_parameters(bwParams)
+    if params :
 
-    # ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
+        # Update default values, save previous defaults
+        for name, value in params.items() :
+            param = _param_registry()[name]
+            former_defaults[name] = param.default
+            param.default = value
+
+        # Save params to DB
+        persistParams()
+
     bw.parameters.recalculate()
+    ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
 
-    if isinstance(model, list):
-        activities = [{act: 1} for act in model]
+    if isinstance(models, list):
+        activities = [{act: 1} for act in models]
     else:
-        activities = [{model: 1}]
+        activities = [{models: 1}]
+
+
+    # Reset param values
+    if params :
+        for name, value in former_defaults.items() :
+            param = _param_registry()[name]
+            param.default = value
+        persistParams()
+
     return _multiLCA(activities, methods).transpose()
+
 
 
 # Cache of (act, method) => values

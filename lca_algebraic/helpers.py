@@ -131,12 +131,16 @@ class ActivityExtended(Activity):
             The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
         """
 
+        parametrized = False
+
         # Update exchanges
         for name, attrs in updates.items():
 
             exchs = self.getExchange(name, single=not '*' in name)
             if not isinstance(exchs, list):
                 exchs = [exchs]
+
+
             for exch in exchs:
 
                 if attrs is None:
@@ -159,7 +163,11 @@ class ActivityExtended(Activity):
 
                 # We have a formula now ? => register it to parametrized exchange
                 if 'formula' in attrs:
-                    bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+                    parametrized = True
+
+        # For compatibility with Brightay2 parametrized computation : #multiLCA()
+        if parametrized :
+            bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
     def deleteExchanges(self, name, single=True):
         ''' Remove matching exchanges '''
@@ -227,8 +235,11 @@ class ActivityExtended(Activity):
 
             exch.save()
         self.save()
+
+        # For compatibility with Brightway2 paramatrized LCIA : multiLCA()
         if parametrized:
             bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+
 
     def getAmount(self, *args, sum=False, **kargs):
         """
@@ -330,7 +341,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
     if code:
         acts = [getActByCode(db_name, code)]
     else:
-        search = name if name else in_name
+        search = name if name is not None else in_name
 
         search = search.lower()
         search = search.replace(',', ' ')
@@ -340,7 +351,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         # candidates = _find_candidates(db_name, name_key)
         candidates = _getDb(db_name).search(search, limit=200)
 
-        # print(candidates)
+        # print(search, candidates)
 
         # Exact match
         acts = list(filter(act_filter, candidates))
@@ -441,6 +452,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         res._data[k] = v
     res._data[u'code'] = code
     res['name'] = code
+    res['type'] = 'process'
     res.save()
 
     if withExchanges:

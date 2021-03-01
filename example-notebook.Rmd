@@ -14,7 +14,7 @@ This notebook presents **lca-algebraic** a small libray above **brightay2**, des
 * Compute simplified parametric model by fixing minor input parameters
 
   
-# Principles 
+## Principles 
 
 The main idea of this libray is to move from **procedural definition** of models (slow and prone to errors) to a **declarative / purely functionnal** definition of parametric models (models as **pure functions**). 
 
@@ -38,7 +38,7 @@ By providing **large vectors** of **parameter values** to those numpy functions,
 ![](https://oie-mines-paristech.github.io/lca_algebraic/doc/lca-algebraic.png)
 
 
-# Compatiblity with brightway2 
+## Compatiblity with brightway2 
 
 Under the hood, the activities we define with **lca-algebraic** are standard **brightway2** activities. 
 The amounts of exchanges are stored as **float values** or **serialized as string** in the property **formula**.
@@ -47,7 +47,7 @@ Parameters are also stored in the **brightay2** projets, making it fully compati
 
 Thus, a model defined with **lca-algebraic** is stored as a regular **bw2** projet. We can use **bw2** native support for [parametrized dataset](https://2.docs.brightway.dev/intro.html#parameterized-datasets) for computing LCAs, even if much more slower than the method explain here.
 
-# Doc
+## Doc
 
 The followng notebook explores the main functions.
 Full documentation of the functions is [available here](https://oie-mines-paristech.github.io/lca_algebraic/doc/)
@@ -76,7 +76,7 @@ init_printing()
 # Init brightway2 and databases
 
 ```{python}
-# Init the brightway2 project :choose any project name
+### Init the brightway2 project :choose any project name
 initDb('MyProject')
 
 # Import Ecoinvent DB (if not already done)
@@ -85,11 +85,13 @@ importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 
 # We use a separate DB for defining our foreground model / activities
 # Choose any name
-USER_DB = 'MyModelName'
+USER_DB = 'Foreground DB'
 
-# The library usually guesses the name of the user DB. If not, set it manually :
-#SET_USER_DB(USER_DB)
+# The library usually guesses the name of the user DB. If not, or if you have several DBs, set it manually :
+# SET_USER_DB(USER_DB)
+```
 
+```{python}
 # This is better to cleanup the whole foreground model each time, and redefine it in the notebook
 # instead of relying on a state or previous run.
 # Any persistent state is prone to errors.
@@ -146,7 +148,7 @@ Thus, any python arithmetic expression composed of parameters will result in a *
 # Example of 'float' parameters
 a = newFloatParam(
     'a', 
-    default=0.5, min=0, max=2,  distrib=DistributionType.TRIANGLE, # Distribution type, linear by default
+    default=0.5, min=0.2, max=2,  distrib=DistributionType.TRIANGLE, # Distribution type, linear by default
     description="hello world")
 
 b = newFloatParam(
@@ -154,10 +156,19 @@ b = newFloatParam(
     default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
+
 share_recycled_aluminium = newFloatParam(
     'share_recycled_aluminium',  
     default=0.6, min=0, max=1, std=0.2, distrib=DistributionType.NORMAL, # Normal distrib, with std dev
     description="Share of reycled aluminium")
+
+c = newFloatParam(
+    'c',  
+    default=0.6, std=0.2, distrib=DistributionType.LOGNORMAL)
+
+beta = newFloatParam(
+    'beta',  
+    default=0.6, std=0.2, a=2, b=5, distrib=DistributionType.BETA)
 
 # You can define boolean parameters, taking only discrete values 0 or 1
 bool_param = newBoolParam(
@@ -186,13 +197,32 @@ techno_param = newEnumParam(
 ```
 
 ```{python}
+def dist(p) :
+    x = np.random.rand(20000)
+    y = p.rand(x)
+    plt.hist(y, bins=100)
+    plt.show()
+```
+
+```{python}
+dist(beta)
+```
+
+```{python}
 # List of parameters
 list_parameters()
 ```
 
+## Persistance of parameters
+
+By default, new parameters are kept in memory but also persisted in the project (unless save=False).
+You can persist parameters afterwards with `persistParams()`.
+You can load also load parameters from an existing database with `loadParams()`.
+The persistance of parameters and the distribution is compatible with **Brightway2** and **Activity Browser**  [see documentation of stat_arrays](https://stats-arrays.readthedocs.io/en/latest/)
+
 ```{python}
-# Persistance of parameters
-# By default, new parameters are persisted in the project (unless )
+# Load parameters previously  persisted in the dabatase.
+loadParams()
 ```
 
 # Get references to background activities
@@ -260,7 +290,7 @@ Several new helper methods have been added to the class **Activity** for easy up
 alu2 = copyActivity(
     USER_DB, # The copy of a background activity is done in our own DB, so that we can safely update it                
     alu, # Initial activity : won't be altered
-    "Alu2") # New name
+    "Aluminium 2") # New name
 
 # Update exchanges by their name 
 alu2.updateExchanges({
@@ -297,6 +327,18 @@ normalized_model = newActivity(USER_DB, "normalized model", "kg", {
     model : 1 / functional_value})
 ```
 
+## Or load existing model /activities from database
+
+Alternatively, you may not define the model again, but load it from the USER DB.
+We don't recommand it while developping the model as it may lead to unstable code / uncontrolled state of the DB.
+
+```{python}
+activity1 = findActivity("first foreground activity", db_name=USER_DB)
+model = findActivity("model", db_name=USER_DB)
+normalized_model = findActivity("normalized model", db_name=USER_DB)
+alu2 = findActivity("Aluminium 2", db_name=USER_DB)
+```
+
 ## Display activities
 
 **printAct** displays the list of all exchanges of an activity.
@@ -325,7 +367,6 @@ printAct(alu, alu2)
 ```{python}
 # List of impacts to consider
 impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
-
 ```
 
 ```{python}
@@ -355,7 +396,8 @@ multiLCA(
 ```
 
 ```{python}
-# Compute with algebric implementation : the values should be the same
+# Compute with algebric implementation 
+# The values should be the same as above
 multiLCAAlgebric(
     normalized_model, # The model 
     impacts, # Impacts
@@ -390,7 +432,7 @@ multiLCAAlgebric(
     impacts, # Impacts
     
     # List of sub activites to consider
-    extract_activities = [alu, alu2],
+    extract_activities = [alu2],
     
     # Parameters of the model
     a=1, b=2, 
