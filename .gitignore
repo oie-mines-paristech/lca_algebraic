@@ -14,3 +14,4 @@ __pycache__/
 build
 dist
 *.ignore.*
+*all_output.ipynb

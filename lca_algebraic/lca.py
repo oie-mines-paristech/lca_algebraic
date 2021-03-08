@@ -391,12 +391,16 @@ def _createTechProxyForBio(act):
         return getActByCode(dbname, code)
 
     code_to_find = code + "#asTech"
+    debug("looking for rapper of bio activity :", code_to_find)
+
     try:
-        return _getDb(dbname).get(code_to_find)
+        return _getDb(USER_DB()).get(code_to_find)
     except:
         bioAct = _getDb(BIOSPHERE3_DB_NAME).get(code)
         name = bioAct['name'] + ' # asTech'
-        res = newActivity(dbname, name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
+
+        # Create biosphere proxy in User Db
+        res = newActivity(USER_DB(), name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
         return res
 
 

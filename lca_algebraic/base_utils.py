@@ -25,6 +25,9 @@ def debug(*args, **kwargs) :
 def error(*args, **kwargs):
     print(*args, **kwargs, file=stderr)
 
+def set_debug(value=True) :
+    global DEBUG
+    DEBUG=value
 
 def _eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)

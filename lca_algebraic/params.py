@@ -291,7 +291,8 @@ class EnumParam(ParamDef):
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
-        """ Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
+        """
+        Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
         currValue can be either a single enum value (string) of dict of enum value => weight.
         """
 
@@ -301,8 +302,16 @@ class EnumParam(ParamDef):
             res["%s_default" % self.name] = 0
             return res
 
+
+
         # Normal case
         values = self.values + [None]
+
+        # Bad value ?
+        if currValue not in values :
+            raise Exception("Invalid value %s for param %s. Should be in %s" %
+                            (currValue, self.name, str(self.values)))
+
         res = dict()
         for enum_val in values:
             var_name = "%s_%s" % (self.name, enum_val if enum_val is not None else "default")

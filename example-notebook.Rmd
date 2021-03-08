@@ -88,7 +88,7 @@ importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 USER_DB = 'Foreground DB'
 
 # The library usually guesses the name of the user DB. If not, or if you have several DBs, set it manually :
-# SET_USER_DB(USER_DB)
+SET_USER_DB(USER_DB)
 ```
 
 ```{python}
@@ -607,8 +607,4 @@ Finally, we can compare the distribution of those simplified model against the f
 
 ```{python}
 compare_simplified(normalized_model, impacts, simplified)
-```
-
-```{python}
-
 ```

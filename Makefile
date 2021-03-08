@@ -37,3 +37,4 @@ upload : upload-pip upload-conda
 test:
 	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPNB)
 	./test/notebook_runner.py $(TST_NOTEBOOK)
+	pytest test/tests.py

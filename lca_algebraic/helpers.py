@@ -225,8 +225,7 @@ class ActivityExtended(Activity):
                 input=sub_act.key,
                 name=sub_act['name'],
                 unit=sub_act['unit'] if 'unit' in sub_act else None,
-                type='production' if self == sub_act else 'biosphere' if sub_act[
-                                                                             'database'] == BIOSPHERE3_DB_NAME else 'technosphere')
+                type='production' if self == sub_act else 'technosphere' if sub_act['type'] == 'process' else  'biosphere')
 
             exch.update(attrs)
             exch.update(_amountToFormula(amount))
@@ -493,12 +492,12 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     """
 
     # Transform map of enum values to corresponding formulas <param_name>_<enum_value>
-    exch = dict()
+    exch = defaultdict(lambda : 0)
     for key, act in acts_dict.items() :
         amount = 1
         if type(act) == list or type(act) == tuple :
             act, amount = act
-        exch[act] = amount * paramDef.symbol(key)
+        exch[act] += amount * paramDef.symbol(key)
 
     res = newActivity(
         dbname,
