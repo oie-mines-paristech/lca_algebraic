@@ -14,7 +14,13 @@ DEBUG=False
 LANG="fr"
 
 
+def set_debug(value=True) :
+    """ Activate debug logs """
+    global DEBUG
+    DEBUG=value
+
 def set_lang(lang):
+    """Set language """
     global LANG
     LANG=lang
 
@@ -24,10 +30,6 @@ def debug(*args, **kwargs) :
 
 def error(*args, **kwargs):
     print(*args, **kwargs, file=stderr)
-
-def set_debug(value=True) :
-    global DEBUG
-    DEBUG=value
 
 def _eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)

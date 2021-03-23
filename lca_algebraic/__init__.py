@@ -18,6 +18,7 @@ def resetDb(db_name):
     db = bw.Database(db_name)
     db.write(dict())
 
+
 def initDb(project_name) :
     '''Init brightway and detect version of existing installation of ecoinvent'''
     bw.projects.set_current(project_name)

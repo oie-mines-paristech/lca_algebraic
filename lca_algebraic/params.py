@@ -637,7 +637,7 @@ def list_parameters(name_type=NameType.LABEL):
     params = [[
         param.group,
         name if name_type == NameType.NAME else param.get_label(),
-        #param.default,
+        #param.default
         widgets.FloatSlider(
             value=7.5,
             min=0,
@@ -648,7 +648,7 @@ def list_parameters(name_type=NameType.LABEL):
         param.distrib,
         param.unit] for name, param in _param_registry().items()]
 
-    groups = list({p[0] for p in params})
+    groups = list({p[0] or "" for p in params})
     groups = sorted(groups)
 
     # Sort by Group / name

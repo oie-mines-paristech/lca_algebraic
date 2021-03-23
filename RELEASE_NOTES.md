@@ -10,6 +10,7 @@
   See [PR #9] by @ntropy-esa
 * Add support for loading / saving parameters into Brightway DB, with compatibility with Brightway2 and Activity Browser.
   See functions **loadParams**() and **persistParams()**. See also issue #8.
+* Added new function **exploreImpacts()**, like **printAct()** but showing impact of each exchange.  
 
 # 0.0.14
 

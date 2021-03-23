@@ -3,7 +3,7 @@ import concurrent.futures
 
 from sympy import lambdify, simplify, sympify
 
-from .base_utils import _actName, _eprint, _getDb
+from .base_utils import _actName, _eprint, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
 from .helpers import *
 from .helpers import _actDesc
@@ -132,6 +132,8 @@ def _modelToExpr(
 
     # Compute LCA for background activities
     lcas = _multiLCAWithCache(pureTechActBySymbol.values(), methods)
+
+    debug(lcas)
 
     # For each method, compute an algebric expression with activities replaced by their values
     exprs = []
@@ -287,7 +289,7 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
         for imethod, value in exec.map(process, enumerate(lambdas)):
             res[imethod, :] = value
 
-    return pd.DataFrame(res, index=[method_name(method) for method in methods]).transpose()
+    return pd.DataFrame(res, index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods]).transpose()
 
 
 def _expand_param_names(param_names):
@@ -419,26 +421,37 @@ def actToExpression(act: Activity, extract_activities=None):
         (sympy_expr, dict of symbol => activity)
     """
 
-    act_symbols = dict()  # Dict of  act = > symbol
+    act_symbols = dict()  # Cache of  act = > symbol
 
-    def act_to_symbol(db_name, code):
+    def act_to_symbol(sub_act):
+        """ Transform an activity to a named symbol and keep cache of it """
 
-        act = _getDb(db_name).get(code)
-        name = act['name']
-        base_slug = _slugify(name)
+        db_name, code = sub_act.key
 
-        slug = base_slug
-        i = 1
-        while symbols(slug) in act_symbols.values():
-            slug = f"{base_slug}{i}"
-            i += 1
+        # Look in cache
+        if not (db_name, code) in act_symbols:
 
-        return symbols(slug)
+            act = _getDb(db_name).get(code)
+            name = act['name']
+            base_slug = _slugify(name)
+
+            slug = base_slug
+            i = 1
+            while symbols(slug) in act_symbols.values():
+                slug = f"{base_slug}{i}"
+                i += 1
+
+            act_symbols[(db_name, code)] = symbols(slug)
+
+        return act_symbols[(db_name, code)]
 
     def rec_func(act: Activity, in_extract_path, parents=[]):
 
         res = 0
-        outputAmount = 1
+        outputAmount = act.getOutputAmount()
+
+        if act["database"] != USER_DB() :
+            return act_to_symbol(act)
 
         for exch in act.exchanges():
 
@@ -450,9 +463,6 @@ def actToExpression(act: Activity, extract_activities=None):
 
             #  Production exchange
             if exch['input'] == exch['output']:
-                # Not 1 ?
-                if exch['amount'] != 1:
-                    outputAmount = exch['amount']
                 continue
 
             input_db, input_code = exch['input']
@@ -470,17 +480,12 @@ def actToExpression(act: Activity, extract_activities=None):
 
                 if exch_in_path :
                     # Add to dict of background symbols
-                    if not (input_db, input_code) in act_symbols:
-                        act_symbols[(input_db, input_code)] = act_to_symbol(input_db, input_code)
-                    act_expr = act_symbols[(input_db, input_code)]
+                    act_expr = act_to_symbol(sub_act)
                 else:
                     continue
 
             # Our model : recursively it to a symbolic expression
             else:
-
-                if input_db == act['database'] and input_code == act['code']:
-                    raise Exception("Recursive exchange : %s" % (act.__dict__))
 
                 parents = parents + [act]
                 if sub_act in parents :
@@ -490,20 +495,22 @@ def actToExpression(act: Activity, extract_activities=None):
 
             avoidedBurden = 1
             if exch['type'] == 'production' and not exch['input'] == exch['output']:
+                debug("Avoided burden", exch[name])
                 avoidedBurden = -1
-                
+
+            #debug("adding sub act : ", sub_act, formula, act_expr)
+
             res += formula * act_expr * avoidedBurden
 
         return res / outputAmount
 
     expr = rec_func(act, extract_activities is None)
 
-    if  isinstance(expr, float) :
+    if isinstance(expr, float) :
         expr = simplify(expr)
     else:
         # Replace fixed params with their default value
         expr = _replace_fixed_params(expr, _fixed_params().values())
-
 
     return (expr, _reverse_dict(act_symbols))
 
@@ -523,29 +530,24 @@ def exploreImpacts(impact, *activities, **params):
     names = []
 
     diffOnly = params.pop("diffOnly", False)
+    withImpactPerUnit = params.pop("withImpactPerUnit", False)
 
     for main_act in activities:
 
         inputs_by_ex_name = dict()
         data = dict()
 
-        for (i, exc) in enumerate(main_act.exchanges()):
-
-            if exc['type'] == 'production' :
-                continue
-
-            input = bw.get_activity(exc.input.key)
-            amount = _getAmountOrFormula(exc)
+        for i, (name, input, amount) in enumerate(main_act.listExchanges()):
 
             # Params provided ? Evaluate formulas
             if len(params) > 0 and isinstance(amount, Basic):
                 new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                 amount = amount.subs(new_params)
 
-            ex_name = exc['name']
             i = 1
+            ex_name = name
             while ex_name in data:
-                ex_name = "%s#%d" % (exc['name'], i)
+                ex_name = "%s#%d" % (name, i)
                 i += 1
 
             inputs_by_ex_name[ex_name] = _createTechProxyForBio(input)
@@ -554,7 +556,8 @@ def exploreImpacts(impact, *activities, **params):
             if input.key[0] == USER_DB():
                 input_name += "{user-db}"
 
-            data[ex_name] = [input_name, amount]
+            data[ex_name] = dict(input=input_name, amount=amount)
+
 
         # Provide impact calculation if impact provided
         all_acts = list(set(inputs_by_ex_name.values()))
@@ -563,22 +566,23 @@ def exploreImpacts(impact, *activities, **params):
 
         impact_by_act = {act : value for act, value in zip(all_acts, impacts)}
 
-        for ex_name, vals in data.items() :
-            amount = vals[1]
-            act = inputs_by_ex_name[ex_name]
-            vals.append(amount * impact_by_act[act])
+        # Add impacts to data
+        for key, vals in data.items() :
+            amount = vals["amount"]
+            act = inputs_by_ex_name[key]
+            impact = impact_by_act[act]
+
+            if withImpactPerUnit :
+                vals["impact_per_unit"] = impact
+            vals["impact"] = amount * impact
 
         # To dataframe
-        df = pd.DataFrame(index=['input', 'amount', 'impact'])
-        for key, values in data.items():
-            df[key] = values
+        df = pd.DataFrame(data)
 
         tables.append(df.T)
         names.append(_actDesc(main_act))
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
-
-
 
     # Highlight differences in case two activites are provided
     if len(activities) == 2:
@@ -605,6 +609,4 @@ def exploreImpacts(impact, *activities, **params):
             return res
         full = full.style.apply(same_amount, axis=1)
 
-
-
-    display(full)
+    return full

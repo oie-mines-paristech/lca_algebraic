@@ -3,6 +3,7 @@ import types
 from collections import defaultdict
 from copy import deepcopy
 from itertools import chain
+from typing import *
 
 import pandas as pd
 from IPython.core.display import display
@@ -18,39 +19,64 @@ from .params import _param_registry, _completeParamValues
 BIOSPHERE3_DB_NAME = 'biosphere3'
 _USER_DB = None
 
+# Default background DB
+_BG_DB = None
+
 def USER_DB() :
     if _USER_DB is not None :
         return _USER_DB
     else:
         # Try to guess it
-        candidates = list(key for key in bw.databases.keys() if key not in [ECOINVENT_DB_NAME(), BIOSPHERE3_DB_NAME])
+        candidates = list(key for key in bw.databases.keys() if key not in [BG_DB(), BIOSPHERE3_DB_NAME])
         if len(candidates) == 1 :
             return candidates[0]
 
         raise Exception("Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB('YourDbName')")
 
 def SET_USER_DB(userDbName) :
+    """ Set explicitely the default foreground / user database """
     global _USER_DB
     _USER_DB = userDbName
 
-def ECOINVENT_DB_NAME() :
-    """Return the name of the ecoinvent DB"""
+def SET_BG_DB(dbname):
+    """ Set explicitely the default background database """
+    global _BG_DB
+    _BG_DB = dbname
+
+def BG_DB() :
+    """ Try to guess the default background DB : ecoinvent by default.
+    The user may specify it with """
+    if _BG_DB is not None :
+        return _BG_DB
+
     for key in bw.databases.keys() :
         if 'ecoinvent' in key :
             return key
 
-    raise Exception("No ecoinvent DB found")
+    raise Exception("No ecoinvent DB found : please select the default background db with SET_BG_DB()")
 
 old_amount = symbols("old_amount")  # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
 NumOrExpression = Union[float, Basic]
-
-
 
 
 class ActivityExtended(Activity):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
     """
+
+    def listExchanges(self) :
+        """ Iterates on all exchanges (except "production") and return a list of (exch-name, target-act, amount) """
+        res = []
+        for exc in self.exchanges():
+
+            # Don't show production
+            if exc['type'] == 'production' :
+                continue
+
+            input = bw.get_activity(exc.input.key)
+            amount = _getAmountOrFormula(exc)
+            res.append((exc["name"], input, amount))
+        return res
 
     def getExchange(self, name=None, input=None, single=True):
         """Get exchange by name or input
@@ -255,6 +281,19 @@ class ActivityExtended(Activity):
         else:
             return _getAmountOrFormula(exchs)
 
+    def getOutputAmount(self):
+
+        """ Return the amount of the production : 1 if none is found """
+        res = 1
+        for exch in self.exchanges() :
+            if exch['input'] == exch['output']:
+                # Not 1 ?
+                if exch['amount'] != 1:
+                    res = exch['amount']
+                break
+        return res
+
+
     def exchangesNp(self):
         """ List of exchange, except production (output) one."""
         for exch in self.exchanges():
@@ -344,11 +383,15 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
         search = search.lower()
         search = search.replace(',', ' ')
-        search = re.sub('\w*[^a-zA-Z ]+\w*', ' ', search)
 
         # Find candidates via index
         # candidates = _find_candidates(db_name, name_key)
         candidates = _getDb(db_name).search(search, limit=200)
+
+        if len(candidates) == 0 :
+            # Try again removing strange caracters
+            search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
+            candidates = _getDb(db_name).search(search, limit=200)
 
         # print(search, candidates)
 
@@ -375,7 +418,7 @@ def findBioAct(name=None, loc=None, **kwargs):
 def findTechAct(name=None, loc=None, **kwargs):
     """Alias for findActivity(name, ... db_name=ECOINVENT_DB_NAME)
     """
-    return findActivity(name=name, loc=loc, db_name=ECOINVENT_DB_NAME(), **kwargs)
+    return findActivity(name=name, loc=loc, db_name=BG_DB(), **kwargs)
 
 
 def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
@@ -465,8 +508,8 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
 
     return res
 
-
-def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
+ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
+def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
     """Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
     Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
@@ -493,25 +536,30 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
 
     # Transform map of enum values to corresponding formulas <param_name>_<enum_value>
     exch = defaultdict(lambda : 0)
+
+    # Forward last unit as unit of the switch
+    unit= None
     for key, act in acts_dict.items() :
         amount = 1
         if type(act) == list or type(act) == tuple :
             act, amount = act
         exch[act] += amount * paramDef.symbol(key)
+        unit = act["unit"]
 
     res = newActivity(
         dbname,
         name,
-        unit=list(acts_dict.values())[0]['unit'],
+        unit=unit,
         exchanges=exch)
 
     return res
 
 
-def printAct(*args, **params):
+def printAct(*args, impact=None, **params):
     """
     Print activities and their exchanges.
-    If parameter values are provided, formulas will be evaluated accordingly
+    If parameter values are provided, formulas will be evaluated accordingly.
+    If impact is provided it will be computed.
     """
     tables = []
     names = []
@@ -524,6 +572,7 @@ def printAct(*args, **params):
         data = dict()
         for (i, exc) in enumerate(act.exchanges()):
 
+            # Don't show production
             if exc['type'] == 'production' :
                 continue
 
@@ -634,5 +683,38 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
     return res
 
 
+def listMainMethodCategories() :
+    """List main methods"""
+    return set(m[0] for m in bw.methods)
 
 
+
+def findMethods(p1=None, p2=None, p3=None) :
+
+    """
+    Find impact method. Search in all methods against a list of match strings.
+    Each parameter can be either an exact match match, or case insenstive search, if suffixed by '*'
+
+    Parameters
+    ----------
+    p1: Search string for first part of the tuple (main category)
+    p2: Search string for second part of the tuple (sub category)
+    p3 : Search string for third part of the tuple
+    """
+    res = []
+    for method in bw.methods:
+        match = True
+        for i, search in enumerate([p1, p2, p3]) :
+            part  = method[i]
+            if search is None :
+                continue
+            if search.endswith("*") :
+                search = search.replace("*", "")
+                if not search.lower() in part.lower() :
+                    match = False
+            else :
+                if not search == part :
+                    match = False
+        if match :
+            res.append(method)
+    return res

@@ -1,16 +1,39 @@
-import os
+import os, sys
 from setuptools import setup
+import subprocess
+import time
 
 # Utility function to read the README file.
 # Used for the long_description.  It's nice, because now 1) we have a top level
 # README file and 2) it's easier to type in the README file than to put a raw
 # string in below ...
 def read(fname):
-    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+    return open(os.path.join(os.path.dirname(__file__), fname))\
+        .read().strip()
+
+def run(args) :
+    return subprocess.run(args, stdout=subprocess.PIPE).\
+        stdout.decode('utf-8').splitlines()
+
+# Get current git branch
+branches = run(["git", "branch"])
+curr_branch = next(line for line in branches if "*" in line)
+curr_branch = curr_branch.replace(" ", "").replace("*", "")
+
+
+version = read("VERSION")
+name = "lca_algebraic"
+
+if curr_branch == "dev" :
+
+    name += "_dev"
+
+    commit = run(["git", "log"])[0].split()[1][0:8]
+    version += "-dev-" + commit
 
 setup(
-    name = "lca_algebraic",
-    version = read("VERSION").strip(),
+    name = name,
+    version = version,
     author = "OIE - Mines ParisTech",
     author_email = "raphael.jolivet@mines-paristech.fr",
     description = ("This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."),
