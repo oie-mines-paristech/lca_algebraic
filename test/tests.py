@@ -76,7 +76,12 @@ def test_new_switch_act_with_tuples() :
         "v2": (bg_act2, 3.0),
     })
 
+def test_list_params_should_support_missing_groups() :
 
+    p1 = newFloatParam('p1', default=1.0)
+    p2 = newFloatParam('p2', default=2.0, group="mygroup")
+
+    list_parameters()
 
 def test_enum_values_are_enforced():
 
