@@ -351,7 +351,7 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, unit=None):
+                 single=True, unit=None) -> ActivityExtended :
     """
         Find single activity by name & location
         Uses index for fast fetching
@@ -565,6 +565,7 @@ def printAct(*args, impact=None, **params):
     names = []
 
     activities = args
+
 
     for act in activities:
         inputs_by_ex_name = dict()

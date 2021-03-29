@@ -83,6 +83,42 @@ def test_list_params_should_support_missing_groups() :
 
     list_parameters()
 
+def test_freeze() :
+
+    p1 = newFloatParam('p1', default=1.0)
+    p2 = newFloatParam('p2', default=1.0)
+
+    bio1 = findActivity("bio1", db_name=BG_DB)
+    bio2 = findActivity("bio2", db_name=BG_DB)
+
+    newActivity(USER_DB, "act1", "unit", {
+        bio1 : 2 * p1,
+        bio2 : 3 * p2,
+    })
+
+    # p1 should be set as default value 1
+    freezeParams(USER_DB, p2=2)
+
+    # Load back activity
+    act1 = findActivity("act1", db_name=USER_DB)
+
+    for exc in act1.exchanges():
+
+        # Don't show production
+        if exc['type'] == 'production' :
+            continue
+
+        name = exc["name"]
+        amount = exc["amount"]
+
+        if name == "bio1" :
+            # p1=1 (default) * 2
+            assert amount == 2.0
+        elif name == 'bio2' :
+            # p2=2 * 3
+            assert amount == 6.0
+
+
 def test_enum_values_are_enforced():
 
     # Enum param

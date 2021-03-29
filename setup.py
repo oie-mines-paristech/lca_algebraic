@@ -1,6 +1,7 @@
 import os, sys
 from setuptools import setup
 import subprocess
+from datetime import datetime
 import time
 
 # Utility function to read the README file.
@@ -19,8 +20,6 @@ def run(args) :
 branches = run(["git", "branch"])
 curr_branch = next(line for line in branches if "*" in line)
 curr_branch = curr_branch.replace(" ", "").replace("*", "")
-
-
 version = read("VERSION")
 name = "lca_algebraic"
 
@@ -28,8 +27,14 @@ if curr_branch == "dev" :
 
     name += "_dev"
 
-    commit = run(["git", "log"])[0].split()[1][0:8]
-    version += "-dev-" + commit
+    #commit = run(["git", "log"])[0].split()[1][0:8]
+
+    start = datetime.strptime("2021-01-01", '%Y-%m-%d')
+    now = datetime.now()
+
+    min_diff = int((now-start).total_seconds() // 60)
+
+    version += "." + str(min_diff) + "-dev"
 
 setup(
     name = name,

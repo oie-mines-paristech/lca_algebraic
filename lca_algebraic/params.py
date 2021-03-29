@@ -8,14 +8,14 @@ from tabulate import tabulate
 from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
-from sympy import Symbol
+from sympy import Symbol, Basic
 from collections import defaultdict
 from enum import Enum
 import ipywidgets as widgets
 
 
 import lca_algebraic.base_utils
-from .base_utils import _eprint, as_np_array
+from .base_utils import _eprint, as_np_array, _getAmountOrFormula
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -588,7 +588,13 @@ def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
 
-def _completeParamValues(params, required_params : List[str]=None):
+# Possible param values : either floator string (enum value)
+ParamValue = Union[float, str]
+
+# Single value or list of values
+ParamValues = Union[List[ParamValue],  ParamValue]
+
+def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False) :
     """Check parameters and expand enum params.
 
     Returns
@@ -603,6 +609,12 @@ def _completeParamValues(params, required_params : List[str]=None):
             if not param_name in params :
                 params[param_name] = param.default
                 _eprint("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
+
+    # Set default variables for missing values
+    if setDefaults :
+        for name, param in _param_registry().items() :
+            if not name in params :
+                params[name] = param.default
 
     res = dict()
     for key, val in params.items():
@@ -660,4 +672,31 @@ def list_parameters(name_type=NameType.LABEL):
     sorted_params = sorted(params, key=keyf)
 
     return HTML((tabulate(sorted_params, tablefmt="html", headers=["name", "group", "default", "min", "max", "std", "distrib", "unit"])))
+
+
+def freezeParams(db_name, **params) :
+    """
+        Freeze parameters values in all exchanges amounts of a DB.
+        The formulas are computed and the 'amount' attributes are set with the result.
+        This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+    """
+
+    db = bw.Database(db_name)
+
+    for act in db :
+
+        for exc in act.exchanges():
+
+            amount = _getAmountOrFormula(exc)
+
+            # Amount is a formula ?
+            if isinstance(amount, Basic):
+
+                replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
+                amount = amount.subs(replace).evalf()
+
+                # Update in DB
+                exc["amount"] = amount
+                exc.save()
+
 

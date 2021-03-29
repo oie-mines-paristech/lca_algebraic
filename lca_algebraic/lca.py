@@ -522,7 +522,9 @@ def _reverse_dict(dic):
 
 def exploreImpacts(impact, *activities, **params):
     """
-    Display all exchanges of one or several activities and their impacts.
+    Advanced version of #printAct()
+
+    Displays all exchanges of one or several activities and their impacts.
     If parameter values are provided, formulas will be evaluated accordingly.
     If two activities are provided, they will be shown side by side and compared.
     """

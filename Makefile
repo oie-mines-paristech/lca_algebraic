@@ -41,4 +41,4 @@ notebook_test:
 	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPNB)
 	./test/notebook_runner.py $(TST_NOTEBOOK)
 
-test: pytext notebook_test
+test: pytest notebook_test
