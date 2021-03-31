@@ -37,6 +37,18 @@ def setup_function() :
     resetParams(USER_DB)
 
 
+def test_load_params():
+    _p1 = newEnumParam('p1',values={"v1":0.6, "v2":0.3}, default="v1")
+    _p2 = newFloatParam('p2', min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
+    _p3 = newBoolParam('p3',default=1)
+
+    # Params are loaded as global variable with their names
+    loadParams()
+
+    assert _p1.__dict__ == p1.__dict__
+    assert _p2.__dict__ == p2.__dict__
+    assert _p3.__dict__ == p3.__dict__
+
 def test_switch_activity_support_sevral_times_same_target() :
     """ Test that switch activity can target the same activity several times """
 

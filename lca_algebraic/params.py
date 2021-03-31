@@ -466,7 +466,14 @@ def _loadArgs(data) :
     }
 
 def loadParams(global_variable=True):
-    """Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/"""
+    """
+    Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/
+
+    Parameters
+    ----------
+    global_variable If true, loaded parameters are made available as global variable.
+
+    """
 
     enumParams=defaultdict(lambda : dict())
 
@@ -561,12 +568,11 @@ def newFloatParam(name, default, **kwargs):
     """ Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
 
-
-def newBoolParam(name, default, save=True, **kwargs):
+def newBoolParam(name, default, **kwargs):
     """ Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
 
-def newEnumParam(name, default, save=True, **kwargs):
+def newEnumParam(name, default, **kwargs):
     """ Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
 

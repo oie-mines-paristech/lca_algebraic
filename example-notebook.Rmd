@@ -55,8 +55,8 @@ Full documentation of the functions is [available here](https://oie-mines-parist
 
 ```{python}
 # Those two lines are for dev only : they watch imported libraries for changes
-# %load_ext autoreload
-# %autoreload 2
+# #%load_ext autoreload
+# #%autoreload 2
 
 import pandas as pd
 import time
