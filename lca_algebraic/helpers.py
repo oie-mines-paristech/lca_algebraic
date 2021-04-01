@@ -690,7 +690,7 @@ def listMainMethodCategories() :
 
 
 
-def findMethods(p1=None, p2=None, p3=None) :
+def findMethods(search=None, mainCat=None) :
 
     """
     Find impact method. Search in all methods against a list of match strings.
@@ -698,24 +698,16 @@ def findMethods(p1=None, p2=None, p3=None) :
 
     Parameters
     ----------
-    p1: Search string for first part of the tuple (main category)
-    p2: Search string for second part of the tuple (sub category)
-    p3 : Search string for third part of the tuple
+    search : String to search
+    mainCat : if specified, limits the research for method[0] == mainCat.
     """
     res = []
+    search = search.lower()
     for method in bw.methods:
-        match = True
-        for i, search in enumerate([p1, p2, p3]) :
-            part  = method[i]
-            if search is None :
-                continue
-            if search.endswith("*") :
-                search = search.replace("*", "")
-                if not search.lower() in part.lower() :
-                    match = False
-            else :
-                if not search == part :
-                    match = False
+        text = str(method).lower()
+        match  = search in text
+        if mainCat :
+            match = match and (mainCat == method[0])
         if match :
             res.append(method)
     return res
