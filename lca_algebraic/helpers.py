@@ -14,46 +14,50 @@ from .base_utils import *
 from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula, _actName
 from .params import *
 from .params import _param_registry, _completeParamValues
+from bw2data.meta import databases as dbmeta
+
+BIOSPHERE3_DB_NAME="biosphere3"
+
+_metaCache = defaultdict(lambda : {})
+
+def _setMeta(dbname, key, value) :
+    """Set meta param on DB"""
+    _metaCache[dbname][key] = value
+
+    data = dbmeta[dbname]
+    data[key] = value
+    dbmeta[dbname] = data
+    dbmeta.flush()
 
 
-BIOSPHERE3_DB_NAME = 'biosphere3'
-_USER_DB = None
+def _getMeta(db_name, key) :
 
-# Default background DB
-_BG_DB = None
+    if key in _metaCache[db_name] :
+        return _metaCache[db_name][key]
 
-def USER_DB() :
-    if _USER_DB is not None :
-        return _USER_DB
-    else:
-        # Try to guess it
-        candidates = list(key for key in bw.databases.keys() if key not in [BG_DB(), BIOSPHERE3_DB_NAME])
-        if len(candidates) == 1 :
-            return candidates[0]
+    val = dbmeta[db_name].get(key)
+    _metaCache[db_name][key] = val
+    return val
 
-        raise Exception("Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB('YourDbName')")
+FOREGROUND_KEY = "fg"
 
-def SET_USER_DB(userDbName) :
-    """ Set explicitely the default foreground / user database """
-    global _USER_DB
-    _USER_DB = userDbName
+def _isForeground(db_name) :
+    """ Check is db is marked as foreground DB : which means activities may be parametrized / should be developped. """
+    return _getMeta(db_name, FOREGROUND_KEY)
 
-def SET_BG_DB(dbname):
-    """ Set explicitely the default background database """
-    global _BG_DB
-    _BG_DB = dbname
+def setForeground(db_name) :
+    """ Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities"""
+    return _setMeta(db_name, FOREGROUND_KEY, True)
 
-def BG_DB() :
-    """ Try to guess the default background DB : ecoinvent by default.
-    The user may specify it with """
-    if _BG_DB is not None :
-        return _BG_DB
+def setBackground(db_name) :
+    """ Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities"""
+    return _setMeta(db_name, FOREGROUND_KEY, False)
 
-    for key in bw.databases.keys() :
-        if 'ecoinvent' in key :
-            return key
+def SET_USER_DB(db_name) :
+    error("Deprecated, use #setForeground() / setBackground() instead")
+    setForeground(db_name)
 
-    raise Exception("No ecoinvent DB found : please select the default background db with SET_BG_DB()")
+
 
 old_amount = symbols("old_amount")  # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
 NumOrExpression = Union[float, Basic]
@@ -601,8 +605,8 @@ def printAct(*args, impact=None, **params):
             inputs_by_ex_name[ex_name] = input
 
             input_name = _actName(input)
-            if input.key[0] == USER_DB():
-                input_name += "{user-db}"
+            if _isForeground(input.key[0]):
+                input_name += "{FG}"
 
             data[ex_name] = [input_name, amount, exc.unit]
 

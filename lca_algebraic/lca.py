@@ -1,12 +1,13 @@
-from collections import OrderedDict
 import concurrent.futures
+from collections import OrderedDict
+from typing import Dict, List
 
-from sympy import lambdify, simplify, sympify
+from sympy import lambdify, simplify
 
 from .base_utils import _actName, _eprint, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
 from .helpers import *
-from .helpers import _actDesc
+from .helpers import _actDesc, _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params
 
 
@@ -128,12 +129,10 @@ def _modelToExpr(
     # We create a technosphere activity mapping exactly to 1 biosphere item
     pureTechActBySymbol = OrderedDict()
     for name, act in actBySymbolName.items():
-        pureTechActBySymbol[name] = _createTechProxyForBio(act)
+        pureTechActBySymbol[name] = _createTechProxyForBio(act, model.key[0])
 
     # Compute LCA for background activities
     lcas = _multiLCAWithCache(pureTechActBySymbol.values(), methods)
-
-    debug(lcas)
 
     # For each method, compute an algebric expression with activities replaced by their values
     exprs = []
@@ -380,29 +379,28 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
         return pd.concat(list(dfs.values()))
 
 
-def _createTechProxyForBio(act):
+def _createTechProxyForBio(act_key, target_db):
     """
         We cannot reference directly biosphere in the model, since LCA can only be applied to products
         We create a dummy activity in our DB, with same code, and single exchange of amount '1'
     """
-    dbname = act[0]
-    code = act[1]
+    dbname, code = act_key
+    act = _getDb(dbname).get(code)
+    type = act["type"]
 
     # Not biosphere ? No need to create proxy
-    if dbname != BIOSPHERE3_DB_NAME :
-        return getActByCode(dbname, code)
+    if not type in ["emission", "natural resource"] :
+        return act
 
     code_to_find = code + "#asTech"
-    debug("looking for rapper of bio activity :", code_to_find)
 
     try:
-        return _getDb(USER_DB()).get(code_to_find)
+        return _getDb(target_db).get(code_to_find)
     except:
-        bioAct = _getDb(BIOSPHERE3_DB_NAME).get(code)
-        name = bioAct['name'] + ' # asTech'
+        name = act['name'] + ' # asTech'
 
         # Create biosphere proxy in User Db
-        res = newActivity(USER_DB(), name, bioAct['unit'], {bioAct: 1}, code=code_to_find)
+        res = newActivity(target_db, name, act['unit'], {act: 1}, code=code_to_find)
         return res
 
 
@@ -421,7 +419,7 @@ def actToExpression(act: Activity, extract_activities=None):
         (sympy_expr, dict of symbol => activity)
     """
 
-    act_symbols = dict()  # Cache of  act = > symbol
+    act_symbols : Dict[Symbol]= dict()  # Cache of  act = > symbol
 
     def act_to_symbol(sub_act):
         """ Transform an activity to a named symbol and keep cache of it """
@@ -450,7 +448,8 @@ def actToExpression(act: Activity, extract_activities=None):
         res = 0
         outputAmount = act.getOutputAmount()
 
-        if act["database"] != USER_DB() :
+        if not _isForeground(act["database"]) :
+            # We reached a background DB ? => stop developping and create reference to activity
             return act_to_symbol(act)
 
         for exch in act.exchanges():
@@ -476,7 +475,7 @@ def actToExpression(act: Activity, extract_activities=None):
                     exch_in_path = in_extract_path or (sub_act in extract_activities)
 
             # Background DB => reference it as a symbol
-            if input_db != USER_DB() :
+            if not _isForeground(input_db) :
 
                 if exch_in_path :
                     # Add to dict of background symbols
@@ -555,7 +554,8 @@ def exploreImpacts(impact, *activities, **params):
             inputs_by_ex_name[ex_name] = _createTechProxyForBio(input)
 
             input_name = _actName(input)
-            if input.key[0] == USER_DB():
+
+            if _isForeground(input.key[0]) :
                 input_name += "{user-db}"
 
             data[ex_name] = dict(input=input_name, amount=amount)

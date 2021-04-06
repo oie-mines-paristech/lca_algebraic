@@ -2,6 +2,8 @@ import os
 import sys
 import pytest
 
+from lca_algebraic.helpers import _isForeground
+
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
@@ -12,13 +14,11 @@ USER_DB = "fg"
 BG_DB= "bg"
 METHOD_PREFIX='tests'
 
-SET_USER_DB(USER_DB)
-SET_BG_DB(BG_DB)
-
 # Reset func project, empty DB
 initDb('tests')
 init_acts(BG_DB)
 init_methods(BG_DB, METHOD_PREFIX)
+SET_USER_DB(USER_DB)
 
 # Import Ecoinvent DB (if not already done)
 # Update the name and path to the location of the ecoinvent database
@@ -146,6 +146,16 @@ def test_enum_values_are_enforced():
         multiLCAAlgebric(act, climate, p1="bar")
 
     assert 'Invalid value' in str(exc)
+
+def test_setforeground() :
+
+    setForeground(USER_DB)
+
+    assert _isForeground(USER_DB)
+
+    setBackground(USER_DB)
+
+    assert _isForeground(USER_DB) == False
 
 if __name__ == '__main__':
     pytest.main(sys.argv)

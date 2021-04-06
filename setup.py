@@ -56,6 +56,7 @@ setup(
         'seaborn',
         'sympy',
         'matplotlib',
+        'deprecation',
         'brightway2>=2.3',
         'SALib']
 )
