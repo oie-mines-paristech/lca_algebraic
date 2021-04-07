@@ -15,7 +15,7 @@ import ipywidgets as widgets
 
 
 import lca_algebraic.base_utils
-from .base_utils import _eprint, as_np_array, _getAmountOrFormula
+from .base_utils import _eprint, as_np_array, _getAmountOrFormula, _actName
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -655,11 +655,7 @@ def list_parameters(name_type=NameType.LABEL):
     params = [[
         param.group or "",
         name if name_type == NameType.NAME else param.get_label(),
-        #param.default
-        widgets.FloatSlider(
-            value=7.5,
-            min=0,
-            max=10.0),
+        param.default,
         param.min,
         param.max,
         getattr(param, "std", None),
@@ -699,10 +695,12 @@ def freezeParams(db_name, **params) :
             if isinstance(amount, Basic):
 
                 replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
-                amount = amount.subs(replace).evalf()
+                newamount = float(amount.subs(replace).evalf())
+
+                _eprint("%s / %s : Changing amount from %G to %G. Formula : %s" % (_actName(act), exc["name"],exc["amount"], newamount, amount))
 
                 # Update in DB
-                exc["amount"] = amount
+                exc["amount"] = newamount
                 exc.save()
 
 
