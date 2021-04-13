@@ -676,10 +676,13 @@ def list_parameters(name_type=NameType.LABEL):
     return HTML((tabulate(sorted_params, tablefmt="html", headers=["name", "group", "default", "min", "max", "std", "distrib", "unit"])))
 
 
-def freezeParams(db_name, **params) :
+def freezeParams(
+        db_name,
+        **params) :
     """
-        Freeze parameters values in all exchanges amounts of a DB.
-        The formulas are computed and the 'amount' attributes are set with the result.
+        Freeze parameters values in all exchanges amounts of a database.
+        THe 'amount' attribute is updated in each exchange according to the values of parameter provided (or default values).
+        
         This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
     """
 

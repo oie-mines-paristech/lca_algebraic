@@ -447,6 +447,10 @@ def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
 
 
 def _newAct(db_name, code):
+
+    if db_name != USER_DB() :
+        raise Exception("You can only create & duplicate Activities in you foreground / user DB.")
+
     db = _getDb(db_name)
     # Already present : delete it ?
     for act in db:

@@ -45,6 +45,7 @@ def test_load_params():
     # Params are loaded as global variable with their names
     loadParams()
 
+    # Compare all parameters
     assert _p1.__dict__ == p1.__dict__
     assert _p2.__dict__ == p2.__dict__
     assert _p3.__dict__ == p3.__dict__
@@ -123,12 +124,16 @@ def test_freeze() :
         name = exc["name"]
         amount = exc["amount"]
 
+        # Brightway2 does not like ints ...
+        assert isinstance(amount, float)
+
         if name == "bio1" :
             # p1=1 (default) * 2
             assert amount == 2.0
         elif name == 'bio2' :
             # p2=2 * 3
             assert amount == 6.0
+
 
 
 def test_enum_values_are_enforced():
