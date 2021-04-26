@@ -55,8 +55,8 @@ Full documentation of the functions is [available here](https://oie-mines-parist
 
 ```{python}
 # Those two lines are for dev only : they watch imported libraries for changes
-# #%load_ext autoreload
-# #%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 
 import pandas as pd
 import time
@@ -148,22 +148,26 @@ Thus, any python arithmetic expression composed of parameters will result in a *
 # Example of 'float' parameters
 a = newFloatParam(
     'a', 
+    group="group1", # optional group name 
     default=0.5, min=0.2, max=2,  distrib=DistributionType.TRIANGLE, # Distribution type, linear by default
     description="hello world")
 
 b = newFloatParam(
     'b',
+    group="group1",
     default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
 
 share_recycled_aluminium = newFloatParam(
     'share_recycled_aluminium',  
+    group="group2",
     default=0.6, min=0, max=1, std=0.2, distrib=DistributionType.NORMAL, # Normal distrib, with std dev
     description="Share of reycled aluminium")
 
 c = newFloatParam(
     'c',  
+    group="group2",
     default=0.6, std=0.2, distrib=DistributionType.LOGNORMAL)
 
 beta = newFloatParam(

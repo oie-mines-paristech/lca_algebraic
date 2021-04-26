@@ -652,28 +652,36 @@ class NameType(Enum) :
 def list_parameters(name_type=NameType.LABEL):
 
     """ Print a pretty list of all defined parameters """
-    params = [[
-        param.group or "",
-        name if name_type == NameType.NAME else param.get_label(),
-        param.default,
-        param.min,
-        param.max,
-        getattr(param, "std", None),
-        param.distrib,
-        param.unit] for name, param in _param_registry().items()]
+    params = [dict(
+        group=param.group or "",
+        name=name if name_type == NameType.NAME else param.get_label(),
+        default=param.default,
+        min=param.min,
+        max=param.max,
+        std= getattr(param, "std", None),
+        distrib=param.distrib,
+        unit=param.unit) for name, param in _param_registry().items()]
 
-    groups = list({p[0] for p in params})
+    groups = list({p["group"] for p in params})
     groups = sorted(groups)
 
     # Sort by Group / name
     def keyf(param) :
-        group = param[0]
-        name = param[1]
-        return (groups.index(group), name)
+        return (groups.index(param["group"]), param["name"])
 
     sorted_params = sorted(params, key=keyf)
 
-    return HTML((tabulate(sorted_params, tablefmt="html", headers=["name", "group", "default", "min", "max", "std", "distrib", "unit"])))
+
+
+    return HTML((tabulate(sorted_params, tablefmt="html", headers=dict(
+        group="Group",
+        name="Name",
+        default="Default",
+        min="Min",
+        max="Max",
+        std="Std",
+        distrib="Distrib",
+        unit="unit"))))
 
 
 def freezeParams(
