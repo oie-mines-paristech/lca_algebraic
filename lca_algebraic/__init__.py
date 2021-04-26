@@ -9,6 +9,7 @@ from .helpers import *
 from .lca import *
 from .stats import *
 from .params import *
+from .database import *
 
 def resetDb(db_name):
     """ Create or cleanup a user DB"""
@@ -25,7 +26,7 @@ def initDb(project_name) :
     bw.bw2setup()
 
 
-def importDb(dbname, path):
+def importDb(dbname, path, backend=None):
     '''Import eco invent DB'''
 
     if dbname in bw.databases:
@@ -34,7 +35,7 @@ def importDb(dbname, path):
         ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
         ei34.apply_strategies()
         ei34.statistics()
-        ei34.write_database()
+        ei34.write_database(backend=backend)
 
 
 

@@ -8,6 +8,7 @@ from typing import *
 import pandas as pd
 from IPython.core.display import display
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
+from bw2data.proxies import ActivityProxyBase
 from sympy import symbols
 
 from .base_utils import *
@@ -59,7 +60,7 @@ old_amount = symbols("old_amount")  # Can be used in epxression of amount for up
 NumOrExpression = Union[float, Basic]
 
 
-class ActivityExtended(Activity):
+class ActivityExtended(ActivityProxyBase):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
     """
@@ -286,7 +287,7 @@ class ActivityExtended(Activity):
         """ Return the amount of the production : 1 if none is found """
         res = 1
         for exch in self.exchanges() :
-            if exch['input'] == exch['output']:
+            if _isOutputExch(exch):
                 # Not 1 ?
                 if exch['amount'] != 1:
                     res = exch['amount']
@@ -304,7 +305,7 @@ class ActivityExtended(Activity):
 # Backport new methods to vanilla Activity class in order to benefit from it for all existing instances
 for name, item in ActivityExtended.__dict__.items():
     if isinstance(item, types.FunctionType):
-        setattr(Activity, name, item)
+        setattr(ActivityProxyBase, name, item)
 
 
 def _split_words(name):
@@ -317,6 +318,9 @@ def _split_words(name):
 
 def _build_index(db):
     res = defaultdict(set)
+
+    _eprint("db does not support search : building local index")
+
     for act in db:
         words = _split_words(act['name'])
         for word in words:
@@ -327,12 +331,10 @@ def _build_index(db):
 # Index of activities per name, for fast search dict[db_name][activity_word] => list of activitites
 db_index = dict()
 
-
 def _get_indexed_db(db_name):
     if not db_name in db_index:
         db_index[db_name] = _build_index(_getDb(db_name))
     return db_index[db_name]
-
 
 def _find_candidates(db_name, name):
     res = []
@@ -376,6 +378,8 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
             return False
         return True
 
+    db = _getDb(db_name)
+
     if code:
         acts = [getActByCode(db_name, code)]
     else:
@@ -384,16 +388,20 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         search = search.lower()
         search = search.replace(',', ' ')
 
-        # Find candidates via index
-        # candidates = _find_candidates(db_name, name_key)
-        candidates = _getDb(db_name).search(search, limit=200)
+        # Db supports search ?
+        if hasattr(db, "search") :
 
-        if len(candidates) == 0 :
-            # Try again removing strange caracters
-            search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
-            candidates = _getDb(db_name).search(search, limit=200)
+            # candidates = _find_candidates(db_name, name_key)
+            candidates = db.search(search, limit=200)
 
-        # print(search, candidates)
+            if len(candidates) == 0 :
+                # Try again removing strange caracters
+                search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
+                candidates = db.search(search, limit=200)
+
+        else : # Db does not support search : we build an index
+            candidates = _find_candidates(db_name, search)
+
 
         # Exact match
         acts = list(filter(act_filter, candidates))
@@ -486,6 +494,9 @@ def newActivity(db_name, name, unit,
     return act
 
 
+def _isOutputExch(exc) :
+    return ("output" in exc and exc['input'] == exc['output']) or exc["type"] == "production"
+
 def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy activity into a new DB"""
 
@@ -505,8 +516,9 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         for exc in activity.exchanges():
             data = deepcopy(exc._data)
             data['output'] = res.key
+
             # Change `input` for production exchanges
-            if exc['input'] == exc['output']:
+            if _isOutputExch(exc):
                 data['input'] = res.key
             ExchangeDataset.create(**dict_as_exchangedataset(data))
 
