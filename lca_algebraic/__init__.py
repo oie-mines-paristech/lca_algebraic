@@ -3,7 +3,6 @@
 #
 
 import lca_algebraic.helpers
-from .base_utils import _eprint
 from .base_utils import *
 from .helpers import *
 from .lca import *
@@ -13,7 +12,7 @@ from .params import *
 def resetDb(db_name):
     """ Create or cleanup a user DB"""
     if db_name in bw.databases:
-        _eprint("Db %s was here. Reseting it" % db_name)
+        error("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
     db = bw.Database(db_name)
     db.write(dict())

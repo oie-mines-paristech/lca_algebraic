@@ -8,7 +8,7 @@ from ipywidgets import interact
 from matplotlib import pyplot as plt
 from sympy import Float, Number, Add, AtomicExpr
 from time import time
-from .base_utils import _method_unit, _eprint
+from .base_utils import _method_unit, error
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
 from .params import _variable_params, _param_registry, FixedParamMode
@@ -308,7 +308,7 @@ def _sobols(methods, problem, Y) -> SobolResults :
             st_conf[:, imethod] = res["ST_conf"]
 
         except Exception as e:
-            _eprint("Sobol failed on %s" % imethod[2], e)
+            error("Sobol failed on %s" % imethod[2], e)
 
     return SobolResults(s1, s2, st, s1_conf, s2_conf, st_conf)
 

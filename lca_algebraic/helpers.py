@@ -11,7 +11,7 @@ from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from sympy import symbols
 
 from .base_utils import *
-from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula, _actName
+from .base_utils import _getDb, error, _actDesc, _getAmountOrFormula, _actName
 from .params import *
 from .params import _param_registry, _completeParamValues
 from bw2data.meta import databases as dbmeta
@@ -50,16 +50,18 @@ def setForeground(db_name) :
     return _setMeta(db_name, FOREGROUND_KEY, True)
 
 def setBackground(db_name) :
-    """ Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities"""
+    """ Set a db as being a foreground database, meaning it should be considred as static"""
     return _setMeta(db_name, FOREGROUND_KEY, False)
 
 def SET_USER_DB(db_name) :
     error("Deprecated, use #setForeground() / setBackground() instead")
     setForeground(db_name)
 
+def _listTechBackgroundDbs() :
+    """List all background databases technosphere (non biosphere) batabases"""
+    return list(name for name in bw.databases if not _isForeground(name) and not name == BIOSPHERE3_DB_NAME)
 
-
-old_amount = symbols("old_amount")  # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
+old_amount = symbols("old_amount")  # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 NumOrExpression = Union[float, Basic]
 
 
@@ -414,15 +416,25 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
 
 def findBioAct(name=None, loc=None, **kwargs):
-    """Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME)
-    """
+    """Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) """
     return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)
 
 
-def findTechAct(name=None, loc=None, **kwargs):
-    """Alias for findActivity(name, ... db_name=ECOINVENT_DB_NAME)
-    """
-    return findActivity(name=name, loc=loc, db_name=BG_DB(), **kwargs)
+def findTechAct(name=None, loc=None, single=True, **kwargs):
+    """ Search activities in any background db not being biospehere """
+    res = None
+    for db in _listTechBackgroundDbs() :
+        out = findActivity(name=name, loc=loc, db_name=db, single=True, **kwargs)
+        if out :
+            if not res :
+                res = out
+            else :
+                if not single :
+                    res += out
+                else :
+                    Exception("Found at least two results : %s & %s" % (str(res), str(out)))
+    return res
+
 
 
 def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
@@ -455,7 +467,7 @@ def _newAct(db_name, code):
     # Already present : delete it ?
     for act in db:
         if act['code'] == code:
-            _eprint("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
+            error("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
             act.delete()
 
     return db.new_activity(code)

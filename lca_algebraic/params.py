@@ -1,4 +1,5 @@
 import builtins
+import enum
 import math
 import numpy as np
 from typing import Dict, List, Union, Tuple
@@ -15,18 +16,43 @@ import ipywidgets as widgets
 
 
 import lca_algebraic.base_utils
-from .base_utils import _eprint, as_np_array, _getAmountOrFormula
+from .base_utils import error, as_np_array, _getAmountOrFormula
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 
+
+class DbContext :
+    """
+        Context class specifying the current foreground DB in use. in internal
+        Used internally to distinguish database parameters with same names
+
+        usage :
+        with DbContext("db") :
+            <some code>
+
+    """
+    currentdb = None
+
+    def __init__(self, currentdb) :
+        self.currentdb = currentdb if isinstance(currentdb, str) else currentdb.name
+
+    def __enter__(self):
+        if DbContext.currentdb != None :
+            raise Exception("Another context with already setup : you cannot nest them : '%s'" % DbContext.currentdb)
+
+        DbContext.currentdb = self.currentdb
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        DbContext.currentdb = None
+
+
 def _param_registry():
     # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:
-        builtins.param_registry = dict()
+        builtins.param_registry = ParamRegistry()
 
     return builtins.param_registry
-
 
 
 class ParamType:
@@ -41,7 +67,7 @@ class ParamType:
     FLOAT = "float"
     """Float parameter """
 
-class DistributionType:
+class DistributionType(enum.Enum):
     """
         Type of statistic distribution of a float parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
@@ -118,7 +144,7 @@ class ParamDef(Symbol):
         return Symbol.__new__(cls, name)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
-                 group=None, distrib:DistributionType=None, **kwargs):
+                 group=None, distrib:DistributionType=None, dbname=None, **kwargs):
 
         self.name = name
         self.type = type
@@ -131,6 +157,10 @@ class ParamDef(Symbol):
         self.label_fr = label_fr
         self.group = group
         self.distrib = distrib
+        self.dbname = dbname
+
+        if (self.dbname == None) :
+            error("Warning : param '%s' linked to root project instead of a specific DB")
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, "_distrib") :
@@ -148,7 +178,7 @@ class ParamDef(Symbol):
             self.std = kwargs['std']
 
             if distrib == DistributionType.LOGNORMAL and self.min is not None :
-                _eprint("Warning : LogNormal does not support min/max boundaries for parameter : ", self.name)
+                error("Warning : LogNormal does not support min/max boundaries for parameter : ", self.name)
 
         elif distrib == DistributionType.BETA :
             if not 'a' in kwargs or not 'b' in kwargs or not 'std' in kwargs :
@@ -236,7 +266,11 @@ class ParamDef(Symbol):
 
             return self._distrib.ppf(alpha)
 
+    def __hash__(self):
+        return hash((self.dbname, self.name))
 
+    def __eq__(self, other):
+        return self.name == other.name and self.dbname == other.dbname
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
@@ -361,7 +395,7 @@ class EnumParam(ParamDef):
             return self.weights
 
 
-def newParamDef(name, type, save=True, **kwargs):
+def newParamDef(name, type, dbname=None, save=True, **kwargs):
     """
         Creates a parameter and register it into a global registry and as a brightway parameter.
 
@@ -370,19 +404,20 @@ def newParamDef(name, type, save=True, **kwargs):
 
         type : Type of the parameter (From ParamType)
         save : Boolean, persist this into Brightway2 project (True by default)
+        dbname : Optional name of db. If None, the parameter is a project parameter
         other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
 
     """
     if type == ParamType.ENUM:
-        param = EnumParam(name, **kwargs)
+        param = EnumParam(name, dbname=dbname, **kwargs)
     elif type == ParamType.BOOL:
-        param = BooleanDef(name, **kwargs)
+        param = BooleanDef(name, dbname=dbname, **kwargs)
     else:
-        param = ParamDef(name, type=type, **kwargs)
+        param = ParamDef(name, dbname=dbname, type=type, **kwargs)
 
     # Put it in global registry (in memory)
     if name in _param_registry():
-        _eprint("Param %s was already defined : overriding" % name)
+        error("Param %s was already defined : overriding" % name)
     _param_registry()[name] = param
 
     # Save in brightway2 project
@@ -448,7 +483,7 @@ def _persistParam(param):
                 bwParam["shape"] = param.b
 
         else :
-            _eprint("Param type not supported", param.type)
+            error("Param type not supported", param.type)
 
         out.append(bwParam)
 
@@ -484,6 +519,7 @@ def loadParams(global_variable=True):
         if global_variable:
             builtins.__dict__[param.name] = param
 
+        DatabaseParameter.select()
     for bwParam in ProjectParameter.select():
         data = bwParam.data
         data["amount"] = bwParam.amount
@@ -511,12 +547,12 @@ def loadParams(global_variable=True):
                 del args["max"], args["min"]
                 param = newBoolParam(name, save=False, **args)
             else:
-                _eprint("Non boolean discrete values (max != 2) are not supported for param :", name)
+                error("Non boolean discrete values (max != 2) are not supported for param :", name)
                 continue
         else :
             # Float parameter
             if type is None:
-                _eprint("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
+                error("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
                 type = _UncertaintyType.UNIFORM
 
             # Uncertainty type to distribution type
@@ -556,7 +592,7 @@ def loadParams(global_variable=True):
             default = defaults[0]
         else :
             default= None
-            _eprint("No default enum value found for ", param_name, defaults)
+            error("No default enum value found for ", param_name, defaults)
 
         param = newEnumParam(param_name, default, save=False, **args)
 
@@ -564,17 +600,17 @@ def loadParams(global_variable=True):
         register(param)
 
 
-def newFloatParam(name, default, **kwargs):
+def newFloatParam(name, default, dbname=None, **kwargs):
     """ Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
+    return newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)
 
-def newBoolParam(name, default, **kwargs):
+def newBoolParam(name, default, dbname=None, **kwargs):
     """ Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
+    return newParamDef(name, ParamType.BOOL, dbname=dbname, default=default, **kwargs)
 
-def newEnumParam(name, default, **kwargs):
+def newEnumParam(name, default, dbname=None, **kwargs):
     """ Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
+    return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, **kwargs)
 
 def _variable_params(param_names=None):
     if param_names is None :
@@ -593,6 +629,52 @@ def _fixed_params(param_names=None):
 def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
+class DuplicateParamsAndNoContextException(Exception) :
+    pass
+
+class ParamRegistry :
+    """ In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs"""
+    def __init__(self) :
+        # We store a dict of dict
+        # Param Name -> { dbname ->  param}
+        self.params : Dict[Dict[ParamDef]] = defaultdict(dict)
+
+    def __len__(self):
+        return len(self.params)
+
+    def __getitem__(self, key):
+        params_per_db = self.params[key]
+        if len(params_per_db) == 1 :
+            return list(params_per_db.values())[0]
+
+        if DbContext.currentdb == None :
+            raise DuplicateParamsAndNoContextException(
+                """
+                Found several params with name '%s', linked to databases (%s) . Yet no context is provided. 
+                Please embed you code in a context :
+                    with DbContext(currentdb) :
+                        <code>
+                """ % (key, ", ".join(params_per_db.keys())))
+
+        return params_per_db[DbContext.currentdb]
+
+    def __setitem__(self, key, param : ParamDef):
+        self.params[key][param.dbname] = param
+
+    def __contains__(self, key):
+        return key in self.params
+
+    def values(self) :
+        return [self.__getitem__(key) for key in (self.params)]
+
+    def keys(self) :
+        return self.params.keys()
+
+    def items(self) :
+        return [(key, self.__getitem__(key)) for key in self.params.keys()]
+
+    def clear(self):
+        self.params.clear()
 
 # Possible param values : either floator string (enum value)
 ParamValue = Union[float, str]
@@ -614,7 +696,7 @@ def _completeParamValues(params: Dict[str, ParamValues], required_params : List[
             param = _param_registry()[param_name]
             if not param_name in params :
                 params[param_name] = param.default
-                _eprint("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
+                error("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
 
     # Set default variables for missing values
     if setDefaults :
@@ -704,5 +786,6 @@ def freezeParams(db_name, **params) :
                 # Update in DB
                 exc["amount"] = amount
                 exc.save()
+
 
 

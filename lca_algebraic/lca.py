@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from sympy import lambdify, simplify
 
-from .base_utils import _actName, _eprint, _getDb, _method_unit
+from .base_utils import _actName, error, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
 from .helpers import *
 from .helpers import _actDesc, _isForeground
@@ -320,13 +320,13 @@ def _filter_params(params, expected_names, model) :
         if expected_name not in params:
             default = _param_registry()[expected_name].default
             res[expected_name] = default
-            _eprint("Missing parameter %s, replaced by default value %s" % (expected_name, default))
+            error("Missing parameter %s, replaced by default value %s" % (expected_name, default))
 
     for key, value in params.items():
         if not key in expected_params_names:
             del res[key]
             if model :
-                _eprint("Param %s not required for model %s" % (key, model))
+                error("Param %s not required for model %s" % (key, model))
     return res
 
 def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **params):
@@ -353,23 +353,24 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
         if type(model) is tuple:
             model, alpha = model
 
-        # print(model, type(model), methods)
+        dbname = model.key[0]
+        with DbContext(dbname):
 
-        # Fill default values
-        lambdas = preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
+            # Fill default values
+            lambdas = preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
 
-        # Filter on required parameters
-        df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
+            # Filter on required parameters
+            df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
-        model_name = _actName(model)
-        while model_name in dfs :
-            model_name += "'"
+            model_name = _actName(model)
+            while model_name in dfs :
+                model_name += "'"
 
-        # Single params ? => give the single row the name of the model activity
-        if df.shape[0] == 1:
-            df = df.rename(index={0: model_name})
+            # Single params ? => give the single row the name of the model activity
+            if df.shape[0] == 1:
+                df = df.rename(index={0: model_name})
 
-        dfs[model_name] = df
+            dfs[model_name] = df
 
     if len(dfs) == 1:
         df = list(dfs.values())[0]

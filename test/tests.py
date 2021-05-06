@@ -3,6 +3,7 @@ import sys
 import pytest
 
 from lca_algebraic.helpers import _isForeground
+from lca_algebraic.params import _param_registry
 
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
@@ -42,7 +43,7 @@ def test_load_params():
     _p2 = newFloatParam('p2', min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
     _p3 = newBoolParam('p3',default=1)
 
-    # Params are loaded as global variable with their names
+    # Params are loaded as global variable with their real names
     loadParams()
 
     assert _p1.__dict__ == p1.__dict__
@@ -156,6 +157,29 @@ def test_setforeground() :
     setBackground(USER_DB)
 
     assert _isForeground(USER_DB) == False
+
+
+def test_db_params() :
+
+    # Define 3 variables with same name, attached to project or db (user or bg)
+    p1_bg = newBoolParam("p1", False, dbname=BG_DB)
+    p1_fg = newBoolParam("p1", False, dbname=USER_DB)
+    p1_project = newBoolParam("p1", False, dbname=USER_DB)
+
+    # No context provided  ? => should fail : we can't know what param we refer to
+    with pytest.raises(DuplicateParamsAndNoContextException) as exc:
+        p1 = _param_registry()["p1"]
+
+    assert "context" in str(exc)
+
+    with DbContext(USER_DB) :
+        p1 = _param_registry()["p1"]
+        assert p1 == p1_fg
+
+    with DbContext(BG_DB):
+        p1 = _param_registry()["p1"]
+        assert p1 == p1_bg
+
 
 if __name__ == '__main__':
     pytest.main(sys.argv)

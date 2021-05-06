@@ -29,10 +29,9 @@ def debug(*args, **kwargs) :
         print(*args, **kwargs)
 
 def error(*args, **kwargs):
+    """Print message on stderr """
     print(*args, **kwargs, file=stderr)
 
-def _eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
 
 
 def _isnumber(value):
@@ -93,7 +92,7 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
         try:
             return parse_expr(ex['formula'])
         except:
-            _eprint("Error while parsing formula '%s' : backing to amount" % ex['formula'])
+            error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
 
     return ex['amount']
 
