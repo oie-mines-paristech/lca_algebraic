@@ -8,7 +8,11 @@ import brightway2 as bw
 import ipywidgets as widgets
 import numpy as np
 from IPython.core.display import HTML
+from bw2data.backends import LCIBackend
+from bw2data.backends.peewee import Activity
+from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
+from bw2data.proxies import ActivityProxyBase
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
 from sympy import Symbol, Basic
 from tabulate import tabulate
@@ -40,8 +44,13 @@ class DbContext :
         return DbContext.stack[-1]
 
 
-    def __init__(self, db) :
-        self.db = db if isinstance(db, str) else db.name
+    def __init__(self, db : Union[str, ActivityProxyBase, LCIBackend]) :
+        if isinstance(db, ActivityProxyBase) :
+            self.db = db.key[0]
+        elif isinstance(db, str) :
+            self.db = db
+        else :
+            self.db = db.name
 
     def __enter__(self):
         DbContext.stack.append(self.db)
@@ -70,7 +79,7 @@ class ParamType:
     FLOAT = "float"
     """Float parameter """
 
-class DistributionType(enum.Enum):
+class DistributionType():
     """
         Type of statistic distribution of a float parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
@@ -443,7 +452,7 @@ def persistParams() :
      https://stats-arrays.readthedocs.io/en/latest/
     """
 
-    for name, param in _param_registry().items() :
+    for param in _param_registry().all() :
         _persistParam(param)
 
 def _persistParam(param):
@@ -475,6 +484,8 @@ def _persistParam(param):
             bwParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
 
         elif param.type == ParamType.FLOAT :
+
+            print(type(param.distrib), param.distrib, _DistributionTypeMap.keys(), param.distrib in _DistributionTypeMap)
 
             # Save uncertainty
             bwParam[UNCERTAINTY_TYPE] = _DistributionTypeMap[param.distrib]
@@ -513,14 +524,14 @@ def _loadArgs(data) :
         "max": data.get("maximum"),
     }
 
-def loadParams(global_variable=True):
+def loadParams(global_variable=True, dbname=None):
     """
     Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/
 
     Parameters
     ----------
     global_variable If true, loaded parameters are made available as global variable.
-
+    dbname : None. By default load all project and database parameters. If provided, only load DB params
     """
 
     enumParams=defaultdict(lambda : dict())
@@ -534,8 +545,15 @@ def loadParams(global_variable=True):
                 error("Variable '%s' was already defined : overidding it with param." % param.name)
             builtins.__dict__[param.name] = param
 
+    select = DatabaseParameter.select()
+    if dbname :
+        select = select.where(DatabaseParameter.database == dbname)
 
-    for bwParam in list(ProjectParameter.select()) + list(DatabaseParameter.select()):
+    params = list(select)
+    if not dbname :
+        params += list(ProjectParameter.select())
+
+    for bwParam in params:
         data = bwParam.data
         data["amount"] = bwParam.amount
         name = bwParam.name
@@ -672,12 +690,14 @@ class ParamRegistry :
                     with DbContext(currentdb) :
                         <code>
                 """ % (key, ", ".join(dbs)))
-
-        return params_per_db[DbContext.current_db()]
+        if DbContext.current_db() in params_per_db :
+            return params_per_db[DbContext.current_db()]
+        else :
+            return params_per_db[None]
 
     def __setitem__(self, key, param : ParamDef):
         if param.dbname in self.params[key]:
-            error("Param %s was already defined in '%s' : overriding." %
+            error("[ParamRegistry] Param %s was already defined in '%s' : overriding." %
                   (param.name, param.dbname or '<project>'))
 
         self.params[key][param.dbname] = param
@@ -768,7 +788,7 @@ def list_parameters(name_type=NameType.LABEL):
         std=getattr(param, "std", None),
         distrib=param.distrib,
         unit=param.unit,
-        db=param.dbname or "<project>") for  param in _param_registry().all()]
+        db=param.dbname or "[project]") for  param in _param_registry().all()]
 
     groups = list({p["group"] for p in params})
     groups = sorted(groups)
@@ -792,21 +812,23 @@ def freezeParams(db_name, **params) :
 
     db = bw.Database(db_name)
 
-    for act in db :
+    with DbContext(db) :
+        for act in db :
+            for exc in act.exchanges():
 
-        for exc in act.exchanges():
+                amount = _getAmountOrFormula(exc)
 
-            amount = _getAmountOrFormula(exc)
+                # Amount is a formula ?
+                if isinstance(amount, Basic):
 
-            # Amount is a formula ?
-            if isinstance(amount, Basic):
+                    replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
+                    val = float(amount.subs(replace).evalf())
 
-                replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
-                amount = amount.subs(replace).evalf()
+                    print("Freezing %s // %s : %s => %d" % (act, exc['name'], amount, val))
 
-                # Update in DB
-                exc["amount"] = amount
-                exc.save()
+                    # Update in DB
+                    exc["amount"] = val
+                    exc.save()
 
 
 

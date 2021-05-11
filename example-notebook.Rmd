@@ -159,6 +159,13 @@ b = newFloatParam(
     default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
+# Parameters can be attached to a specific DB instead of global project
+# We recommand this for portability
+b_ = newFloatParam(
+    'b',
+    default=0.5, # Fixed if no min /max provided
+    description="foo bar",
+    dbname=USER_DB)
 
 share_recycled_aluminium = newFloatParam(
     'share_recycled_aluminium',  
@@ -393,7 +400,6 @@ multiLCA(
                    
     # Parameters of the model
     a=1, 
-    b=2, 
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```
@@ -407,7 +413,6 @@ multiLCAAlgebric(
     
     # Parameters of the model
     a=1, 
-    b=2,
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```
@@ -438,7 +443,7 @@ multiLCAAlgebric(
     extract_activities = [alu2],
     
     # Parameters of the model
-    a=1, b=2, 
+    a=1, 
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```

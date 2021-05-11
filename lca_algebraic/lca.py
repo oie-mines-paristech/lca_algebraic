@@ -44,35 +44,15 @@ def multiLCA(models, methods, **params):
     params : Other parameters of the model
     """
 
-    former_defaults = dict()
+    if not isinstance(models, list):
+        models = [models]
 
-    if params :
+    # Freeze params
+    dbs = set(model[0] for model in models)
+    for db in dbs :
+        freezeParams(db, **params)
 
-        # Update default values, save previous defaults
-        for name, value in params.items() :
-            param = _param_registry()[name]
-            former_defaults[name] = param.default
-            param.default = value
-
-        # Save params to DB
-        persistParams()
-
-    bw.parameters.recalculate()
-    ActivityParameter.recalculate_exchanges(DEFAULT_PARAM_GROUP)
-
-    if isinstance(models, list):
-        activities = [{act: 1} for act in models]
-    else:
-        activities = [{models: 1}]
-
-
-    # Reset param values
-    if params :
-        for name, value in former_defaults.items() :
-            param = _param_registry()[name]
-            param.default = value
-        persistParams()
-
+    activities = [{act: 1} for act in models]
     return _multiLCA(activities, methods).transpose()
 
 
@@ -235,10 +215,11 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:Lis
 
         This method is used by multiLCAAlgebric
     '''
-    exprs, expected_names = _modelToExpr(model, methods, extract_activities=extract_activities)
+    with DbContext(model) :
+        exprs, expected_names = _modelToExpr(model, methods, extract_activities=extract_activities)
 
-    # Lambdify (compile) expressions
-    return [LambdaWithParamNames(expr, expected_names) for expr in exprs]
+        # Lambdify (compile) expressions
+        return [LambdaWithParamNames(expr, expected_names) for expr in exprs]
 
 
 def method_name(method):
@@ -419,7 +400,7 @@ def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT)
     sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
     return expr.xreplace(sub)
 
-
+@with_db_context
 def actToExpression(act: Activity, extract_activities=None):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols

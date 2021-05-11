@@ -77,12 +77,12 @@ def list_databases() :
     return res.set_index("name")
 
 
-def db_context(func):
-    """ Decorator adding DbContext for a method of an Activity, using its DB. """
+def with_db_context(func):
+    """ Decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        self = args[0]
-        dbname = self.key[0]
+        act = args[0]
+        dbname = act.key[0]
         with DbContext(dbname) :
             return func(*args, **kwargs)
     return wrapper
@@ -92,7 +92,7 @@ class ActivityExtended(Activity):
     Those methods are backported to #Activity in order to be directly available on all existing instances
     """
 
-    @db_context
+    @with_db_context
     def listExchanges(self) :
         """ Iterates on all exchanges (except "production") and return a list of (exch-name, target-act, amount) """
         res = []
@@ -107,7 +107,7 @@ class ActivityExtended(Activity):
             res.append((exc["name"], input, amount))
         return res
 
-    @db_context
+    @with_db_context
     def getExchange(self, name=None, input=None, single=True):
         """Get exchange by name or input
 
@@ -171,7 +171,7 @@ class ActivityExtended(Activity):
         '''Set the amount for the single output exchange (1 by default)'''
         self.addExchanges({self: amount})
 
-    @db_context
+    @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
 
         """Update existing exchanges, by name.
@@ -239,7 +239,7 @@ class ActivityExtended(Activity):
             ex.save()
         self.save()
 
-    @db_context
+    @with_db_context
     def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
 
         """Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
@@ -263,7 +263,7 @@ class ActivityExtended(Activity):
         self.addExchanges({switch_act: prev_amount})
         self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
 
-    @db_context
+    @with_db_context
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
         """Add exchanges to an existing activity, with a compact syntax :
 
@@ -303,7 +303,7 @@ class ActivityExtended(Activity):
             #if parametrized:
             #  bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
-    @db_context
+    @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
         """
         Get the amount of one or several exchanges, selected by name or input. See #getExchange()
@@ -616,52 +616,53 @@ def printAct(*args, impact=None, **params):
 
 
     for act in activities:
-        inputs_by_ex_name = dict()
-        df = pd.DataFrame(index=['input', 'amount', 'unit'])
-        data = dict()
-        for (i, exc) in enumerate(act.exchanges()):
+        with DbContext(act.key[0]) :
+            inputs_by_ex_name = dict()
+            df = pd.DataFrame(index=['input', 'amount', 'unit'])
+            data = dict()
+            for (i, exc) in enumerate(act.exchanges()):
 
-            # Don't show production
-            if exc['type'] == 'production' :
-                continue
+                # Don't show production
+                if exc['type'] == 'production' :
+                    continue
 
-            input = bw.get_activity(exc.input.key)
-            amount = _getAmountOrFormula(exc)
+                input = bw.get_activity(exc.input.key)
+                amount = _getAmountOrFormula(exc)
 
-            # Params provided ? Evaluate formulas
-            if len(params) > 0 and isinstance(amount, Basic):
-                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
-                amount = amount.subs(new_params)
+                # Params provided ? Evaluate formulas
+                if len(params) > 0 and isinstance(amount, Basic):
+                    new_params = [(name, value) for name, value in _completeParamValues(params).items()]
+                    amount = amount.subs(new_params)
 
-            ex_name = exc['name']
-            #if 'location' in input and input['location'] != "GLO":
-            #    name += "#%s" % input['location']
-            #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-            #    name += " {user-db}"
+                ex_name = exc['name']
+                #if 'location' in input and input['location'] != "GLO":
+                #    name += "#%s" % input['location']
+                #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                #    name += " {user-db}"
 
-            # Unique name : some exchanges may havve same names
-            _name = ex_name
-            i = 1
-            while ex_name in data:
-                ex_name = "%s#%d" % (_name, i)
-                i += 1
+                # Unique name : some exchanges may havve same names
+                _name = ex_name
+                i = 1
+                while ex_name in data:
+                    ex_name = "%s#%d" % (_name, i)
+                    i += 1
 
-            inputs_by_ex_name[ex_name] = input
+                inputs_by_ex_name[ex_name] = input
 
-            input_name = _actName(input)
-            if _isForeground(input.key[0]):
-                input_name += "{FG}"
+                input_name = _actName(input)
+                if _isForeground(input.key[0]):
+                    input_name += "{FG}"
 
-            data[ex_name] = [input_name, amount, exc.unit]
+                data[ex_name] = [input_name, amount, exc.unit]
 
-        # Provide impact calculation if impact provided
+            # Provide impact calculation if impact provided
 
 
-        for key, values in data.items():
-            df[key] = values
+            for key, values in data.items():
+                df[key] = values
 
-        tables.append(df.T)
-        names.append(_actDesc(act))
+            tables.append(df.T)
+            names.append(_actDesc(act))
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 

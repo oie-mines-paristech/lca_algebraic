@@ -8,6 +8,7 @@ from ipywidgets import interact
 from matplotlib import pyplot as plt
 from sympy import Float, Number, Add, AtomicExpr
 from time import time
+from .helpers import with_db_context
 from .base_utils import _method_unit, error
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
@@ -42,6 +43,7 @@ def extract_var_params(lambdas):
     return sorted(var_params.values(), key=lambda p: (p.group, p.name))
 
 
+@with_db_context
 def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
@@ -120,7 +122,8 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     # print("Params: ", params)
 
     if isinstance(modelOrLambdas, Activity):
-        df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+        with DbContext(modelOrLambdas) :
+            df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else:
         df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
@@ -174,7 +177,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         ("Variation", change)
     ])
 
-
+@with_db_context
 def oat_dashboard_interact(model, methods, **kwparams):
     '''Interactive dashboard, with a dropdown for selecting parameter
 
@@ -188,7 +191,8 @@ def oat_dashboard_interact(model, methods, **kwparams):
     lambdas = preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
-        oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
+        with DbContext(model):
+            oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
     param_list = list(_variable_params(param_list).keys())
@@ -354,7 +358,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob):
                  ('Relative to mean (%)', 'percent')]
              )
 
-
+@with_db_context
 def incer_stochastic_matrix(model, methods, n=1000):
     '''
     Method computing matrix of parameter importance
@@ -420,6 +424,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
     plt.show(fig)
 
 
+@with_db_context
 def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
     '''
     Method for computing violin graph of impacts
@@ -429,7 +434,6 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **
     var_params: Optional list of parameters to vary.
     By default use all the parameters with distribution not FIXED
     '''
-
     _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     _incer_stochastic_violin(methods, Y, **kwparams)
@@ -492,6 +496,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
     displayWithExportButton(df)
 
+@with_db_context
 def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
     ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
@@ -534,6 +539,7 @@ def _round_expr(expr, num_digits):
     ''' Round all number in sympy expression with n digits'''
     return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
 
+@with_db_context
 def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
@@ -772,6 +778,7 @@ def distrib(*args, **kwargs) :
     return graphs(*args, **kwargs)
 
 
+@with_db_context
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
@@ -796,6 +803,7 @@ def graphs(
     height: Height of graph : 10 inches be default
     width : Width of graphs : 15 inches by default
     """
+
 
     if Y is None:
         _, _, Y = _stochastics(model, methods, n=10000)
@@ -847,8 +855,7 @@ def graphs(
     return pd.DataFrame(res)
 
 
-
-
+@with_db_context
 def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     '''
     Compare distribution of simplified model with full model
