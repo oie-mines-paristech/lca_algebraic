@@ -1,19 +1,19 @@
-import warnings
-import random
-import seaborn as sns
 import math
+import random
+import warnings
+from time import time
+
+import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
 from matplotlib import pyplot as plt
 from sympy import Float, Number, Add, AtomicExpr
-from time import time
-from .helpers import with_db_context
-from .base_utils import _method_unit, error
+
+from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
 from .params import _variable_params, _param_registry, FixedParamMode
-
 
 PARALLEL=False
 
@@ -142,7 +142,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
 
-            nb_rows = int(math.ceil(len(impacts) /cols))
+            nb_rows = int(math.ceil(len(impacts) / cols))
 
             fig, axes = plt.subplots(figsize=figsize)
             plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
@@ -593,10 +593,12 @@ def sobol_simplify_model(
         print('ST: ', np.sum(sob.st[:, imethod]))
 
         sum = 0
+
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
         sobols = dict()
+
         for iparam, param in enumerate(sorted_param_indices) :
 
 
@@ -631,10 +633,12 @@ def sobol_simplify_model(
         # Lambdify the expression
         lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
-        # Extra step of simplification : siplify sums with neligeable terms
+        # Extra step of simplification : simplify sums with neligeable terms
         expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
 
         simplified_expr = simplify(expr)
+
+        display(simplified_expr)
 
         res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
 
@@ -687,7 +691,6 @@ def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
 
         return exp.func(*args)
 
-    print(lambdaWithParams.expr)
     return cleanup(lambdaWithParams.expr)
 
 

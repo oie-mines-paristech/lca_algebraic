@@ -54,6 +54,7 @@ def test_load_params():
     assert _p3.__dict__ == loaded_params[("p3", None)].__dict__
     assert _p3_fg.__dict__ == loaded_params[("p3", USER_DB)].__dict__
 
+
 def test_switch_activity_support_sevral_times_same_target() :
     """ Test that switch activity can target the same activity several times """
 
@@ -125,12 +126,16 @@ def test_freeze() :
         name = exc["name"]
         amount = exc["amount"]
 
+        # Brightway2 does not like ints ...
+        assert isinstance(amount, float)
+
         if name == "bio1" :
             # p1=1 (default) * 2
             assert amount == 2.0
         elif name == 'bio2' :
             # p2=2 * 3
             assert amount == 6.0
+
 
 
 def test_enum_values_are_enforced():

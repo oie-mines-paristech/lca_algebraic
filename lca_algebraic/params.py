@@ -19,6 +19,9 @@ from tabulate import tabulate
 
 from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
 
+import lca_algebraic.base_utils
+from .base_utils import as_np_array, _getAmountOrFormula, _actName
+
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 
@@ -802,7 +805,6 @@ def list_parameters(name_type=NameType.LABEL):
     return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
 
 
-
 def freezeParams(db_name, **params) :
     """
         Freeze parameters values in all exchanges amounts of a DB.
@@ -829,6 +831,5 @@ def freezeParams(db_name, **params) :
                     # Update in DB
                     exc["amount"] = val
                     exc.save()
-
 
 
