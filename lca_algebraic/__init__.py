@@ -9,6 +9,9 @@ from .lca import *
 from .stats import *
 from .params import *
 
+def deleteDb(db_name) :
+    del bw.databases[db_name]
+
 def resetDb(db_name, foreground=True):
     """ Create or cleanup a user DB"""
     if db_name in bw.databases:
@@ -32,7 +35,7 @@ def importDb(dbname, path):
     '''Import eco invent DB'''
 
     if dbname in bw.databases:
-        _eprint("Database '%s' has already been imported " % dbname)
+        error("Database '%s' has already been imported " % dbname)
     else:
         ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
         ei34.apply_strategies()

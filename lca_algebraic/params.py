@@ -1,22 +1,19 @@
 import builtins
 import enum
-import math
-import numpy as np
+from collections import defaultdict
+from enum import Enum
 from typing import Dict, List, Union, Tuple
 
 import brightway2 as bw
-from tabulate import tabulate
+import ipywidgets as widgets
+import numpy as np
 from IPython.core.display import HTML
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
 from sympy import Symbol, Basic
-from collections import defaultdict
-from enum import Enum
-import ipywidgets as widgets
+from tabulate import tabulate
 
-
-import lca_algebraic.base_utils
-from .base_utils import error, as_np_array, _getAmountOrFormula
+from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -217,7 +214,7 @@ class ParamDef(Symbol):
 
 
     def get_label(self):
-        if lca_algebraic.base_utils.LANG == "fr " and self.label_fr is not None :
+        if LANG == "fr " and self.label_fr is not None :
             return self.label_fr
         elif self.label is not None:
             return self.label
@@ -456,6 +453,9 @@ def _persistParam(param):
     # Common attributes for all types of params
     bwParam = dict(name=param.name, group=param.group, label=param.label, description=param.description)
 
+    if (param.dbname) :
+        bwParam["database"] = param.dbname
+
     if param.type == ParamType.ENUM :
         # Enum are not real params but a set of parameters
         for value in param.values :
@@ -496,12 +496,16 @@ def _persistParam(param):
 
         out.append(bwParam)
 
-    bw.parameters.new_project_parameters(out)
+    if param.dbname :
+        bw.parameters.new_database_parameters(out, param.dbname)
+    else:
+        bw.parameters.new_project_parameters(out)
 
 def _loadArgs(data) :
     """Load persisted data attributes into ParamDef attributes"""
     return {
         "group": data.get("group"),
+        "dbname" : data.get("database"),
         "default": data.get("amount"),
         "label": data.get("label"),
         "description": data.get("description"),
@@ -526,10 +530,12 @@ def loadParams(global_variable=True):
 
         # Make it available as global var
         if global_variable:
+            if param.name in builtins.__dict__ :
+                error("Variable '%s' was already defined : overidding it with param." % param.name)
             builtins.__dict__[param.name] = param
 
-        DatabaseParameter.select()
-    for bwParam in ProjectParameter.select():
+
+    for bwParam in list(ProjectParameter.select()) + list(DatabaseParameter.select()):
         data = bwParam.data
         data["amount"] = bwParam.amount
         name = bwParam.name
@@ -691,6 +697,10 @@ class ParamRegistry :
     def clear(self):
         self.params.clear()
 
+    def all(self) :
+        """Return list of all parameters, including params with same names and different DB"""
+        return list(param for params in self.params.values() for param in params.values())
+
 # Possible param values : either floator string (enum value)
 ParamValue = Union[float, str]
 
@@ -749,32 +759,28 @@ class NameType(Enum) :
 def list_parameters(name_type=NameType.LABEL):
 
     """ Print a pretty list of all defined parameters """
-    params = [[
-        param.group or "",
-        name if name_type == NameType.NAME else param.get_label(),
-        #param.default
-        widgets.FloatSlider(
-            value=7.5,
-            min=0,
-            max=10.0),
-        param.min,
-        param.max,
-        getattr(param, "std", None),
-        param.distrib,
-        param.unit] for name, param in _param_registry().items()]
+    params = [dict(
+        group=param.group or "",
+        name=param.name if name_type == NameType.NAME else param.get_label(),
+        default=param.default,
+        min=param.min,
+        max=param.max,
+        std=getattr(param, "std", None),
+        distrib=param.distrib,
+        unit=param.unit,
+        db=param.dbname or "<project>") for  param in _param_registry().all()]
 
-    groups = list({p[0] for p in params})
+    groups = list({p["group"] for p in params})
     groups = sorted(groups)
 
     # Sort by Group / name
     def keyf(param) :
-        group = param[0]
-        name = param[1]
-        return (groups.index(group), name)
+        return (groups.index(param["group"]), param["name"])
 
     sorted_params = sorted(params, key=keyf)
 
-    return HTML((tabulate(sorted_params, tablefmt="html", headers=["name", "group", "default", "min", "max", "std", "distrib", "unit"])))
+    return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
+
 
 
 def freezeParams(db_name, **params) :

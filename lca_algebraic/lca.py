@@ -347,6 +347,8 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
     """
     dfs = dict()
 
+
+
     if not isinstance(models, list):
         models = [models]
 
@@ -358,6 +360,12 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
 
         dbname = model.key[0]
         with DbContext(dbname):
+
+            # Check no params are passed for FixedParams
+            for key in params:
+                if key in _fixed_params() :
+                    error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
+
 
             lambdas = preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
 

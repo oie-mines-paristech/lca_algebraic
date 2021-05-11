@@ -41,13 +41,18 @@ def test_load_params():
     _p1 = newEnumParam('p1',values={"v1":0.6, "v2":0.3}, default="v1")
     _p2 = newFloatParam('p2', min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
     _p3 = newBoolParam('p3',default=1)
+    _p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
 
     # Params are loaded as global variable with their real names
     loadParams()
 
-    assert _p1.__dict__ == p1.__dict__
-    assert _p2.__dict__ == p2.__dict__
-    assert _p3.__dict__ == p3.__dict__
+    # Get params from in memory DB
+    loaded_params = {(param.name, param.dbname) : param for param in _param_registry().all()}
+
+    assert _p1.__dict__ == loaded_params[("p1", None)].__dict__
+    assert _p2.__dict__ == loaded_params[("p2", None)].__dict__
+    assert _p3.__dict__ == loaded_params[("p3", None)].__dict__
+    assert _p3_fg.__dict__ == loaded_params[("p3", USER_DB)].__dict__
 
 def test_switch_activity_support_sevral_times_same_target() :
     """ Test that switch activity can target the same activity several times """

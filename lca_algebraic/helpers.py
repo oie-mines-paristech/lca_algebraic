@@ -1,21 +1,21 @@
 import functools
 import re
 import types
-from collections import defaultdict
+
 from copy import deepcopy
 from itertools import chain
-from typing import *
 
 import pandas as pd
-from IPython.core.display import display
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
+from bw2data.meta import databases as dbmeta
 from sympy import symbols
 
 from .base_utils import *
-from .base_utils import _getDb, error, _actDesc, _getAmountOrFormula, _actName
+from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName
 from .params import *
 from .params import _param_registry, _completeParamValues
-from bw2data.meta import databases as dbmeta
+from typing import Tuple, Dict
+
 
 BIOSPHERE3_DB_NAME="biosphere3"
 
@@ -66,9 +66,19 @@ old_amount = symbols("old_amount")  # Can be used in expression of amount for up
 NumOrExpression = Union[float, Basic]
 
 
+def list_databases() :
+    """List of databases and their status"""
+    data = list(
+        dict(
+            name=name,
+            backend=_getMeta(name, "backend"),
+            type="foreground" if _isForeground(name) else "background") for name in bw.databases)
+    res = pd.DataFrame(data)
+    return res.set_index("name")
+
 
 def db_context(func):
-    """ Add DbContext for a method of an Activity, using its DB. """
+    """ Decorator adding DbContext for a method of an Activity, using its DB. """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         self = args[0]
