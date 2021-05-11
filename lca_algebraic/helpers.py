@@ -223,9 +223,6 @@ class ActivityExtended(Activity):
                 if 'formula' in attrs:
                     parametrized = True
 
-        # For compatibility with Brightay2 parametrized computation : #multiLCA()
-        if parametrized :
-            bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
     def deleteExchanges(self, name, single=True):
         ''' Remove matching exchanges '''
@@ -275,7 +272,6 @@ class ActivityExtended(Activity):
 
         with DbContext(self.key[0]) :
 
-            parametrized = False
             for sub_act, attrs in exchanges.items():
 
                 if isinstance(attrs, dict):
@@ -298,10 +294,6 @@ class ActivityExtended(Activity):
                 exch.save()
             self.save()
 
-            # For compatibility with Brightway2 paramatrized LCIA : multiLCA()
-            # FIXME : Disable groups for now
-            #if parametrized:
-            #  bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
 
     @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
