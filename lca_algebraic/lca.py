@@ -80,6 +80,9 @@ def multiLCA(models, methods, **params):
 # Cache of (act, method) => values
 _BG_IMPACTS_CACHE = dict()
 
+def _clearLCACache() :
+    _BG_IMPACTS_CACHE.clear()
+
 """ Compute LCA and return (act, method) => value """
 def _multiLCAWithCache(acts, methods) :
 
@@ -356,10 +359,8 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
         dbname = model.key[0]
         with DbContext(dbname):
 
-            # Fill default values
             lambdas = preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
 
-            # Filter on required parameters
             df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
             model_name = _actName(model)

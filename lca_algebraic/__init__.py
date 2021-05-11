@@ -9,13 +9,17 @@ from .lca import *
 from .stats import *
 from .params import *
 
-def resetDb(db_name):
+def resetDb(db_name, foreground=True):
     """ Create or cleanup a user DB"""
     if db_name in bw.databases:
         error("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
     db = bw.Database(db_name)
     db.write(dict())
+    if foreground :
+        setForeground(db_name)
+    else:
+        setBackground(db_name)
 
 
 def initDb(project_name) :

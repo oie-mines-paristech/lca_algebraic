@@ -22,6 +22,8 @@ DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 
 
+
+
 class DbContext :
     """
         Context class specifying the current foreground DB in use. in internal
@@ -32,19 +34,23 @@ class DbContext :
             <some code>
 
     """
-    currentdb = None
+    stack = []
 
-    def __init__(self, currentdb) :
-        self.currentdb = currentdb if isinstance(currentdb, str) else currentdb.name
+    @staticmethod
+    def current_db() :
+        if len(DbContext.stack) == 0:
+            return None
+        return DbContext.stack[-1]
+
+
+    def __init__(self, db) :
+        self.db = db if isinstance(db, str) else db.name
 
     def __enter__(self):
-        if DbContext.currentdb != None :
-            raise Exception("Another context with already setup : you cannot nest them : '%s'" % DbContext.currentdb)
-
-        DbContext.currentdb = self.currentdb
+        DbContext.stack.append(self.db)
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        DbContext.currentdb = None
+        DbContext.stack.pop()
 
 
 def _param_registry():
@@ -141,7 +147,12 @@ class ParamDef(Symbol):
     '''
 
     def __new__(cls, name, *karg, **kargs):
-        return Symbol.__new__(cls, name)
+        # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
+        assumptions = dict()
+        if 'dbname' in kargs and kargs['dbname'] :
+            assumptions[kargs['dbname']] = True
+
+        return Symbol.__new__(cls, name, **assumptions)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
                  group=None, distrib:DistributionType=None, dbname=None, **kwargs):
@@ -160,7 +171,7 @@ class ParamDef(Symbol):
         self.dbname = dbname
 
         if (self.dbname == None) :
-            error("Warning : param '%s' linked to root project instead of a specific DB")
+            error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, "_distrib") :
@@ -168,6 +179,7 @@ class ParamDef(Symbol):
 
         if not distrib and type == ParamType.FLOAT  :
             if self.min is None:
+                error("No 'min/max' provided, param %s marked as FIXED" % self.name)
                 self.distrib = DistributionType.FIXED
             else:
                 self.distrib = DistributionType.LINEAR
@@ -415,9 +427,6 @@ def newParamDef(name, type, dbname=None, save=True, **kwargs):
     else:
         param = ParamDef(name, dbname=dbname, type=type, **kwargs)
 
-    # Put it in global registry (in memory)
-    if name in _param_registry():
-        error("Param %s was already defined : overriding" % name)
     _param_registry()[name] = param
 
     # Save in brightway2 project
@@ -647,18 +656,24 @@ class ParamRegistry :
         if len(params_per_db) == 1 :
             return list(params_per_db.values())[0]
 
-        if DbContext.currentdb == None :
+        if DbContext.current_db() == None :
+            dbs = [key or '<project>' for key in params_per_db.keys()]
             raise DuplicateParamsAndNoContextException(
+
                 """
                 Found several params with name '%s', linked to databases (%s) . Yet no context is provided. 
-                Please embed you code in a context :
+                Please embed you code in a DbContext :
                     with DbContext(currentdb) :
                         <code>
-                """ % (key, ", ".join(params_per_db.keys())))
+                """ % (key, ", ".join(dbs)))
 
-        return params_per_db[DbContext.currentdb]
+        return params_per_db[DbContext.current_db()]
 
     def __setitem__(self, key, param : ParamDef):
+        if param.dbname in self.params[key]:
+            error("Param %s was already defined in '%s' : overriding." %
+                  (param.name, param.dbname or '<project>'))
+
         self.params[key][param.dbname] = param
 
     def __contains__(self, key):

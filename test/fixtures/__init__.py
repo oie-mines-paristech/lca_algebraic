@@ -5,12 +5,12 @@ def init_acts(db) :
     """Init bg acts (bio and techno) """
 
     # Clear DB
-    resetDb(db)
+    resetDb(db, False)
 
     # Biosphere activities
-    bio1 = newActivity(db, "bio1", "unit", type="biosphere")
-    bio2 = newActivity(db, "bio2", "unit", type="biosphere")
-    bio3 = newActivity(db, "bio3", "unit", type="biosphere")
+    bio1 = newActivity(db, "bio1", "unit", type="emission")
+    bio2 = newActivity(db, "bio2", "unit", type="emission")
+    bio3 = newActivity(db, "bio3", "unit", type="emission")
 
     # Process activities
     bg_act1 = newActivity(db, "bg_act1", "kg", {
@@ -25,13 +25,15 @@ def init_acts(db) :
         bio3: 1,
     })
 
+    return bio1, bio2, bio3
+
 
 def init_methods(db, prefix) :
     "Create impact methods for bio activities"
     res = []
 
     # One for each bio act
-    for nbio in range(1, 3) :
+    for nbio in range(1, 4) :
         bioname = "bio" + str(nbio)
 
         act = getActByCode(db, bioname)
@@ -42,7 +44,7 @@ def init_methods(db, prefix) :
             description='quantity of ' + bioname)
         method.write([(act.key, 1)])
 
-        res.append(method)
+        res.append((prefix, bioname, 'total'))
 
     # Digital : one digit per bio activity
     method = bw.Method((prefix, "all", "total"))
@@ -54,6 +56,6 @@ def init_methods(db, prefix) :
         ((db, "bio2"), 2),
         ((db, "bio3"), 4),
     ])
-    res.append(method)
+    res.append((prefix, "all", "total"))
 
     return res

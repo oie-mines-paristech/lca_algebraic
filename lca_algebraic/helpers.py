@@ -1,3 +1,4 @@
+import functools
 import re
 import types
 from collections import defaultdict
@@ -65,11 +66,23 @@ old_amount = symbols("old_amount")  # Can be used in expression of amount for up
 NumOrExpression = Union[float, Basic]
 
 
+
+def db_context(func):
+    """ Add DbContext for a method of an Activity, using its DB. """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        dbname = self.key[0]
+        with DbContext(dbname) :
+            return func(*args, **kwargs)
+    return wrapper
+
 class ActivityExtended(Activity):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
     """
 
+    @db_context
     def listExchanges(self) :
         """ Iterates on all exchanges (except "production") and return a list of (exch-name, target-act, amount) """
         res = []
@@ -84,6 +97,7 @@ class ActivityExtended(Activity):
             res.append((exc["name"], input, amount))
         return res
 
+    @db_context
     def getExchange(self, name=None, input=None, single=True):
         """Get exchange by name or input
 
@@ -147,7 +161,9 @@ class ActivityExtended(Activity):
         '''Set the amount for the single output exchange (1 by default)'''
         self.addExchanges({self: amount})
 
+    @db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
+
         """Update existing exchanges, by name.
 
         Parameters
@@ -213,6 +229,7 @@ class ActivityExtended(Activity):
             ex.save()
         self.save()
 
+    @db_context
     def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
 
         """Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
@@ -236,6 +253,7 @@ class ActivityExtended(Activity):
         self.addExchanges({switch_act: prev_amount})
         self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
 
+    @db_context
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
         """Add exchanges to an existing activity, with a compact syntax :
 
@@ -244,34 +262,38 @@ class ActivityExtended(Activity):
         exchanges : Dict of activity => amount or activity => attributes_dict. \
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         """
-        parametrized = False
-        for sub_act, attrs in exchanges.items():
 
-            if isinstance(attrs, dict):
-                amount = attrs.pop('amount')
-            else:
-                amount = attrs
-                attrs = dict()
+        with DbContext(self.key[0]) :
 
-            exch = self.new_exchange(
-                input=sub_act.key,
-                name=sub_act['name'],
-                unit=sub_act['unit'] if 'unit' in sub_act else None,
-                type='production' if self == sub_act else 'technosphere' if sub_act['type'] == 'process' else  'biosphere')
+            parametrized = False
+            for sub_act, attrs in exchanges.items():
 
-            exch.update(attrs)
-            exch.update(_amountToFormula(amount))
-            if 'formula' in exch:
-                parametrized = True
+                if isinstance(attrs, dict):
+                    amount = attrs.pop('amount')
+                else:
+                    amount = attrs
+                    attrs = dict()
 
-            exch.save()
-        self.save()
+                exch = self.new_exchange(
+                    input=sub_act.key,
+                    name=sub_act['name'],
+                    unit=sub_act['unit'] if 'unit' in sub_act else None,
+                    type='production' if self == sub_act else 'technosphere' if sub_act['type'] == 'process' else  'biosphere')
 
-        # For compatibility with Brightway2 paramatrized LCIA : multiLCA()
-        if parametrized:
-            bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+                exch.update(attrs)
+                exch.update(_amountToFormula(amount))
+                if 'formula' in exch:
+                    parametrized = True
 
+                exch.save()
+            self.save()
 
+            # For compatibility with Brightway2 paramatrized LCIA : multiLCA()
+            # FIXME : Disable groups for now
+            #if parametrized:
+            #  bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+
+    @db_context
     def getAmount(self, *args, sum=False, **kargs):
         """
         Get the amount of one or several exchanges, selected by name or input. See #getExchange()

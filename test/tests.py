@@ -3,6 +3,7 @@ import sys
 import pytest
 
 from lca_algebraic.helpers import _isForeground
+from lca_algebraic.lca import _clearLCACache
 from lca_algebraic.params import _param_registry
 
 sys.path.insert(0, os.getcwd())
@@ -17,16 +18,14 @@ METHOD_PREFIX='tests'
 
 # Reset func project, empty DB
 initDb('tests')
-init_acts(BG_DB)
-init_methods(BG_DB, METHOD_PREFIX)
-SET_USER_DB(USER_DB)
 
-# Import Ecoinvent DB (if not already done)
-# Update the name and path to the location of the ecoinvent database
-# importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
+# Create 3 bio activities
+bio1, bio2, bio3 = init_acts(BG_DB)
 
-# We use a separate DB for defining our foreground model / activities
-# Choose any name
+# Create one method per bio activity, plus 1 method with several
+ibio1, ibio2, ibio3, imulti = init_methods(BG_DB, METHOD_PREFIX)
+
+setForeground(USER_DB)
 
 
 def setup_function() :
@@ -36,7 +35,7 @@ def setup_function() :
 
     resetDb(USER_DB)
     resetParams(USER_DB)
-
+    _clearLCACache()
 
 def test_load_params():
     _p1 = newEnumParam('p1',values={"v1":0.6, "v2":0.3}, default="v1")
@@ -101,9 +100,6 @@ def test_freeze() :
     p1 = newFloatParam('p1', default=1.0)
     p2 = newFloatParam('p2', default=1.0)
 
-    bio1 = findActivity("bio1", db_name=BG_DB)
-    bio2 = findActivity("bio2", db_name=BG_DB)
-
     newActivity(USER_DB, "act1", "unit", {
         bio1 : 2 * p1,
         bio2 : 3 * p2,
@@ -159,7 +155,7 @@ def test_setforeground() :
     assert _isForeground(USER_DB) == False
 
 
-def test_db_params() :
+def test_db_params_low_level() :
 
     # Define 3 variables with same name, attached to project or db (user or bg)
     p1_bg = newBoolParam("p1", False, dbname=BG_DB)
@@ -170,7 +166,7 @@ def test_db_params() :
     with pytest.raises(DuplicateParamsAndNoContextException) as exc:
         p1 = _param_registry()["p1"]
 
-    assert "context" in str(exc)
+    assert "context" in str(exc.value)
 
     with DbContext(USER_DB) :
         p1 = _param_registry()["p1"]
@@ -180,10 +176,41 @@ def test_db_params() :
         p1 = _param_registry()["p1"]
         assert p1 == p1_bg
 
+def test_db_params_lca() :
+    """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
+    USER_DB2 = "fg2"
+    resetDb(USER_DB2)
+
+    # Define 3 variables with same name, attached to project or db (user or bg)
+    p1_project = newFloatParam("p1", 0, min=0, max=2, )
+    p1_user = newFloatParam("p1", 1, min=0, max=2, dbname=USER_DB)
+    p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=USER_DB2)
+
+    # Create 2 models : one for each user db, using different params with same name
+    m1 = newActivity(USER_DB, "m1", "kg",
+                     {bio1 : p1_user})
+    m2 = newActivity(USER_DB2, "m2", "kg",
+                     {bio1: p1_user2})
+
+    # p1 as default value of 1 for user db 1
+    res = multiLCAAlgebric(m1, [ibio1])
+    assert res.values[0] == 1.0
+
+    # p1 as default value of 2 for user db 2
+    res = multiLCAAlgebric(m2, [ibio1])
+    assert res.values[0] == 2.0
+
+    # Overriding p1 for m1
+    res = multiLCAAlgebric(m1, [ibio1], p1=3)
+    assert res.values[0] == 3.0
+
+    # Overriding p1 for m2
+    res = multiLCAAlgebric(m2, [ibio1], p1=4)
+    assert res.values[0] == 4.0
+
 
 if __name__ == '__main__':
     pytest.main(sys.argv)
-
 
 
 
