@@ -448,7 +448,7 @@ def findTechAct(name=None, loc=None, single=True, **kwargs):
     """ Search activities in any background db not being biospehere """
     dbs = _listTechBackgroundDbs()
     if len(dbs) > 1 :
-        raise Exception("There is more than one technosphere background DB (%s) please use findActivity(...,dbname=YOUR_DB)" % str(dbs))
+        raise Exception("There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)" % str(dbs))
 
     return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
 
