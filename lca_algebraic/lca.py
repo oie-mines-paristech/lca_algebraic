@@ -377,22 +377,23 @@ def _createTechProxyForBio(act_key, target_db):
     """
     dbname, code = act_key
     act = _getDb(dbname).get(code)
-    type = act["type"]
 
-    # Not biosphere ? No need to create proxy
-    if not type in ["emission", "natural resource"] :
+    # Biosphere ?
+    if (dbname == BIOSPHERE3_DB_NAME) or ("type" in act and act["type"] in ["emission", "natural resource"]) :
+
+        code_to_find = code + "#asTech"
+
+        try:
+            # Already created ?
+            return _getDb(target_db).get(code_to_find)
+        except:
+            name = act['name'] + ' # asTech'
+
+            # Create biosphere proxy in User Db
+            res = newActivity(target_db, name, act['unit'], {act: 1}, code=code_to_find)
+            return res
+    else :
         return act
-
-    code_to_find = code + "#asTech"
-
-    try:
-        return _getDb(target_db).get(code_to_find)
-    except:
-        name = act['name'] + ' # asTech'
-
-        # Create biosphere proxy in User Db
-        res = newActivity(target_db, name, act['unit'], {act: 1}, code=code_to_find)
-        return res
 
 
 def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT) :
