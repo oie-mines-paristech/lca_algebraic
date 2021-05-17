@@ -198,26 +198,37 @@ def test_db_params_lca() :
 
     # Create 2 models : one for each user db, using different params with same name
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1 : p1_user})
+                     {bio1 : 2.0 * p1_user})
     m2 = newActivity(USER_DB2, "m2", "kg",
-                     {bio1: p1_user2})
+                     {bio1: 2.0 * p1_user2})
 
     # p1 as default value of 1 for user db 1
     res = multiLCAAlgebric(m1, [ibio1])
-    assert res.values[0] == 1.0
+    assert res.values[0] == 2.0
 
     # p1 as default value of 2 for user db 2
     res = multiLCAAlgebric(m2, [ibio1])
-    assert res.values[0] == 2.0
+    assert res.values[0] == 4.0
 
     # Overriding p1 for m1
     res = multiLCAAlgebric(m1, [ibio1], p1=3)
-    assert res.values[0] == 3.0
+    assert res.values[0] == 6.0
 
     # Overriding p1 for m2
     res = multiLCAAlgebric(m2, [ibio1], p1=4)
-    assert res.values[0] == 4.0
+    assert res.values[0] == 8.0
 
+
+def test_params_as_power() :
+
+
+    p1 = newFloatParam("p1", 2, min=0, max=2)
+
+    m1 = newActivity(USER_DB, "m1", "kg",
+                     {bio1 : 2.0 ** p1})
+
+    res = multiLCAAlgebric(m1, [ibio1], p1=2)
+    assert res.values[0] == 4.0
 
 if __name__ == '__main__':
     pytest.main(sys.argv)

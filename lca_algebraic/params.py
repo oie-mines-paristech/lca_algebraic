@@ -291,7 +291,10 @@ class ParamDef(Symbol):
         return hash((self.dbname, self.name))
 
     def __eq__(self, other):
-        return self.name == other.name and self.dbname == other.dbname
+        if isinstance(other, ParamDef) :
+            return self.name == other.name and self.dbname == other.dbname
+        else :
+            return Symbol.__eq__(self, other)
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
