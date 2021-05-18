@@ -485,7 +485,8 @@ def actToExpression(act: Activity, extract_activities=None):
                 act_expr = rec_func(sub_act, exch_in_path, parents)
 
             avoidedBurden = 1
-            if exch['type'] == 'production' and not exch['input'] == exch['output']:
+
+            if exch.get('type') == 'production' and not exch.get('input') == exch.get('output') :
                 debug("Avoided burden", exch[name])
                 avoidedBurden = -1
 

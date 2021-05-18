@@ -33,6 +33,9 @@ def error(*args, **kwargs):
     print(*args, **kwargs, file=stderr)
 
 
+def _isOutputExch(exc) :
+    return exc.get('input') == exc.get('output') or exc.get("type") == "production"
+
 
 def _isnumber(value):
     return isinstance(value, int) or isinstance(value, float)
@@ -67,7 +70,7 @@ def _actDesc(act: Activity):
     name = _actName(act)
     amount = 1
     for ex in act.exchanges() :
-        if ex['type'] == 'production' :
+        if _isOutputExch(ex):
             amount = ex['amount']
 
     return "%s (%f %s)" % (name, amount, act['unit'])

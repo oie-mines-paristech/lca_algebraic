@@ -11,7 +11,7 @@ from bw2data.meta import databases as dbmeta
 from sympy import symbols
 
 from .base_utils import *
-from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName
+from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName, _isOutputExch
 from .params import *
 from .params import _param_registry, _completeParamValues
 from typing import Tuple, Dict
@@ -87,6 +87,7 @@ def with_db_context(func):
             return func(*args, **kwargs)
     return wrapper
 
+
 class ActivityExtended(Activity):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
@@ -99,7 +100,7 @@ class ActivityExtended(Activity):
         for exc in self.exchanges():
 
             # Don't show production
-            if exc['type'] == 'production' :
+            if _isOutputExch(exc) :
                 continue
 
             input = bw.get_activity(exc.input.key)
@@ -284,7 +285,7 @@ class ActivityExtended(Activity):
                     input=sub_act.key,
                     name=sub_act['name'],
                     unit=sub_act['unit'] if 'unit' in sub_act else None,
-                    type='production' if self == sub_act else 'technosphere' if sub_act['type'] == 'process' else  'biosphere')
+                    type='production' if self == sub_act else 'technosphere' if sub_act.get('type') == 'process' else 'biosphere')
 
                 exch.update(attrs)
                 exch.update(_amountToFormula(amount))
@@ -612,7 +613,7 @@ def printAct(*args, impact=None, **params):
             for (i, exc) in enumerate(act.exchanges()):
 
                 # Don't show production
-                if exc['type'] == 'production' :
+                if _isOutputExch(exc) :
                     continue
 
                 input = bw.get_activity(exc.input.key)
