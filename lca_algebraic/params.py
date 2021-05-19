@@ -836,3 +836,52 @@ def freezeParams(db_name, **params) :
                     exc.save()
 
 
+def _listParams(db_name) -> List[ParamDef]:
+    """
+    Return a set of all parameters used in activities
+    """
+
+    db = bw.Database(db_name)
+    res = set()
+
+    with DbContext(db) :
+        for act in db :
+            for exc in act.exchanges():
+
+                amount = _getAmountOrFormula(exc)
+
+                # Amount is a formula ?
+                if isinstance(amount, Basic):
+                    expanded_names = list(str(symbol) for symbol in amount.free_symbols)
+                    param_names = _expanded_names_to_names(expanded_names)
+                    params = list(_param_registry()[param_name] for param_name in param_names)
+                    res.update(params)
+    return res
+
+
+def _expand_param_names(param_names):
+    '''Expand parameters names (with enum params) '''
+    return [name for key in param_names for name in _param_registry()[key].names()]
+
+
+def _expanded_names_to_names(param_names):
+    """Find params corresponding to expanded names, including enums."""
+    param_names = set(param_names)
+
+    # param name => param
+    res = dict()
+
+    # Search for param with same name of prefix paramName_enumValue
+    for expended_name in param_names :
+        for param_name in _param_registry().keys():
+            if expended_name.startswith(param_name) :
+                param = _param_registry()[param_name]
+                for name in param.names():
+                    if name == expended_name:
+                        res[expended_name] = param
+
+    missing = param_names - set(res.keys())
+    if len(missing) > 0:
+        raise Exception("Unkown params : %s" % missing)
+
+    return {param.name for param in res.values()}

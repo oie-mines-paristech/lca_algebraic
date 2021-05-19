@@ -1,6 +1,10 @@
 import os
 import sys
+from os.path import basename, dirname
+from tempfile import mkstemp
+
 import pytest
+from bw2io import BW2Package
 
 from lca_algebraic.helpers import _isForeground
 from lca_algebraic.lca import _clearLCACache
@@ -43,6 +47,8 @@ def test_load_params():
     _p3 = newBoolParam('p3',default=1)
     _p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
 
+    _param_registry().clear()
+
     # Params are loaded as global variable with their real names
     loadParams()
 
@@ -53,6 +59,41 @@ def test_load_params():
     assert _p2.__dict__ == loaded_params[("p2", None)].__dict__
     assert _p3.__dict__ == loaded_params[("p3", None)].__dict__
     assert _p3_fg.__dict__ == loaded_params[("p3", USER_DB)].__dict__
+
+
+def test_export():
+    p1 = newFloatParam('p1', default=0.5)
+    p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
+
+    act1 = newActivity(USER_DB, "act1", "unit", {
+        bio1: 2 * p1,
+        bio2: 3 * p3_fg,
+    })
+
+    f, filename = mkstemp()
+
+    outfile = export_db(USER_DB, filename)
+
+    # Clear all
+    resetDb(USER_DB)
+    _param_registry().clear()
+
+    import_db(filename)
+
+    print(filename)
+
+    # Check params are the same
+    p1_ = _param_registry()["p1"]
+    p3_ = _param_registry()["p3"]
+
+    assert p1.__dict__ == p1_.__dict__
+    assert p3_fg.__dict__ == p3_.__dict__
+
+    # Test multLCA
+    act1 = findActivity("act1", db_name=USER_DB)
+    res = multiLCAAlgebric(act1, [imulti])
+
+    assert res.values[0] == 7.0
 
 
 def test_switch_activity_support_sevral_times_same_target() :

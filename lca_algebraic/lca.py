@@ -8,7 +8,7 @@ from .base_utils import _actName, error, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
 from .helpers import *
 from .helpers import _actDesc, _isForeground
-from .params import _param_registry, _completeParamValues, _fixed_params
+from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
 
 
 def _impact_labels():
@@ -274,26 +274,6 @@ def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
 
     return pd.DataFrame(res, index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods]).transpose()
 
-
-def _expand_param_names(param_names):
-    '''Expand parameters names (with enum params) '''
-    return [name for key in param_names for name in _param_registry()[key].names()]
-
-
-def _expanded_names_to_names(param_names):
-    """Find params corresponding to expanded names, including enums."""
-    param_names = set(param_names)
-    res = dict()
-    for param in _param_registry().values():
-        for name in param.names():
-            if name in param_names:
-                res[name] = param
-
-    missing = param_names - set(res.keys())
-    if len(missing) > 0:
-        raise Exception("Unkown params : %s" % missing)
-
-    return {param.name for param in res.values()}
 
 # Add default values for issing parameters or warn about extra params
 def _filter_params(params, expected_names, model) :

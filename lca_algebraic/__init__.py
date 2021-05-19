@@ -8,6 +8,7 @@ from .helpers import *
 from .lca import *
 from .stats import *
 from .params import *
+from .io import *
 
 def deleteDb(db_name) :
     del bw.databases[db_name]
