@@ -50,7 +50,8 @@ def multiLCA(models, methods, **params):
     # Freeze params
     dbs = set(model[0] for model in models)
     for db in dbs :
-        freezeParams(db, **params)
+        if _isForeground(db) :
+            freezeParams(db, **params)
 
     activities = [{act: 1} for act in models]
     return _multiLCA(activities, methods).transpose()
@@ -492,7 +493,7 @@ def _reverse_dict(dic):
 
 
 
-def exploreImpacts(impact, *activities, **params):
+def exploreImpacts(impact, *activities : ActivityExtended, **params):
     """
     Advanced version of #printAct()
 
@@ -524,7 +525,7 @@ def exploreImpacts(impact, *activities, **params):
                 ex_name = "%s#%d" % (name, i)
                 i += 1
 
-            inputs_by_ex_name[ex_name] = _createTechProxyForBio(input)
+            inputs_by_ex_name[ex_name] = _createTechProxyForBio(input.key, main_act.key[0])
 
             input_name = _actName(input)
 

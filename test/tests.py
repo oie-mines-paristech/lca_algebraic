@@ -227,6 +227,27 @@ def test_db_params_low_level() :
         p1 = _param_registry()["p1"]
         assert p1 == p1_bg
 
+def test_reset_params() :
+
+    # Define 3 variables with same name, attached to project or db (user or bg)
+    newBoolParam("p1", False, dbname=BG_DB)
+    newBoolParam("p2", False, dbname=USER_DB)
+    newBoolParam("p3", False) # Project param
+
+    # Should only delete p2
+    resetParams(USER_DB)
+
+    params = set(param.name for param in _param_registry().all())
+    assert params == set(["p1", "p3"])
+
+    # Should delete all
+    resetParams()
+    assert len(_param_registry().all()) == 0
+
+    # Check they are deleted in Db as well
+    loadParams()
+    assert len(_param_registry().all()) == 0
+
 def test_db_params_lca() :
     """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
     USER_DB2 = "fg2"

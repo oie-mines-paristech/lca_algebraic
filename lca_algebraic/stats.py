@@ -13,7 +13,7 @@ from sympy import Float, Number, Add, AtomicExpr
 from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
-from .params import _variable_params, _param_registry, FixedParamMode
+from .params import _variable_params, _param_registry, FixedParamMode, _param_name
 
 PARALLEL=False
 
@@ -320,7 +320,7 @@ def _sobols(methods, problem, Y) -> SobolResults :
 
 
 
-def _incer_stochastic_matrix(methods, param_names, Y, sob):
+def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LABEL):
     ''' Internal method computing matrix of parameter importance '''
 
 
@@ -343,7 +343,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob):
                 if mean != 0:
                     data[:, i] = np.sqrt((sx[:, i] * var)) / mean * 100
 
-        param_labels = [_param_registry()[name].get_label() for name in param_names]
+        param_labels = [_param_name(_param_registry()[name], name_type) for name in param_names]
         df = pd.DataFrame(data, index=param_labels, columns=[method_name(method) for method in methods])
         _heatmap(
             df.transpose(),
@@ -359,7 +359,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob):
              )
 
 @with_db_context
-def incer_stochastic_matrix(model, methods, n=1000):
+def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     '''
     Method computing matrix of parameter importance
 
@@ -377,7 +377,7 @@ def incer_stochastic_matrix(model, methods, n=1000):
     print("Processing Sobol indices ...")
     sob = _sobols(methods, problem, Y)
 
-    _incer_stochastic_matrix(methods, problem['names'], Y, sob)
+    _incer_stochastic_matrix(methods, problem['names'], Y, sob, name_type=name_type)
 
 
 def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, nb_cols=3):

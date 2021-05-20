@@ -1,9 +1,11 @@
 from sys import stderr
 import sys
 from typing import Union
+from contextlib import AbstractContextManager
 
 import brightway2 as bw
 from bw2data.backends.peewee import Activity, ExchangeDataset
+from future.utils import raise_from
 from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets
@@ -128,3 +130,16 @@ def r_squared(y, y_hat):
     ss_tot = ((y - y_bar) ** 2).sum()
     ss_res = ((y - y_hat) ** 2).sum()
     return 1 - (ss_res / ss_tot)
+
+
+class  ExceptionContext(AbstractContextManager) :
+    def __init__(self, context):
+        self.context = context
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_val != None :
+            raise_from(Exception("Context : %s" % str(self.context)), exc_val)
+        return True
+
+def _snake2camel(val):
+    return ''.join(word.title() for word in val.split('_'))

@@ -17,6 +17,7 @@ from scipy.stats import triang, truncnorm, norm, beta, lognorm
 from sympy import Symbol, Basic
 from tabulate import tabulate
 
+from .base_utils import ExceptionContext, _snake2camel
 from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
 
 import lca_algebraic.base_utils
@@ -491,8 +492,6 @@ def _persistParam(param):
 
         elif param.type == ParamType.FLOAT :
 
-            print(type(param.distrib), param.distrib, _DistributionTypeMap.keys(), param.distrib in _DistributionTypeMap)
-
             # Save uncertainty
             bwParam[UNCERTAINTY_TYPE] = _DistributionTypeMap[param.distrib]
             bwParam["minimum"] = param.min
@@ -720,8 +719,13 @@ class ParamRegistry :
     def items(self) :
         return [(key, self.__getitem__(key)) for key in self.params.keys()]
 
-    def clear(self):
-        self.params.clear()
+    def clear(self, db_name=None):
+        if db_name is None :
+            self.params.clear()
+        else :
+            for param_name, db_params in self.params.items() :
+                if db_name in db_params :
+                    del db_params[db_name]
 
     def all(self) :
         """Return list of all parameters, including params with same names and different DB"""
@@ -770,24 +774,40 @@ def _completeParamValues(params: Dict[str, ParamValues], required_params : List[
     return res
 
 
-def resetParams(db_name):
-    """Reset project and activity parameters"""
-    _param_registry().clear()
-    ProjectParameter.delete().execute()
-    ActivityParameter.delete().execute()
-    DatabaseParameter.delete().execute()
-    Group.delete().execute()
+def resetParams(db_name=None):
+    """Clear parameters in live memory (registry) and on disk.
+    Clear either all params (project and all db params) or db params from a single database (if db_name provided)"""
+    _param_registry().clear(db_name)
+
+    if db_name is None :
+        ProjectParameter.delete().execute()
+        ActivityParameter.delete().execute()
+        DatabaseParameter.delete().execute()
+    else :
+        ActivityParameter.delete().where(ActivityParameter.database == db_name).execute()
+        DatabaseParameter.delete().where(DatabaseParameter.database == db_name).execute()
+        Group.delete().execute()
 
 class NameType(Enum) :
     NAME="name"
     LABEL="label"
+    CAMEL_NAME = "CAMEL_NAME"
+
+def _param_name(param, name_type:NameType) :
+    if name_type == NameType.NAME :
+        return param.name
+    elif name_type == NameType.LABEL :
+        return param.get_label()
+    else :
+        return _snake2camel(param.name)
 
 def list_parameters(name_type=NameType.LABEL):
 
     """ Print a pretty list of all defined parameters """
     params = [dict(
         group=param.group or "",
-        name=param.name if name_type == NameType.NAME else param.get_label(),
+        name=_param_name(param, name_type),
+        label=param.get_label(),
         default=param.default,
         min=param.min,
         max=param.max,
@@ -827,7 +847,10 @@ def freezeParams(db_name, **params) :
                 if isinstance(amount, Basic):
 
                     replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
-                    val = float(amount.subs(replace).evalf())
+                    val = amount.subs(replace).evalf()
+
+                    with ExceptionContext(val) :
+                        val = float(val)
 
                     print("Freezing %s // %s : %s => %d" % (act, exc['name'], amount, val))
 
