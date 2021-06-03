@@ -708,7 +708,7 @@ def _vline(x, ymin, ymax, linewidth=1, linestyle='solid'):
 
 
 def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, color=None,
-           limit_xrange=False, percentiles=[5,95]):
+           limit_xrange=False, percentiles=[5,95], fontsize=12):
 
 
     if ax is not None:
@@ -745,7 +745,7 @@ def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, c
     ] + perc_strs)
 
     props = dict(boxstyle='round', facecolor='wheat' if not color else color, alpha=0.5)
-    ax.text(textboxright, textboxtop, textstr, transform=ax.transAxes, fontsize=12,
+    ax.text(textboxright, textboxtop, textstr, transform=ax.transAxes, fontsize=fontsize,
             verticalalignment='top', ha='right', bbox=props)
 
     # Axes
@@ -859,7 +859,12 @@ def graphs(
 
 
 @with_db_context
-def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
+def compare_simplified(
+        model, methods, simpl_lambdas,
+        scales=None,  # Dict of method => scale
+        unit_overrides=None,
+        nb_cols=2, height=10, width=15, textboxright=0.6, r2_height=0.65, func_unit="kWh",
+        **kwargs):
     '''
     Compare distribution of simplified model with full model
 
@@ -876,9 +881,9 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     lambdas = preMultiLCAAlgebric(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
-    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows))
-
-    plt.subplots_adjust(hspace=0.4)
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0.3)
 
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
@@ -897,10 +902,21 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 
         title = method_name(method)
 
-        _graph(d1, _method_unit(method), title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
-        _graph(d2, _method_unit(method), title, ax=ax, alpha=0.6, textboxright=0.6, color=colors[1], **kwargs)
+        if scales and method in scales:
+            d1 = d1 * scales[method]
+            d2 = d2 * scales[method]
 
-        ax.text(0.9, 0.65, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
+        if unit_overrides and method in unit_overrides:
+            unit = unit_overrides[method]
+        else:
+            unit = _method_unit(method)
+
+        unit += " / " + func_unit
+
+        _graph(d1, unit, title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
+        _graph(d2, unit, title, ax=ax, alpha=0.6, textboxright=textboxright, color=colors[1], **kwargs)
+
+        ax.text(0.9, r2_height, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
                 verticalalignment='top', ha='right')
 
     # Hide missing graphs
