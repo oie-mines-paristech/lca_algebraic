@@ -248,6 +248,40 @@ def test_reset_params() :
     loadParams()
     assert len(_param_registry().all()) == 0
 
+def test_simplify_model() :
+
+    # key param, varying from 1 to 2
+    p1 = newFloatParam("p1", 1, min=1, max=2)
+
+    # Minor param with constant value 0.001
+    p2 = newFloatParam("p2", 1, min=0.001, max=0.001)
+
+
+    # Model p1 + 0.001*p1 + p2
+    m1 = newActivity(USER_DB, "m1", "kg",
+                     {bio1: p1 * (p1 + 0.001 * p1 + p2)})
+
+    # Simplified model, without removing minor sum term
+    res = sobol_simplify_model(m1, [ibio1], simple_sums=False, simple_products=False)[0]
+    assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
+
+    # Simplified model, removing minor sum terms (default)
+    res = sobol_simplify_model(m1, [ibio1], simple_products=False)[0]
+    assert res.expr.__repr__() == "1.0*p1**2"
+
+
+    # -- Simplify products
+
+    p3 = newFloatParam("p3", 1, min=1, max=1.001)
+    p4 = newFloatParam("p4", 1, min=-0.999, max=-0.998)
+
+    m2 = newActivity(USER_DB, "m2", "kg",
+                     {bio1: 4.0 + 5*p3 + 3*p4})
+
+    res = sobol_simplify_model(m2, [ibio1], simple_products=True)[0]
+    assert res.expr.__repr__() == "6.00"
+
+
 def test_db_params_lca() :
     """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
     USER_DB2 = "fg2"

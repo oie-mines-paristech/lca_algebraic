@@ -3,12 +3,15 @@ import random
 import warnings
 from time import time
 
+import numpy as np
 import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
+from jinja2.nodes import Add
 from matplotlib import pyplot as plt
-from sympy import Float, Number, Add, AtomicExpr
+from sympy import Float, Number, Add, AtomicExpr, Mul, Expr
+from sympy.core.operations import AssocOp
 
 from .base_utils import _method_unit
 from .lca import *
@@ -545,7 +548,8 @@ def sobol_simplify_model(
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
     num_digits=3,
-    simple_sums=True) :
+    simple_sums=True,
+    simple_products=True) -> List[LambdaWithParamNames]:
 
     '''
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -633,8 +637,16 @@ def sobol_simplify_model(
         # Lambdify the expression
         lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
+        # Compute list of parameter values (monte carlo)
+        completed_params = lambd.complete_params(params)
+        expanded_params = _filter_param_values(completed_params, lambd.expanded_params)
+
         # Extra step of simplification : simplify sums with neligeable terms
-        expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
+        if simple_sums :
+            expr = simplify_sums(expr, expanded_params)
+
+        if simple_products:
+            expr = simplify_products(expr, expanded_params)
 
         simplified_expr = simplify(expr)
 
@@ -646,52 +658,92 @@ def sobol_simplify_model(
 
 TERM_MIN_LEVEL = 0.01
 
-def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
+def _rec_expression(exp, func) :
+    """ Recurse trough an expression, transforming each term with the result of f(term) """
+    def rec(term) :
+        if issubclass(exp.func, AtomicExpr):
+            return func(term)
+        else :
+            args = filter(lambda x: x is not None, list(func(arg) for arg in term.args))
+            return term.func(*args)
 
-    # Gather all terms of any sum
-    terms = dict()
-    def pexp(expr):
-        for arg in expr.args :
-            if expr.func == Add:
-                terms[str(arg)] = arg
-            pexp(arg)
-    pexp(lambdaWithParams.expr)
+def simplify_sums(expr, param_values) :
 
-    # Lambdify all terms
-    lambd_terms = {key : lambdify(lambdaWithParams.expanded_params, exp) for key, exp in terms.items()}
+    def replace_term(term, minv, maxv, max_max) :
+        abs_max = max(abs(minv), abs(maxv))
+        if abs_max < (TERM_MIN_LEVEL * max_max) :
+            # Non significant term : remove it
+            return None
+        else:
+            return term
 
-    completed_params = lambdaWithParams.complete_params(params_values)
-    filtered_params = _filter_param_values(completed_params, lambdaWithParams.expanded_params)
+    return simplify_terms(expr, param_values, Add, replace_term)
 
-    # Compute their values
-    term_max = dict()
-    for key, lamb in lambd_terms.items() :
+def simplify_products(expr, param_values) :
 
-        values = lamb(**filtered_params)
-        term_max[key] = np.max(np.abs(values))
+    def replace_term(term, minv, maxv, max_max) :
+        abs_max = max(abs(minv), abs(maxv))
+
+        # Close to 1 or -1
+        if abs(abs_max - 1) < TERM_MIN_LEVEL :
+            if maxv > 0 :
+                #  x 1.0 : Remove this term from product
+                return None
+            else :
+                return -1
+        else:
+            return term
+
+    return simplify_terms(expr, param_values, Mul, replace_term)
+
+def simplify_terms(expr, expanded_param_values, op:AssocOp, replace) :
+
+    # Determine max normalized value of this term, for all param values (monte carlo)
+    min_max_cache = dict()
+    def min_max(term) :
+
+        # In cache ?
+        key = str(term)
+        if key in min_max_cache :
+            return min_max_cache[key]
+
+        # Non varying ?
+        if len(term.free_symbols) == 0:
+            values = [term.evalf()]
+        else:
+            lambd_term = lambdify(expanded_param_values.keys(), term)
+            values = lambd_term(**expanded_param_values)
+
+        minv = np.min(values)
+        maxv = np.max(values)
+        min_max_cache[key] = (minv, maxv)
+        return (minv, maxv)
 
     # Cleanup :keep only most relevant terms
     def cleanup(exp):
 
-        if issubclass(exp.func, AtomicExpr):
+        if (not isinstance(exp, Expr)) or issubclass(exp.func, AtomicExpr):
             return exp
 
-        # For sum, only select terms than are relevant
-        if exp.func == Add :
+        # For Op, only select terms than are relevant
+        if exp.func == op :
 
-            # Compute max term
-            mx = max([term_max[str(arg)] for arg in exp.args])
+            # Compute max of max
+            def abs_max(minv, maxv) :
+                return max(abs(minv), abs(maxv))
+
+            max_max = max([abs_max(*min_max(arg)) for arg in exp.args])
 
             # Only keep term above level
-            args = [arg for arg in exp.args if term_max[str(arg)] > (TERM_MIN_LEVEL * mx)]
+            args = [replace(arg, *min_max(arg), max_max) for arg in exp.args]
         else:
             args = exp.args
 
-        args = [cleanup(arg) for arg in args]
+        args = [cleanup(arg) for arg in args if arg is not None]
 
         return exp.func(*args)
 
-    return cleanup(lambdaWithParams.expr)
+    return cleanup(expr)
 
 
 

@@ -156,9 +156,12 @@ class LambdaWithParamNames :
         """
 
         if isinstance(exprOrDict, dict) :
+            # Come from JSON serialization
             obj = exprOrDict
             # Parse
             self.params = obj["params"]
+
+            # Full names
             self.expanded_params = _expand_param_names(self.params)
             self.expr = parse_expr(obj["expr"])
             self.lambd = lambdify(self.expanded_params, self.expr, 'numpy')
@@ -167,6 +170,7 @@ class LambdaWithParamNames :
         else :
             self.expr = exprOrDict
             self.params = params
+
             if expanded_params is None :
                 expanded_params = _expand_param_names(params)
             if self.params is None :
