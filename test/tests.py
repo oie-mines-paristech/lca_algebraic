@@ -38,7 +38,7 @@ def setup_function() :
     print("resetting fg DB")
 
     resetDb(USER_DB)
-    resetParams(USER_DB)
+    resetParams()
     _clearLCACache()
 
 def test_load_params():
@@ -256,7 +256,6 @@ def test_simplify_model() :
     # Minor param with constant value 0.001
     p2 = newFloatParam("p2", 1, min=0.001, max=0.001)
 
-
     # Model p1 + 0.001*p1 + p2
     m1 = newActivity(USER_DB, "m1", "kg",
                      {bio1: p1 * (p1 + 0.001 * p1 + p2)})
@@ -275,11 +274,13 @@ def test_simplify_model() :
     p3 = newFloatParam("p3", 1, min=1, max=1.001)
     p4 = newFloatParam("p4", 1, min=-0.999, max=-0.998)
 
+    # Boolean should not be removed
+    p5 = newBoolParam("p5", 1)
     m2 = newActivity(USER_DB, "m2", "kg",
-                     {bio1: 4.0 + 5*p3 + 3*p4})
+                     {bio1: 4.0 + 5*p3 + 3*p4 + 3*p5})
 
     res = sobol_simplify_model(m2, [ibio1], simple_products=True)[0]
-    assert res.expr.__repr__() == "6.00"
+    assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
 def test_db_params_lca() :

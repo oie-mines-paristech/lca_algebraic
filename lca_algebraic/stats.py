@@ -2,8 +2,8 @@ import math
 import random
 import warnings
 from time import time
+from typing import Type, Dict, Tuple, List
 
-import numpy as np
 import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
@@ -669,10 +669,9 @@ def _rec_expression(exp, func) :
 
 def simplify_sums(expr, param_values) :
 
-    def replace_term(term, minv, maxv, max_max) :
+    def replace_term(term, minv, maxv, max_max):
         abs_max = max(abs(minv), abs(maxv))
-        if abs_max < (TERM_MIN_LEVEL * max_max) :
-            # Non significant term : remove it
+        if abs_max < (TERM_MIN_LEVEL * max_max):
             return None
         else:
             return term
@@ -682,24 +681,24 @@ def simplify_sums(expr, param_values) :
 def simplify_products(expr, param_values) :
 
     def replace_term(term, minv, maxv, max_max) :
-        abs_max = max(abs(minv), abs(maxv))
 
-        # Close to 1 or -1
-        if abs(abs_max - 1) < TERM_MIN_LEVEL :
-            if maxv > 0 :
-                #  x 1.0 : Remove this term from product
-                return None
-            else :
-                return -1
-        else:
-            return term
+        # Close to 1 or -1 ?
+        for factor in [-1, 1]:
+            if abs(minv - factor) < TERM_MIN_LEVEL and abs(maxv - factor) < TERM_MIN_LEVEL:
+                if factor == -1:
+                    return -1
+                else:
+                    # * 1.0 : remove term
+                    return None
+
+        return term
 
     return simplify_terms(expr, param_values, Mul, replace_term)
 
-def simplify_terms(expr, expanded_param_values, op:AssocOp, replace) :
+def simplify_terms(expr, expanded_param_values, op:Type[AssocOp], replace) :
 
     # Determine max normalized value of this term, for all param values (monte carlo)
-    min_max_cache = dict()
+    min_max_cache : Dict[str, Tuple[float, float]] = dict()
     def min_max(term) :
 
         # In cache ?
