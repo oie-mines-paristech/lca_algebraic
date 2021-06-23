@@ -27,9 +27,11 @@
 <pre><code class="python">from sys import stderr
 import sys
 from typing import Union
+from contextlib import AbstractContextManager
 
 import brightway2 as bw
 from bw2data.backends.peewee import Activity, ExchangeDataset
+from future.utils import raise_from
 from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets
@@ -40,7 +42,13 @@ DEBUG=False
 LANG=&#34;fr&#34;
 
 
+def set_debug(value=True) :
+    &#34;&#34;&#34; Activate debug logs &#34;&#34;&#34;
+    global DEBUG
+    DEBUG=value
+
 def set_lang(lang):
+    &#34;&#34;&#34;Set language &#34;&#34;&#34;
     global LANG
     LANG=lang
 
@@ -49,11 +57,12 @@ def debug(*args, **kwargs) :
         print(*args, **kwargs)
 
 def error(*args, **kwargs):
+    &#34;&#34;&#34;Print message on stderr &#34;&#34;&#34;
     print(*args, **kwargs, file=stderr)
 
 
-def _eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+def _isOutputExch(exc) :
+    return exc.get(&#39;input&#39;) == exc.get(&#39;output&#39;) or exc.get(&#34;type&#34;) == &#34;production&#34;
 
 
 def _isnumber(value):
@@ -89,7 +98,7 @@ def _actDesc(act: Activity):
     name = _actName(act)
     amount = 1
     for ex in act.exchanges() :
-        if ex[&#39;type&#39;] == &#39;production&#39; :
+        if _isOutputExch(ex):
             amount = ex[&#39;amount&#39;]
 
     return &#34;%s (%f %s)&#34; % (name, amount, act[&#39;unit&#39;])
@@ -114,7 +123,7 @@ def _getAmountOrFormula(ex: ExchangeDataset) -&gt; Union[Basic, float]:
         try:
             return parse_expr(ex[&#39;formula&#39;])
         except:
-            _eprint(&#34;Error while parsing formula &#39;%s&#39; : backing to amount&#34; % ex[&#39;formula&#39;])
+            error(&#34;Error while parsing formula &#39;%s&#39; : backing to amount&#34; % ex[&#39;formula&#39;])
 
     return ex[&#39;amount&#39;]
 
@@ -146,7 +155,20 @@ def r_squared(y, y_hat):
     y_bar = y.mean()
     ss_tot = ((y - y_bar) ** 2).sum()
     ss_res = ((y - y_hat) ** 2).sum()
-    return 1 - (ss_res / ss_tot)</code></pre>
+    return 1 - (ss_res / ss_tot)
+
+
+class  ExceptionContext(AbstractContextManager) :
+    def __init__(self, context):
+        self.context = context
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_val != None :
+            raise_from(Exception(&#34;Context : %s&#34; % str(self.context)), exc_val)
+        return True
+
+def _snake2camel(val):
+    return &#39;&#39;.join(word.title() for word in val.split(&#39;_&#39;))</code></pre>
 </details>
 </section>
 <section>
@@ -244,12 +266,13 @@ def r_squared(y, y_hat):
 <span>def <span class="ident">error</span></span>(<span>*args, **kwargs)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Print message on stderr</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def error(*args, **kwargs):
+    &#34;&#34;&#34;Print message on stderr &#34;&#34;&#34;
     print(*args, **kwargs, file=stderr)</code></pre>
 </details>
 </dd>
@@ -286,16 +309,32 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
     return 1 - (ss_res / ss_tot)</code></pre>
 </details>
 </dd>
+<dt id="lca_algebraic.base_utils.set_debug"><code class="name flex">
+<span>def <span class="ident">set_debug</span></span>(<span>value=True)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Activate debug logs</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def set_debug(value=True) :
+    &#34;&#34;&#34; Activate debug logs &#34;&#34;&#34;
+    global DEBUG
+    DEBUG=value</code></pre>
+</details>
+</dd>
 <dt id="lca_algebraic.base_utils.set_lang"><code class="name flex">
 <span>def <span class="ident">set_lang</span></span>(<span>lang)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Set language</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def set_lang(lang):
+    &#34;&#34;&#34;Set language &#34;&#34;&#34;
     global LANG
     LANG=lang</code></pre>
 </details>
@@ -303,6 +342,34 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
 </dl>
 </section>
 <section>
+<h2 class="section-title" id="header-classes">Classes</h2>
+<dl>
+<dt id="lca_algebraic.base_utils.ExceptionContext"><code class="flex name class">
+<span>class <span class="ident">ExceptionContext</span></span>
+<span>(</span><span>context)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>An abstract base class for context managers.</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class  ExceptionContext(AbstractContextManager) :
+    def __init__(self, context):
+        self.context = context
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_val != None :
+            raise_from(Exception(&#34;Context : %s&#34; % str(self.context)), exc_val)
+        return True</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>contextlib.AbstractContextManager</li>
+<li>abc.ABC</li>
+</ul>
+</dd>
+</dl>
 </section>
 </article>
 <nav id="sidebar">
@@ -326,7 +393,15 @@ If x is not within [x1, x2] the corresponding bound Y values are returned</p></s
 <li><code><a title="lca_algebraic.base_utils.error" href="#lca_algebraic.base_utils.error">error</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.interpolate" href="#lca_algebraic.base_utils.interpolate">interpolate</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.r_squared" href="#lca_algebraic.base_utils.r_squared">r_squared</a></code></li>
+<li><code><a title="lca_algebraic.base_utils.set_debug" href="#lca_algebraic.base_utils.set_debug">set_debug</a></code></li>
 <li><code><a title="lca_algebraic.base_utils.set_lang" href="#lca_algebraic.base_utils.set_lang">set_lang</a></code></li>
+</ul>
+</li>
+<li><h3><a href="#header-classes">Classes</a></h3>
+<ul>
+<li>
+<h4><code><a title="lca_algebraic.base_utils.ExceptionContext" href="#lca_algebraic.base_utils.ExceptionContext">ExceptionContext</a></code></h4>
+</li>
 </ul>
 </li>
 </ul>

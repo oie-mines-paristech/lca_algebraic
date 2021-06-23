@@ -26,11 +26,15 @@ def resetDb(db_name, foreground=True):
         setBackground(db_name)
 
 
-def initDb(project_name) :
-    '''Init brightway and detect version of existing installation of ecoinvent'''
+def initProject(project_name) :
+    '''Setup the project if not already done.'''
     bw.projects.set_current(project_name)
     bw.bw2setup()
 
+def initDb(project_name) :
+    '''Deprecated : use initProject(...) '''
+    error("Deprecated : use initProject")
+    initProject(project_name)
 
 def importDb(dbname, path):
     '''Import eco invent DB'''

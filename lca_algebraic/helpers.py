@@ -55,6 +55,7 @@ def setBackground(db_name) :
     return _setMeta(db_name, FOREGROUND_KEY, False)
 
 def SET_USER_DB(db_name) :
+    """Deprecated, use #setForeground() / setBackground() instead"""
     error("Deprecated, use #setForeground() / setBackground() instead")
     setForeground(db_name)
 
@@ -78,7 +79,7 @@ def list_databases() :
 
 
 def with_db_context(func):
-    """ Decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)"""
+    """ Internal decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)"""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         act = args[0]
@@ -721,11 +722,6 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
         act = getActByCode(*input)
         res.addExchanges({act: dict(amount=amount, name=exch['name'])})
     return res
-
-
-def listMainMethodCategories() :
-    """List main methods"""
-    return set(m[0] for m in bw.methods)
 
 
 

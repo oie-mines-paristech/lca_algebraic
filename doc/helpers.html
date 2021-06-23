@@ -24,53 +24,95 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">import re
+<pre><code class="python">import functools
+import re
 import types
-from collections import defaultdict
+
 from copy import deepcopy
 from itertools import chain
 
 import pandas as pd
-from IPython.core.display import display
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
+from bw2data.meta import databases as dbmeta
 from sympy import symbols
 
 from .base_utils import *
-from .base_utils import _getDb, _eprint, _actDesc, _getAmountOrFormula, _actName
+from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName, _isOutputExch
 from .params import *
 from .params import _param_registry, _completeParamValues
+from typing import Tuple, Dict
 
 
-BIOSPHERE3_DB_NAME = &#39;biosphere3&#39;
-_USER_DB = None
+BIOSPHERE3_DB_NAME=&#34;biosphere3&#34;
 
-def USER_DB() :
-    if _USER_DB is not None :
-        return _USER_DB
-    else:
-        # Try to guess it
-        candidates = list(key for key in bw.databases.keys() if key not in [ECOINVENT_DB_NAME(), BIOSPHERE3_DB_NAME])
-        if len(candidates) == 1 :
-            return candidates[0]
+_metaCache = defaultdict(lambda : {})
 
-        raise Exception(&#34;Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB(&#39;YourDbName&#39;)&#34;)
+def _setMeta(dbname, key, value) :
+    &#34;&#34;&#34;Set meta param on DB&#34;&#34;&#34;
+    _metaCache[dbname][key] = value
 
-def SET_USER_DB(userDbName) :
-    global _USER_DB
-    _USER_DB = userDbName
+    data = dbmeta[dbname]
+    data[key] = value
+    dbmeta[dbname] = data
+    dbmeta.flush()
 
-def ECOINVENT_DB_NAME() :
-    &#34;&#34;&#34;Return the name of the ecoinvent DB&#34;&#34;&#34;
-    for key in bw.databases.keys() :
-        if &#39;ecoinvent&#39; in key :
-            return key
 
-    raise Exception(&#34;No ecoinvent DB found&#34;)
+def _getMeta(db_name, key) :
 
-old_amount = symbols(&#34;old_amount&#34;)  # Can be used in epxression of amount for updateExchanges, in order to reference the previous value
+    if key in _metaCache[db_name] :
+        return _metaCache[db_name][key]
+
+    val = dbmeta[db_name].get(key)
+    _metaCache[db_name][key] = val
+    return val
+
+FOREGROUND_KEY = &#34;fg&#34;
+
+def _isForeground(db_name) :
+    &#34;&#34;&#34; Check is db is marked as foreground DB : which means activities may be parametrized / should be developped. &#34;&#34;&#34;
+    return _getMeta(db_name, FOREGROUND_KEY)
+
+def setForeground(db_name) :
+    &#34;&#34;&#34; Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities&#34;&#34;&#34;
+    return _setMeta(db_name, FOREGROUND_KEY, True)
+
+def setBackground(db_name) :
+    &#34;&#34;&#34; Set a db as being a foreground database, meaning it should be considred as static&#34;&#34;&#34;
+    return _setMeta(db_name, FOREGROUND_KEY, False)
+
+def SET_USER_DB(db_name) :
+    &#34;&#34;&#34;Deprecated, use #setForeground() / setBackground() instead&#34;&#34;&#34;
+    error(&#34;Deprecated, use #setForeground() / setBackground() instead&#34;)
+    setForeground(db_name)
+
+def _listTechBackgroundDbs() :
+    &#34;&#34;&#34;List all background databases technosphere (non biosphere) batabases&#34;&#34;&#34;
+    return list(name for name in bw.databases if not _isForeground(name) and not name == BIOSPHERE3_DB_NAME)
+
+old_amount = symbols(&#34;old_amount&#34;)  # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 NumOrExpression = Union[float, Basic]
 
 
+def list_databases() :
+    &#34;&#34;&#34;List of databases and their status&#34;&#34;&#34;
+    data = list(
+        dict(
+            name=name,
+            backend=_getMeta(name, &#34;backend&#34;),
+            type=&#34;foreground&#34; if _isForeground(name) else &#34;background&#34;) for name in bw.databases)
+    res = pd.DataFrame(data)
+    return res.set_index(&#34;name&#34;)
+
+
+def with_db_context(func):
+    &#34;&#34;&#34; Internal decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)&#34;&#34;&#34;
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        act = args[0]
+        dbname = act.key[0]
+        with DbContext(dbname) :
+            return func(*args, **kwargs)
+    return wrapper
 
 
 class ActivityExtended(Activity):
@@ -78,6 +120,22 @@ class ActivityExtended(Activity):
     Those methods are backported to #Activity in order to be directly available on all existing instances
     &#34;&#34;&#34;
 
+    @with_db_context
+    def listExchanges(self) :
+        &#34;&#34;&#34; Iterates on all exchanges (except &#34;production&#34;) and return a list of (exch-name, target-act, amount) &#34;&#34;&#34;
+        res = []
+        for exc in self.exchanges():
+
+            # Don&#39;t show production
+            if _isOutputExch(exc) :
+                continue
+
+            input = bw.get_activity(exc.input.key)
+            amount = _getAmountOrFormula(exc)
+            res.append((exc[&#34;name&#34;], input, amount))
+        return res
+
+    @with_db_context
     def getExchange(self, name=None, input=None, single=True):
         &#34;&#34;&#34;Get exchange by name or input
 
@@ -141,7 +199,9 @@ class ActivityExtended(Activity):
         &#39;&#39;&#39;Set the amount for the single output exchange (1 by default)&#39;&#39;&#39;
         self.addExchanges({self: amount})
 
+    @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
+
         &#34;&#34;&#34;Update existing exchanges, by name.
 
         Parameters
@@ -157,12 +217,16 @@ class ActivityExtended(Activity):
             The amount can reference the symbol &#39;old_amount&#39; that will be replaced with the current amount of the exchange.
         &#34;&#34;&#34;
 
+        parametrized = False
+
         # Update exchanges
         for name, attrs in updates.items():
 
             exchs = self.getExchange(name, single=not &#39;*&#39; in name)
             if not isinstance(exchs, list):
                 exchs = [exchs]
+
+
             for exch in exchs:
 
                 if attrs is None:
@@ -185,7 +249,8 @@ class ActivityExtended(Activity):
 
                 # We have a formula now ? =&gt; register it to parametrized exchange
                 if &#39;formula&#39; in attrs:
-                    bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+                    parametrized = True
+
 
     def deleteExchanges(self, name, single=True):
         &#39;&#39;&#39; Remove matching exchanges &#39;&#39;&#39;
@@ -199,6 +264,7 @@ class ActivityExtended(Activity):
             ex.save()
         self.save()
 
+    @with_db_context
     def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
 
         &#34;&#34;&#34;Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
@@ -222,6 +288,7 @@ class ActivityExtended(Activity):
         self.addExchanges({switch_act: prev_amount})
         self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
 
+    @with_db_context
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
         &#34;&#34;&#34;Add exchanges to an existing activity, with a compact syntax :
 
@@ -230,32 +297,33 @@ class ActivityExtended(Activity):
         exchanges : Dict of activity =&gt; amount or activity =&gt; attributes_dict. \
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         &#34;&#34;&#34;
-        parametrized = False
-        for sub_act, attrs in exchanges.items():
 
-            if isinstance(attrs, dict):
-                amount = attrs.pop(&#39;amount&#39;)
-            else:
-                amount = attrs
-                attrs = dict()
+        with DbContext(self.key[0]) :
 
-            exch = self.new_exchange(
-                input=sub_act.key,
-                name=sub_act[&#39;name&#39;],
-                unit=sub_act[&#39;unit&#39;] if &#39;unit&#39; in sub_act else None,
-                type=&#39;production&#39; if self == sub_act else &#39;biosphere&#39; if sub_act[
-                                                                             &#39;database&#39;] == BIOSPHERE3_DB_NAME else &#39;technosphere&#39;)
+            for sub_act, attrs in exchanges.items():
 
-            exch.update(attrs)
-            exch.update(_amountToFormula(amount))
-            if &#39;formula&#39; in exch:
-                parametrized = True
+                if isinstance(attrs, dict):
+                    amount = attrs.pop(&#39;amount&#39;)
+                else:
+                    amount = attrs
+                    attrs = dict()
 
-            exch.save()
-        self.save()
-        if parametrized:
-            bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+                exch = self.new_exchange(
+                    input=sub_act.key,
+                    name=sub_act[&#39;name&#39;],
+                    unit=sub_act[&#39;unit&#39;] if &#39;unit&#39; in sub_act else None,
+                    type=&#39;production&#39; if self == sub_act else &#39;technosphere&#39; if sub_act.get(&#39;type&#39;) == &#39;process&#39; else &#39;biosphere&#39;)
 
+                exch.update(attrs)
+                exch.update(_amountToFormula(amount))
+                if &#39;formula&#39; in exch:
+                    parametrized = True
+
+                exch.save()
+            self.save()
+
+
+    @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
         &#34;&#34;&#34;
         Get the amount of one or several exchanges, selected by name or input. See #getExchange()
@@ -270,6 +338,19 @@ class ActivityExtended(Activity):
             return res
         else:
             return _getAmountOrFormula(exchs)
+
+    def getOutputAmount(self):
+
+        &#34;&#34;&#34; Return the amount of the production : 1 if none is found &#34;&#34;&#34;
+        res = 1
+        for exch in self.exchanges() :
+            if exch[&#39;input&#39;] == exch[&#39;output&#39;]:
+                # Not 1 ?
+                if exch[&#39;amount&#39;] != 1:
+                    res = exch[&#39;amount&#39;]
+                break
+        return res
+
 
     def exchangesNp(self):
         &#34;&#34;&#34; List of exchange, except production (output) one.&#34;&#34;&#34;
@@ -328,7 +409,7 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, unit=None):
+                 single=True, unit=None) -&gt; ActivityExtended :
     &#34;&#34;&#34;
         Find single activity by name &amp; location
         Uses index for fast fetching
@@ -356,17 +437,21 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
     if code:
         acts = [getActByCode(db_name, code)]
     else:
-        search = name if name else in_name
+        search = name if name is not None else in_name
 
         search = search.lower()
         search = search.replace(&#39;,&#39;, &#39; &#39;)
-        search = re.sub(&#39;\w*[^a-zA-Z ]+\w*&#39;, &#39; &#39;, search)
 
         # Find candidates via index
         # candidates = _find_candidates(db_name, name_key)
         candidates = _getDb(db_name).search(search, limit=200)
 
-        # print(candidates)
+        if len(candidates) == 0 :
+            # Try again removing strange caracters
+            search = re.sub(r&#39;\w*[^a-zA-Z ]+\w*&#39;, &#39; &#39;, search)
+            candidates = _getDb(db_name).search(search, limit=200)
+
+        # print(search, candidates)
 
         # Exact match
         acts = list(filter(act_filter, candidates))
@@ -383,15 +468,18 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
 
 def findBioAct(name=None, loc=None, **kwargs):
-    &#34;&#34;&#34;Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME)
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) &#34;&#34;&#34;
     return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)
 
 
-def findTechAct(name=None, loc=None, **kwargs):
-    &#34;&#34;&#34;Alias for findActivity(name, ... db_name=ECOINVENT_DB_NAME)
-    &#34;&#34;&#34;
-    return findActivity(name=name, loc=loc, db_name=ECOINVENT_DB_NAME(), **kwargs)
+def findTechAct(name=None, loc=None, single=True, **kwargs):
+    &#34;&#34;&#34; Search activities in any background db not being biospehere &#34;&#34;&#34;
+    dbs = _listTechBackgroundDbs()
+    if len(dbs) &gt; 1 :
+        raise Exception(&#34;There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)&#34; % str(dbs))
+
+    return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
+
 
 
 def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
@@ -420,11 +508,15 @@ def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
 
 
 def _newAct(db_name, code):
+
+    if not _isForeground(db_name) :
+        error(&#34;WARNING: You are creating activity in background DB. You should only do it in your foreground / user DB : &#34;, db_name)
+
     db = _getDb(db_name)
     # Already present : delete it ?
     for act in db:
         if act[&#39;code&#39;] == code:
-            _eprint(&#34;Activity &#39;%s&#39; was already in &#39;%s&#39;. Overwriting it&#34; % (code, db_name))
+            error(&#34;Activity &#39;%s&#39; was already in &#39;%s&#39;. Overwriting it&#34; % (code, db_name))
             act.delete()
 
     return db.new_activity(code)
@@ -467,6 +559,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         res._data[k] = v
     res._data[u&#39;code&#39;] = code
     res[&#39;name&#39;] = code
+    res[&#39;type&#39;] = &#39;process&#39;
     res.save()
 
     if withExchanges:
@@ -480,8 +573,8 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
 
     return res
 
-
-def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
+ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
+def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
     &#34;&#34;&#34;Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a &#34;Switch&#34; with brightway parameters
     Internally, this will create a linear sum of other activities controlled by &lt;param_name&gt;_&lt;enum_value&gt; : 0 or 1
@@ -507,78 +600,86 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     &#34;&#34;&#34;
 
     # Transform map of enum values to corresponding formulas &lt;param_name&gt;_&lt;enum_value&gt;
-    exch = dict()
+    exch = defaultdict(lambda : 0)
+
+    # Forward last unit as unit of the switch
+    unit= None
     for key, act in acts_dict.items() :
         amount = 1
         if type(act) == list or type(act) == tuple :
             act, amount = act
-        exch[act] = amount * paramDef.symbol(key)
+        exch[act] += amount * paramDef.symbol(key)
+        unit = act[&#34;unit&#34;]
 
     res = newActivity(
         dbname,
         name,
-        unit=list(acts_dict.values())[0][&#39;unit&#39;],
+        unit=unit,
         exchanges=exch)
 
     return res
 
 
-def printAct(*args, **params):
+def printAct(*args, impact=None, **params):
     &#34;&#34;&#34;
     Print activities and their exchanges.
-    If parameter values are provided, formulas will be evaluated accordingly
+    If parameter values are provided, formulas will be evaluated accordingly.
+    If impact is provided it will be computed.
     &#34;&#34;&#34;
     tables = []
     names = []
 
     activities = args
 
+
     for act in activities:
-        inputs_by_ex_name = dict()
-        df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;])
-        data = dict()
-        for (i, exc) in enumerate(act.exchanges()):
+        with DbContext(act.key[0]) :
+            inputs_by_ex_name = dict()
+            df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;])
+            data = dict()
+            for (i, exc) in enumerate(act.exchanges()):
 
-            if exc[&#39;type&#39;] == &#39;production&#39; :
-                continue
+                # Don&#39;t show production
+                if _isOutputExch(exc) :
+                    continue
 
-            input = bw.get_activity(exc.input.key)
-            amount = _getAmountOrFormula(exc)
+                input = bw.get_activity(exc.input.key)
+                amount = _getAmountOrFormula(exc)
 
-            # Params provided ? Evaluate formulas
-            if len(params) &gt; 0 and isinstance(amount, Basic):
-                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
-                amount = amount.subs(new_params)
+                # Params provided ? Evaluate formulas
+                if len(params) &gt; 0 and isinstance(amount, Basic):
+                    new_params = [(name, value) for name, value in _completeParamValues(params).items()]
+                    amount = amount.subs(new_params)
 
-            ex_name = exc[&#39;name&#39;]
-            #if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
-            #    name += &#34;#%s&#34; % input[&#39;location&#39;]
-            #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-            #    name += &#34; {user-db}&#34;
+                ex_name = exc[&#39;name&#39;]
+                #if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
+                #    name += &#34;#%s&#34; % input[&#39;location&#39;]
+                #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                #    name += &#34; {user-db}&#34;
 
-            # Unique name : some exchanges may havve same names
-            _name = ex_name
-            i = 1
-            while ex_name in data:
-                ex_name = &#34;%s#%d&#34; % (_name, i)
-                i += 1
+                # Unique name : some exchanges may havve same names
+                _name = ex_name
+                i = 1
+                while ex_name in data:
+                    ex_name = &#34;%s#%d&#34; % (_name, i)
+                    i += 1
 
-            inputs_by_ex_name[ex_name] = input
+                inputs_by_ex_name[ex_name] = input
 
-            input_name = _actName(input)
-            if input.key[0] == USER_DB():
-                input_name += &#34;{user-db}&#34;
+                input_name = _actName(input)
+                if _isForeground(input.key[0]):
+                    input_name += &#34;{FG}&#34;
 
-            data[ex_name] = [input_name, amount, exc.unit]
+                data[ex_name] = [input_name, amount, exc.unit]
 
-        # Provide impact calculation if impact provided
+            # Provide impact calculation if impact provided
 
 
-        for key, values in data.items():
-            df[key] = values
+            for key, values in data.items():
+                df[key] = values
 
-        tables.append(df.T)
-        names.append(_actDesc(act))
+            tables.append(df.T)
+            names.append(_actDesc(act))
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 
@@ -646,6 +747,30 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
         amount = interpolate(x, x1, x2, amount1 * alpha1, amount2 * alpha2)
         act = getActByCode(*input)
         res.addExchanges({act: dict(amount=amount, name=exch[&#39;name&#39;])})
+    return res
+
+
+
+def findMethods(search=None, mainCat=None) :
+
+    &#34;&#34;&#34;
+    Find impact method. Search in all methods against a list of match strings.
+    Each parameter can be either an exact match match, or case insenstive search, if suffixed by &#39;*&#39;
+
+    Parameters
+    ----------
+    search : String to search
+    mainCat : if specified, limits the research for method[0] == mainCat.
+    &#34;&#34;&#34;
+    res = []
+    search = search.lower()
+    for method in bw.methods:
+        text = str(method).lower()
+        match  = search in text
+        if mainCat :
+            match = match and (mainCat == method[0])
+        if match :
+            res.append(method)
     return res</code></pre>
 </details>
 </section>
@@ -656,57 +781,19 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
-<dt id="lca_algebraic.helpers.ECOINVENT_DB_NAME"><code class="name flex">
-<span>def <span class="ident">ECOINVENT_DB_NAME</span></span>(<span>)</span>
-</code></dt>
-<dd>
-<section class="desc"><p>Return the name of the ecoinvent DB</p></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def ECOINVENT_DB_NAME() :
-    &#34;&#34;&#34;Return the name of the ecoinvent DB&#34;&#34;&#34;
-    for key in bw.databases.keys() :
-        if &#39;ecoinvent&#39; in key :
-            return key
-
-    raise Exception(&#34;No ecoinvent DB found&#34;)</code></pre>
-</details>
-</dd>
 <dt id="lca_algebraic.helpers.SET_USER_DB"><code class="name flex">
-<span>def <span class="ident">SET_USER_DB</span></span>(<span>userDbName)</span>
+<span>def <span class="ident">SET_USER_DB</span></span>(<span>db_name)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Deprecated, use #setForeground() / setBackground() instead</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def SET_USER_DB(userDbName) :
-    global _USER_DB
-    _USER_DB = userDbName</code></pre>
-</details>
-</dd>
-<dt id="lca_algebraic.helpers.USER_DB"><code class="name flex">
-<span>def <span class="ident">USER_DB</span></span>(<span>)</span>
-</code></dt>
-<dd>
-<section class="desc"></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def USER_DB() :
-    if _USER_DB is not None :
-        return _USER_DB
-    else:
-        # Try to guess it
-        candidates = list(key for key in bw.databases.keys() if key not in [ECOINVENT_DB_NAME(), BIOSPHERE3_DB_NAME])
-        if len(candidates) == 1 :
-            return candidates[0]
-
-        raise Exception(&#34;Unable to guess the name of the user DB. Please set it manually with SET_USEr_DB(&#39;YourDbName&#39;)&#34;)</code></pre>
+<pre><code class="python">def SET_USER_DB(db_name) :
+    &#34;&#34;&#34;Deprecated, use #setForeground() / setBackground() instead&#34;&#34;&#34;
+    error(&#34;Deprecated, use #setForeground() / setBackground() instead&#34;)
+    setForeground(db_name)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.copyActivity"><code class="name flex">
@@ -730,6 +817,7 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
         res._data[k] = v
     res._data[u&#39;code&#39;] = code
     res[&#39;name&#39;] = code
+    res[&#39;type&#39;] = &#39;process&#39;
     res.save()
 
     if withExchanges:
@@ -755,7 +843,7 @@ Uses index for fast fetching</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, unit=None):
+                 single=True, unit=None) -&gt; ActivityExtended :
     &#34;&#34;&#34;
         Find single activity by name &amp; location
         Uses index for fast fetching
@@ -783,17 +871,21 @@ Uses index for fast fetching</p></section>
     if code:
         acts = [getActByCode(db_name, code)]
     else:
-        search = name if name else in_name
+        search = name if name is not None else in_name
 
         search = search.lower()
         search = search.replace(&#39;,&#39;, &#39; &#39;)
-        search = re.sub(&#39;\w*[^a-zA-Z ]+\w*&#39;, &#39; &#39;, search)
 
         # Find candidates via index
         # candidates = _find_candidates(db_name, name_key)
         candidates = _getDb(db_name).search(search, limit=200)
 
-        # print(candidates)
+        if len(candidates) == 0 :
+            # Try again removing strange caracters
+            search = re.sub(r&#39;\w*[^a-zA-Z ]+\w*&#39;, &#39; &#39;, search)
+            candidates = _getDb(db_name).search(search, limit=200)
+
+        # print(search, candidates)
 
         # Exact match
         acts = list(filter(act_filter, candidates))
@@ -819,24 +911,65 @@ Uses index for fast fetching</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def findBioAct(name=None, loc=None, **kwargs):
-    &#34;&#34;&#34;Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME)
-    &#34;&#34;&#34;
+    &#34;&#34;&#34;Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) &#34;&#34;&#34;
     return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)</code></pre>
 </details>
 </dd>
-<dt id="lca_algebraic.helpers.findTechAct"><code class="name flex">
-<span>def <span class="ident">findTechAct</span></span>(<span>name=None, loc=None, **kwargs)</span>
+<dt id="lca_algebraic.helpers.findMethods"><code class="name flex">
+<span>def <span class="ident">findMethods</span></span>(<span>search=None, mainCat=None)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Alias for findActivity(name, &hellip; db_name=ECOINVENT_DB_NAME)</p></section>
+<section class="desc"><p>Find impact method. Search in all methods against a list of match strings.
+Each parameter can be either an exact match match, or case insenstive search, if suffixed by '*'</p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt><strong><code>search</code></strong> :&ensp;<code>String</code> <code>to</code> <code>search</code></dt>
+<dd>&nbsp;</dd>
+</dl>
+<p>mainCat : if specified, limits the research for method[0] == mainCat.</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def findTechAct(name=None, loc=None, **kwargs):
-    &#34;&#34;&#34;Alias for findActivity(name, ... db_name=ECOINVENT_DB_NAME)
+<pre><code class="python">def findMethods(search=None, mainCat=None) :
+
     &#34;&#34;&#34;
-    return findActivity(name=name, loc=loc, db_name=ECOINVENT_DB_NAME(), **kwargs)</code></pre>
+    Find impact method. Search in all methods against a list of match strings.
+    Each parameter can be either an exact match match, or case insenstive search, if suffixed by &#39;*&#39;
+
+    Parameters
+    ----------
+    search : String to search
+    mainCat : if specified, limits the research for method[0] == mainCat.
+    &#34;&#34;&#34;
+    res = []
+    search = search.lower()
+    for method in bw.methods:
+        text = str(method).lower()
+        match  = search in text
+        if mainCat :
+            match = match and (mainCat == method[0])
+        if match :
+            res.append(method)
+    return res</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.findTechAct"><code class="name flex">
+<span>def <span class="ident">findTechAct</span></span>(<span>name=None, loc=None, single=True, **kwargs)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Search activities in any background db not being biospehere</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def findTechAct(name=None, loc=None, single=True, **kwargs):
+    &#34;&#34;&#34; Search activities in any background db not being biospehere &#34;&#34;&#34;
+    dbs = _listTechBackgroundDbs()
+    if len(dbs) &gt; 1 :
+        raise Exception(&#34;There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)&#34; % str(dbs))
+
+    return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.getActByCode"><code class="name flex">
@@ -851,6 +984,26 @@ Uses index for fast fetching</p></section>
 <pre><code class="python">def getActByCode(db_name, code):
     &#34;&#34;&#34; Get activity by code &#34;&#34;&#34;
     return _getDb(db_name).get(code)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.list_databases"><code class="name flex">
+<span>def <span class="ident">list_databases</span></span>(<span>)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>List of databases and their status</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def list_databases() :
+    &#34;&#34;&#34;List of databases and their status&#34;&#34;&#34;
+    data = list(
+        dict(
+            name=name,
+            backend=_getMeta(name, &#34;backend&#34;),
+            type=&#34;foreground&#34; if _isForeground(name) else &#34;background&#34;) for name in bw.databases)
+    res = pd.DataFrame(data)
+    return res.set_index(&#34;name&#34;)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.newActivity"><code class="name flex">
@@ -1004,7 +1157,7 @@ You can provide other amounts by providing a tuple of (activity, amount).</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity]):
+<pre><code class="python">def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
     &#34;&#34;&#34;Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a &#34;Switch&#34; with brightway parameters
     Internally, this will create a linear sum of other activities controlled by &lt;param_name&gt;_&lt;enum_value&gt; : 0 or 1
@@ -1030,88 +1183,97 @@ You can provide other amounts by providing a tuple of (activity, amount).</p>
     &#34;&#34;&#34;
 
     # Transform map of enum values to corresponding formulas &lt;param_name&gt;_&lt;enum_value&gt;
-    exch = dict()
+    exch = defaultdict(lambda : 0)
+
+    # Forward last unit as unit of the switch
+    unit= None
     for key, act in acts_dict.items() :
         amount = 1
         if type(act) == list or type(act) == tuple :
             act, amount = act
-        exch[act] = amount * paramDef.symbol(key)
+        exch[act] += amount * paramDef.symbol(key)
+        unit = act[&#34;unit&#34;]
 
     res = newActivity(
         dbname,
         name,
-        unit=list(acts_dict.values())[0][&#39;unit&#39;],
+        unit=unit,
         exchanges=exch)
 
     return res</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.printAct"><code class="name flex">
-<span>def <span class="ident">printAct</span></span>(<span>*args, **params)</span>
+<span>def <span class="ident">printAct</span></span>(<span>*args, impact=None, **params)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Print activities and their exchanges.
-If parameter values are provided, formulas will be evaluated accordingly</p></section>
+If parameter values are provided, formulas will be evaluated accordingly.
+If impact is provided it will be computed.</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def printAct(*args, **params):
+<pre><code class="python">def printAct(*args, impact=None, **params):
     &#34;&#34;&#34;
     Print activities and their exchanges.
-    If parameter values are provided, formulas will be evaluated accordingly
+    If parameter values are provided, formulas will be evaluated accordingly.
+    If impact is provided it will be computed.
     &#34;&#34;&#34;
     tables = []
     names = []
 
     activities = args
 
+
     for act in activities:
-        inputs_by_ex_name = dict()
-        df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;])
-        data = dict()
-        for (i, exc) in enumerate(act.exchanges()):
+        with DbContext(act.key[0]) :
+            inputs_by_ex_name = dict()
+            df = pd.DataFrame(index=[&#39;input&#39;, &#39;amount&#39;, &#39;unit&#39;])
+            data = dict()
+            for (i, exc) in enumerate(act.exchanges()):
 
-            if exc[&#39;type&#39;] == &#39;production&#39; :
-                continue
+                # Don&#39;t show production
+                if _isOutputExch(exc) :
+                    continue
 
-            input = bw.get_activity(exc.input.key)
-            amount = _getAmountOrFormula(exc)
+                input = bw.get_activity(exc.input.key)
+                amount = _getAmountOrFormula(exc)
 
-            # Params provided ? Evaluate formulas
-            if len(params) &gt; 0 and isinstance(amount, Basic):
-                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
-                amount = amount.subs(new_params)
+                # Params provided ? Evaluate formulas
+                if len(params) &gt; 0 and isinstance(amount, Basic):
+                    new_params = [(name, value) for name, value in _completeParamValues(params).items()]
+                    amount = amount.subs(new_params)
 
-            ex_name = exc[&#39;name&#39;]
-            #if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
-            #    name += &#34;#%s&#34; % input[&#39;location&#39;]
-            #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-            #    name += &#34; {user-db}&#34;
+                ex_name = exc[&#39;name&#39;]
+                #if &#39;location&#39; in input and input[&#39;location&#39;] != &#34;GLO&#34;:
+                #    name += &#34;#%s&#34; % input[&#39;location&#39;]
+                #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                #    name += &#34; {user-db}&#34;
 
-            # Unique name : some exchanges may havve same names
-            _name = ex_name
-            i = 1
-            while ex_name in data:
-                ex_name = &#34;%s#%d&#34; % (_name, i)
-                i += 1
+                # Unique name : some exchanges may havve same names
+                _name = ex_name
+                i = 1
+                while ex_name in data:
+                    ex_name = &#34;%s#%d&#34; % (_name, i)
+                    i += 1
 
-            inputs_by_ex_name[ex_name] = input
+                inputs_by_ex_name[ex_name] = input
 
-            input_name = _actName(input)
-            if input.key[0] == USER_DB():
-                input_name += &#34;{user-db}&#34;
+                input_name = _actName(input)
+                if _isForeground(input.key[0]):
+                    input_name += &#34;{FG}&#34;
 
-            data[ex_name] = [input_name, amount, exc.unit]
+                data[ex_name] = [input_name, amount, exc.unit]
 
-        # Provide impact calculation if impact provided
+            # Provide impact calculation if impact provided
 
 
-        for key, values in data.items():
-            df[key] = values
+            for key, values in data.items():
+                df[key] = values
 
-        tables.append(df.T)
-        names.append(_actDesc(act))
+            tables.append(df.T)
+            names.append(_actDesc(act))
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 
@@ -1139,6 +1301,54 @@ If parameter values are provided, formulas will be evaluated accordingly</p></se
     display(full)</code></pre>
 </details>
 </dd>
+<dt id="lca_algebraic.helpers.setBackground"><code class="name flex">
+<span>def <span class="ident">setBackground</span></span>(<span>db_name)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Set a db as being a foreground database, meaning it should be considred as static</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def setBackground(db_name) :
+    &#34;&#34;&#34; Set a db as being a foreground database, meaning it should be considred as static&#34;&#34;&#34;
+    return _setMeta(db_name, FOREGROUND_KEY, False)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.setForeground"><code class="name flex">
+<span>def <span class="ident">setForeground</span></span>(<span>db_name)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def setForeground(db_name) :
+    &#34;&#34;&#34; Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities&#34;&#34;&#34;
+    return _setMeta(db_name, FOREGROUND_KEY, True)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.with_db_context"><code class="name flex">
+<span>def <span class="ident">with_db_context</span></span>(<span>func)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Internal decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def with_db_context(func):
+    &#34;&#34;&#34; Internal decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)&#34;&#34;&#34;
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        act = args[0]
+        dbname = act.key[0]
+        with DbContext(dbname) :
+            return func(*args, **kwargs)
+    return wrapper</code></pre>
+</details>
+</dd>
 </dl>
 </section>
 <section>
@@ -1163,6 +1373,22 @@ Those methods are backported to #Activity in order to be directly available on a
     Those methods are backported to #Activity in order to be directly available on all existing instances
     &#34;&#34;&#34;
 
+    @with_db_context
+    def listExchanges(self) :
+        &#34;&#34;&#34; Iterates on all exchanges (except &#34;production&#34;) and return a list of (exch-name, target-act, amount) &#34;&#34;&#34;
+        res = []
+        for exc in self.exchanges():
+
+            # Don&#39;t show production
+            if _isOutputExch(exc) :
+                continue
+
+            input = bw.get_activity(exc.input.key)
+            amount = _getAmountOrFormula(exc)
+            res.append((exc[&#34;name&#34;], input, amount))
+        return res
+
+    @with_db_context
     def getExchange(self, name=None, input=None, single=True):
         &#34;&#34;&#34;Get exchange by name or input
 
@@ -1226,7 +1452,9 @@ Those methods are backported to #Activity in order to be directly available on a
         &#39;&#39;&#39;Set the amount for the single output exchange (1 by default)&#39;&#39;&#39;
         self.addExchanges({self: amount})
 
+    @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
+
         &#34;&#34;&#34;Update existing exchanges, by name.
 
         Parameters
@@ -1242,12 +1470,16 @@ Those methods are backported to #Activity in order to be directly available on a
             The amount can reference the symbol &#39;old_amount&#39; that will be replaced with the current amount of the exchange.
         &#34;&#34;&#34;
 
+        parametrized = False
+
         # Update exchanges
         for name, attrs in updates.items():
 
             exchs = self.getExchange(name, single=not &#39;*&#39; in name)
             if not isinstance(exchs, list):
                 exchs = [exchs]
+
+
             for exch in exchs:
 
                 if attrs is None:
@@ -1270,7 +1502,8 @@ Those methods are backported to #Activity in order to be directly available on a
 
                 # We have a formula now ? =&gt; register it to parametrized exchange
                 if &#39;formula&#39; in attrs:
-                    bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+                    parametrized = True
+
 
     def deleteExchanges(self, name, single=True):
         &#39;&#39;&#39; Remove matching exchanges &#39;&#39;&#39;
@@ -1284,6 +1517,7 @@ Those methods are backported to #Activity in order to be directly available on a
             ex.save()
         self.save()
 
+    @with_db_context
     def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
 
         &#34;&#34;&#34;Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
@@ -1307,6 +1541,7 @@ Those methods are backported to #Activity in order to be directly available on a
         self.addExchanges({switch_act: prev_amount})
         self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
 
+    @with_db_context
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
         &#34;&#34;&#34;Add exchanges to an existing activity, with a compact syntax :
 
@@ -1315,32 +1550,33 @@ Those methods are backported to #Activity in order to be directly available on a
         exchanges : Dict of activity =&gt; amount or activity =&gt; attributes_dict. \
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         &#34;&#34;&#34;
-        parametrized = False
-        for sub_act, attrs in exchanges.items():
 
-            if isinstance(attrs, dict):
-                amount = attrs.pop(&#39;amount&#39;)
-            else:
-                amount = attrs
-                attrs = dict()
+        with DbContext(self.key[0]) :
 
-            exch = self.new_exchange(
-                input=sub_act.key,
-                name=sub_act[&#39;name&#39;],
-                unit=sub_act[&#39;unit&#39;] if &#39;unit&#39; in sub_act else None,
-                type=&#39;production&#39; if self == sub_act else &#39;biosphere&#39; if sub_act[
-                                                                             &#39;database&#39;] == BIOSPHERE3_DB_NAME else &#39;technosphere&#39;)
+            for sub_act, attrs in exchanges.items():
 
-            exch.update(attrs)
-            exch.update(_amountToFormula(amount))
-            if &#39;formula&#39; in exch:
-                parametrized = True
+                if isinstance(attrs, dict):
+                    amount = attrs.pop(&#39;amount&#39;)
+                else:
+                    amount = attrs
+                    attrs = dict()
 
-            exch.save()
-        self.save()
-        if parametrized:
-            bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)
+                exch = self.new_exchange(
+                    input=sub_act.key,
+                    name=sub_act[&#39;name&#39;],
+                    unit=sub_act[&#39;unit&#39;] if &#39;unit&#39; in sub_act else None,
+                    type=&#39;production&#39; if self == sub_act else &#39;technosphere&#39; if sub_act.get(&#39;type&#39;) == &#39;process&#39; else &#39;biosphere&#39;)
 
+                exch.update(attrs)
+                exch.update(_amountToFormula(amount))
+                if &#39;formula&#39; in exch:
+                    parametrized = True
+
+                exch.save()
+            self.save()
+
+
+    @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
         &#34;&#34;&#34;
         Get the amount of one or several exchanges, selected by name or input. See #getExchange()
@@ -1355,6 +1591,19 @@ Those methods are backported to #Activity in order to be directly available on a
             return res
         else:
             return _getAmountOrFormula(exchs)
+
+    def getOutputAmount(self):
+
+        &#34;&#34;&#34; Return the amount of the production : 1 if none is found &#34;&#34;&#34;
+        res = 1
+        for exch in self.exchanges() :
+            if exch[&#39;input&#39;] == exch[&#39;output&#39;]:
+                # Not 1 ?
+                if exch[&#39;amount&#39;] != 1:
+                    res = exch[&#39;amount&#39;]
+                break
+        return res
+
 
     def exchangesNp(self):
         &#34;&#34;&#34; List of exchange, except production (output) one.&#34;&#34;&#34;
@@ -1391,7 +1640,8 @@ Those methods are backported to #Activity in order to be directly available on a
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
+<pre><code class="python">@with_db_context
+def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
     &#34;&#34;&#34;Add exchanges to an existing activity, with a compact syntax :
 
     Parameters
@@ -1399,31 +1649,30 @@ Those methods are backported to #Activity in order to be directly available on a
     exchanges : Dict of activity =&gt; amount or activity =&gt; attributes_dict. \
         Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
     &#34;&#34;&#34;
-    parametrized = False
-    for sub_act, attrs in exchanges.items():
 
-        if isinstance(attrs, dict):
-            amount = attrs.pop(&#39;amount&#39;)
-        else:
-            amount = attrs
-            attrs = dict()
+    with DbContext(self.key[0]) :
 
-        exch = self.new_exchange(
-            input=sub_act.key,
-            name=sub_act[&#39;name&#39;],
-            unit=sub_act[&#39;unit&#39;] if &#39;unit&#39; in sub_act else None,
-            type=&#39;production&#39; if self == sub_act else &#39;biosphere&#39; if sub_act[
-                                                                         &#39;database&#39;] == BIOSPHERE3_DB_NAME else &#39;technosphere&#39;)
+        for sub_act, attrs in exchanges.items():
 
-        exch.update(attrs)
-        exch.update(_amountToFormula(amount))
-        if &#39;formula&#39; in exch:
-            parametrized = True
+            if isinstance(attrs, dict):
+                amount = attrs.pop(&#39;amount&#39;)
+            else:
+                amount = attrs
+                attrs = dict()
 
-        exch.save()
-    self.save()
-    if parametrized:
-        bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)</code></pre>
+            exch = self.new_exchange(
+                input=sub_act.key,
+                name=sub_act[&#39;name&#39;],
+                unit=sub_act[&#39;unit&#39;] if &#39;unit&#39; in sub_act else None,
+                type=&#39;production&#39; if self == sub_act else &#39;technosphere&#39; if sub_act.get(&#39;type&#39;) == &#39;process&#39; else &#39;biosphere&#39;)
+
+            exch.update(attrs)
+            exch.update(_amountToFormula(amount))
+            if &#39;formula&#39; in exch:
+                parametrized = True
+
+            exch.save()
+        self.save()</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.helpers.ActivityExtended.deleteExchanges"><code class="name flex">
@@ -1473,7 +1722,8 @@ Those methods are backported to #Activity in order to be directly available on a
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def getAmount(self, *args, sum=False, **kargs):
+<pre><code class="python">@with_db_context
+def getAmount(self, *args, sum=False, **kargs):
     &#34;&#34;&#34;
     Get the amount of one or several exchanges, selected by name or input. See #getExchange()
     &#34;&#34;&#34;
@@ -1510,7 +1760,8 @@ raise Exception if not matching exchange found
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def getExchange(self, name=None, input=None, single=True):
+<pre><code class="python">@with_db_context
+def getExchange(self, name=None, input=None, single=True):
     &#34;&#34;&#34;Get exchange by name or input
 
     Parameters
@@ -1570,6 +1821,53 @@ raise Exception if not matching exchange found
         return exchs</code></pre>
 </details>
 </dd>
+<dt id="lca_algebraic.helpers.ActivityExtended.getOutputAmount"><code class="name flex">
+<span>def <span class="ident">getOutputAmount</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Return the amount of the production : 1 if none is found</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def getOutputAmount(self):
+
+    &#34;&#34;&#34; Return the amount of the production : 1 if none is found &#34;&#34;&#34;
+    res = 1
+    for exch in self.exchanges() :
+        if exch[&#39;input&#39;] == exch[&#39;output&#39;]:
+            # Not 1 ?
+            if exch[&#39;amount&#39;] != 1:
+                res = exch[&#39;amount&#39;]
+            break
+    return res</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.helpers.ActivityExtended.listExchanges"><code class="name flex">
+<span>def <span class="ident">listExchanges</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Iterates on all exchanges (except "production") and return a list of (exch-name, target-act, amount)</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@with_db_context
+def listExchanges(self) :
+    &#34;&#34;&#34; Iterates on all exchanges (except &#34;production&#34;) and return a list of (exch-name, target-act, amount) &#34;&#34;&#34;
+    res = []
+    for exc in self.exchanges():
+
+        # Don&#39;t show production
+        if _isOutputExch(exc) :
+            continue
+
+        input = bw.get_activity(exc.input.key)
+        amount = _getAmountOrFormula(exc)
+        res.append((exc[&#34;name&#34;], input, amount))
+    return res</code></pre>
+</details>
+</dd>
 <dt id="lca_algebraic.helpers.ActivityExtended.setOutputAmount"><code class="name flex">
 <span>def <span class="ident">setOutputAmount</span></span>(<span>self, amount)</span>
 </code></dt>
@@ -1607,7 +1905,8 @@ making it null as soon as one enum value is set.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
+<pre><code class="python">@with_db_context
+def substituteWithDefault(self, exchange_name: str, switch_act: Activity, paramSwitch: EnumParam, amount=None):
 
     &#34;&#34;&#34;Substitutes one exchange with a switch on other activities, or fallback to the current one as default (parameter set to None)
     For this purpose, we create a new exchange referencing the activity switch, and we multiply current activity by &#39;&lt;param_name&gt;_default&#39;,
@@ -1654,7 +1953,9 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def updateExchanges(self, updates: Dict[str, any] = dict()):
+<pre><code class="python">@with_db_context
+def updateExchanges(self, updates: Dict[str, any] = dict()):
+
     &#34;&#34;&#34;Update existing exchanges, by name.
 
     Parameters
@@ -1670,12 +1971,16 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
         The amount can reference the symbol &#39;old_amount&#39; that will be replaced with the current amount of the exchange.
     &#34;&#34;&#34;
 
+    parametrized = False
+
     # Update exchanges
     for name, attrs in updates.items():
 
         exchs = self.getExchange(name, single=not &#39;*&#39; in name)
         if not isinstance(exchs, list):
             exchs = [exchs]
+
+
         for exch in exchs:
 
             if attrs is None:
@@ -1698,7 +2003,7 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 
             # We have a formula now ? =&gt; register it to parametrized exchange
             if &#39;formula&#39; in attrs:
-                bw.parameters.add_exchanges_to_group(DEFAULT_PARAM_GROUP, self)</code></pre>
+                parametrized = True</code></pre>
 </details>
 </dd>
 </dl>
@@ -1719,18 +2024,21 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="two-column">
-<li><code><a title="lca_algebraic.helpers.ECOINVENT_DB_NAME" href="#lca_algebraic.helpers.ECOINVENT_DB_NAME">ECOINVENT_DB_NAME</a></code></li>
 <li><code><a title="lca_algebraic.helpers.SET_USER_DB" href="#lca_algebraic.helpers.SET_USER_DB">SET_USER_DB</a></code></li>
-<li><code><a title="lca_algebraic.helpers.USER_DB" href="#lca_algebraic.helpers.USER_DB">USER_DB</a></code></li>
 <li><code><a title="lca_algebraic.helpers.copyActivity" href="#lca_algebraic.helpers.copyActivity">copyActivity</a></code></li>
 <li><code><a title="lca_algebraic.helpers.findActivity" href="#lca_algebraic.helpers.findActivity">findActivity</a></code></li>
 <li><code><a title="lca_algebraic.helpers.findBioAct" href="#lca_algebraic.helpers.findBioAct">findBioAct</a></code></li>
+<li><code><a title="lca_algebraic.helpers.findMethods" href="#lca_algebraic.helpers.findMethods">findMethods</a></code></li>
 <li><code><a title="lca_algebraic.helpers.findTechAct" href="#lca_algebraic.helpers.findTechAct">findTechAct</a></code></li>
 <li><code><a title="lca_algebraic.helpers.getActByCode" href="#lca_algebraic.helpers.getActByCode">getActByCode</a></code></li>
+<li><code><a title="lca_algebraic.helpers.list_databases" href="#lca_algebraic.helpers.list_databases">list_databases</a></code></li>
 <li><code><a title="lca_algebraic.helpers.newActivity" href="#lca_algebraic.helpers.newActivity">newActivity</a></code></li>
 <li><code><a title="lca_algebraic.helpers.newInterpolatedAct" href="#lca_algebraic.helpers.newInterpolatedAct">newInterpolatedAct</a></code></li>
 <li><code><a title="lca_algebraic.helpers.newSwitchAct" href="#lca_algebraic.helpers.newSwitchAct">newSwitchAct</a></code></li>
 <li><code><a title="lca_algebraic.helpers.printAct" href="#lca_algebraic.helpers.printAct">printAct</a></code></li>
+<li><code><a title="lca_algebraic.helpers.setBackground" href="#lca_algebraic.helpers.setBackground">setBackground</a></code></li>
+<li><code><a title="lca_algebraic.helpers.setForeground" href="#lca_algebraic.helpers.setForeground">setForeground</a></code></li>
+<li><code><a title="lca_algebraic.helpers.with_db_context" href="#lca_algebraic.helpers.with_db_context">with_db_context</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
@@ -1743,6 +2051,8 @@ The amount can reference the symbol 'old_amount' that will be replaced with the 
 <li><code><a title="lca_algebraic.helpers.ActivityExtended.exchangesNp" href="#lca_algebraic.helpers.ActivityExtended.exchangesNp">exchangesNp</a></code></li>
 <li><code><a title="lca_algebraic.helpers.ActivityExtended.getAmount" href="#lca_algebraic.helpers.ActivityExtended.getAmount">getAmount</a></code></li>
 <li><code><a title="lca_algebraic.helpers.ActivityExtended.getExchange" href="#lca_algebraic.helpers.ActivityExtended.getExchange">getExchange</a></code></li>
+<li><code><a title="lca_algebraic.helpers.ActivityExtended.getOutputAmount" href="#lca_algebraic.helpers.ActivityExtended.getOutputAmount">getOutputAmount</a></code></li>
+<li><code><a title="lca_algebraic.helpers.ActivityExtended.listExchanges" href="#lca_algebraic.helpers.ActivityExtended.listExchanges">listExchanges</a></code></li>
 <li><code><a title="lca_algebraic.helpers.ActivityExtended.setOutputAmount" href="#lca_algebraic.helpers.ActivityExtended.setOutputAmount">setOutputAmount</a></code></li>
 <li><code><a title="lca_algebraic.helpers.ActivityExtended.substituteWithDefault" href="#lca_algebraic.helpers.ActivityExtended.substituteWithDefault">substituteWithDefault</a></code></li>
 <li><code><a title="lca_algebraic.helpers.ActivityExtended.updateExchanges" href="#lca_algebraic.helpers.ActivityExtended.updateExchanges">updateExchanges</a></code></li>

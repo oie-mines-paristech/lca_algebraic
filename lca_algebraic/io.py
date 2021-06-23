@@ -9,6 +9,8 @@ from lca_algebraic import loadParams, error
 from lca_algebraic.params import _listParams
 
 
+__all__ = ['export_db', 'import_db']
+
 def param_data(param) :
     """Return param data except id"""
     res =  {key:val for key, val in param.__data__.items() if key != "id"}

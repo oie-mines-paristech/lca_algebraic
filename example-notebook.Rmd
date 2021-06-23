@@ -77,7 +77,7 @@ init_printing()
 
 ```{python}
 ### Init the brightway2 project :choose any project name
-initDb('MyProject')
+initProject('MyProject')
 
 # Import Ecoinvent DB (if not already done)
 # Update the name and path to the location of the ecoinvent database
@@ -86,9 +86,6 @@ importDb("ecoinvent 3.4", './ecoinvent 3.4_cutoff_ecoSpold02/datasets')
 # We use a separate DB for defining our foreground model / activities
 # Choose any name
 USER_DB = 'Foreground DB'
-
-# The library usually guesses the name of the user DB. If not, or if you have several DBs, set it manually :
-SET_USER_DB(USER_DB)
 ```
 
 ```{python}
@@ -99,10 +96,10 @@ resetDb(USER_DB)
 
 # Parameters are stored at project level : 
 # Reset them also
-# You may remove this line if you import a project and parameters from an external source
-resetParams(USER_DB)
+# You may remove this line if you import a project and parameters from an external source (see loadParam(..))
+resetParams()
 
-# Overvie of the databases
+# Overview of the databases
 list_databases()
 ```
 
@@ -151,19 +148,19 @@ Thus, any python arithmetic expression composed of parameters will result in a *
 # Example of 'float' parameters
 a = newFloatParam(
     'a', 
-    group="group1", # optional group name 
     default=0.5, min=0.2, max=2,  distrib=DistributionType.TRIANGLE, # Distribution type, linear by default
-    description="hello world")
+    description="hello world",
+    label="extended label for a")
 
 b = newFloatParam(
     'b',
-    group="group1",
     default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
 # Parameters can be attached to a specific DB instead of global project
-# We recommand this for portability
-b_ = newFloatParam(
+# We recommand this for team working / working with several DBs
+# lca_algebraic supports resolution of parameters with duplicate names attached to different scopes 
+b2 = newFloatParam(
     'b',
     default=0.5, # Fixed if no min /max provided
     description="foo bar",
@@ -171,13 +168,11 @@ b_ = newFloatParam(
 
 share_recycled_aluminium = newFloatParam(
     'share_recycled_aluminium',  
-    group="group2",
     default=0.6, min=0, max=1, std=0.2, distrib=DistributionType.NORMAL, # Normal distrib, with std dev
     description="Share of reycled aluminium")
 
 c = newFloatParam(
     'c',  
-    group="group2",
     default=0.6, std=0.2, distrib=DistributionType.LOGNORMAL)
 
 beta = newFloatParam(
@@ -211,18 +206,6 @@ techno_param = newEnumParam(
 ```
 
 ```{python}
-def dist(p) :
-    x = np.random.rand(20000)
-    y = p.rand(x)
-    plt.hist(y, bins=100)
-    plt.show()
-```
-
-```{python}
-dist(beta)
-```
-
-```{python}
 # List of parameters
 list_parameters()
 ```
@@ -237,6 +220,54 @@ The persistance of parameters and the distribution is compatible with **Brightwa
 ```{python}
 # Load parameters previously  persisted in the dabatase.
 loadParams()
+```
+
+# Manage several Datasets
+
+lca_algebraic supports several foreground / background datasets. Background datasets are considered static / non parametrized by the library : they use standard LCA method of **Brightway2**. 
+
+Foreground databases are considered parametric and their activities are developped as functions of parameters and background activities.
+
+## Set status of a database
+
+The functions **setForeground(...)** and **setBackground(...)** change the status of a database.
+
+```{python}
+setBackground(USER_DB)
+list_databases()
+```
+
+```{python}
+setForeground(USER_DB)
+list_databases()
+```
+
+## Import / export
+
+`lca_algebraic` extends [BW2Package](https://2.docs.brightway.dev/technical/bw2io.html), adding persistence of parameters.
+
+```{python}
+# Save database and parameters as Bzipped JSON
+export_db(USER_DB, "db.bw2") 
+```
+
+```{python}
+# Reimport DB
+import_db("db.bw2")
+```
+
+## Freeze 
+
+A foreground database can be "frozen" to be used as a background database for a specific scenario : the parametrized amounts in the exhanges are computed for a given configuration of the parameters, and replaced by their value. The formulas are still stored in the database and not lost : the database can still be used as a foreground database until its status is changed with `setBackground(...)`.
+
+This feature is useful for studies requiring several datasets to be used as background by other ones. It also enables to use standard Brightway2 tools, not aware of parametrization. 
+
+
+```{python}
+freezeParams(
+    USER_DB, # Name of database to freeze
+    
+    a=1, b=2) # custom parameter values
 ```
 
 # Get references to background activities
@@ -575,18 +606,6 @@ We provide several functions for doing this.
 # First, let's look at the full expression defining our model
 expr, _ = actToExpression(normalized_model)
 expr
-```
-
-```{python}
-# For each impact, this expression is developped by replacing background activities with their impact value
-# Here is an internal method used by #LCAAlgebraic 
-lambdas = preMultiLCAAlgebric(normalized_model, impacts)
-
-# "lamddas" wrap the expression together with list of required parameters and a 
-# compiled (lambidfy) version of it, ready for fast compuation 
-
-# Here is for example the algebraic expression for the first impact
-lambdas[0].expr
 ```
 
 ## Compute simplified models

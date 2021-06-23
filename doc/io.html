@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 <meta name="generator" content="pdoc 0.7.4" />
-<title>lca_algebraic API documentation</title>
+<title>lca_algebraic.io API documentation</title>
 <meta name="description" content="" />
 <link href='https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.0/normalize.min.css' rel='stylesheet'>
 <link href='https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/8.0.0/sanitize.min.css' rel='stylesheet'>
@@ -17,162 +17,136 @@
 <main>
 <article id="content">
 <header>
-<h1 class="title">Module <code>lca_algebraic</code></h1>
+<h1 class="title">Module <code>lca_algebraic.io</code></h1>
 </header>
 <section id="section-intro">
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">#
-# This file defines several utility functions above brightway2 to be used by notebooks
-#
+<pre><code class="python">from os.path import basename, dirname
 
-import lca_algebraic.helpers
-from .base_utils import *
-from .helpers import *
-from .lca import *
-from .stats import *
-from .params import *
-from .io import *
+import bw2data
+from bw2data.parameters import DatabaseParameter, ProjectParameter
+from bw2io import BW2Package
+import brightway2 as bw
 
-def deleteDb(db_name) :
-    del bw.databases[db_name]
+from lca_algebraic import loadParams, error
+from lca_algebraic.params import _listParams
 
-def resetDb(db_name, foreground=True):
-    &#34;&#34;&#34; Create or cleanup a user DB&#34;&#34;&#34;
-    if db_name in bw.databases:
-        error(&#34;Db %s was here. Reseting it&#34; % db_name)
-        del bw.databases[db_name]
+
+__all__ = [&#39;export_db&#39;, &#39;import_db&#39;]
+
+def param_data(param) :
+    &#34;&#34;&#34;Return param data except id&#34;&#34;&#34;
+    res =  {key:val for key, val in param.__data__.items() if key != &#34;id&#34;}
+    data = res.pop(&#34;data&#34;)
+    res.update(data)
+
+    return res
+
+def export_db(db_name, filename) :
+    &#34;&#34;&#34;Export Db and linked parameters&#34;&#34;&#34;
     db = bw.Database(db_name)
-    db.write(dict())
-    if foreground :
-        setForeground(db_name)
-    else:
-        setBackground(db_name)
+    db_params = DatabaseParameter.select().where(DatabaseParameter.database == db_name)
+
+    # Export Db params
+    db.metadata[&#34;database_parameters&#34;] = [param_data(param) for param in db_params]
+
+    # List of all project params used in this dataset
+    used_project_params = list(param.name for param in _listParams(db_name) if param.dbname is None)
+
+    if len(used_project_params) &gt; 0 :
+        error(&#39;Warning : this DB uses project parameters that are exported as well and might override project params at import time : &#39;, used_project_params)
+
+        proj_params = list(ProjectParameter.get(ProjectParameter.name==name) for name in used_project_params)
+
+        db.metadata[&#34;project_parameters&#34;] = [param_data(param) for param in proj_params]
+
+    BW2Package._write_file(filename, [BW2Package._prepare_obj(db, False)])
 
 
-def initDb(project_name) :
-    &#39;&#39;&#39;Init brightway and detect version of existing installation of ecoinvent&#39;&#39;&#39;
-    bw.projects.set_current(project_name)
-    bw.bw2setup()
 
+def import_db(filename) :
+    &#34;&#34;&#34;Export Db and linked parameters&#34;&#34;&#34;
 
-def importDb(dbname, path):
-    &#39;&#39;&#39;Import eco invent DB&#39;&#39;&#39;
+    db = BW2Package.import_file(filename)[0]
+    if &#34;database_parameters&#34; in db.metadata :
+        params = db.metadata[&#34;database_parameters&#34;]
+        bw.parameters.new_database_parameters(params, db.name)
 
-    if dbname in bw.databases:
-        error(&#34;Database &#39;%s&#39; has already been imported &#34; % dbname)
-    else:
-        ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
-        ei34.apply_strategies()
-        ei34.statistics()
-        ei34.write_database()</code></pre>
+    if &#34;project_parameters&#34; in db.metadata:
+        params = db.metadata[&#34;project_parameters&#34;]
+        bw.parameters.new_project_parameters(params)
+
+    # Reload the parameters
+    loadParams()
+
+    return db</code></pre>
 </details>
 </section>
 <section>
-<h2 class="section-title" id="header-submodules">Sub-modules</h2>
-<dl>
-<dt><code class="name"><a title="lca_algebraic.base_utils" href="base_utils.html">lca_algebraic.base_utils</a></code></dt>
-<dd>
-<section class="desc"></section>
-</dd>
-<dt><code class="name"><a title="lca_algebraic.helpers" href="helpers.html">lca_algebraic.helpers</a></code></dt>
-<dd>
-<section class="desc"></section>
-</dd>
-<dt><code class="name"><a title="lca_algebraic.io" href="io.html">lca_algebraic.io</a></code></dt>
-<dd>
-<section class="desc"></section>
-</dd>
-<dt><code class="name"><a title="lca_algebraic.lca" href="lca.html">lca_algebraic.lca</a></code></dt>
-<dd>
-<section class="desc"></section>
-</dd>
-<dt><code class="name"><a title="lca_algebraic.params" href="params.html">lca_algebraic.params</a></code></dt>
-<dd>
-<section class="desc"></section>
-</dd>
-<dt><code class="name"><a title="lca_algebraic.stats" href="stats.html">lca_algebraic.stats</a></code></dt>
-<dd>
-<section class="desc"></section>
-</dd>
-</dl>
 </section>
 <section>
 </section>
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
-<dt id="lca_algebraic.deleteDb"><code class="name flex">
-<span>def <span class="ident">deleteDb</span></span>(<span>db_name)</span>
+<dt id="lca_algebraic.io.export_db"><code class="name flex">
+<span>def <span class="ident">export_db</span></span>(<span>db_name, filename)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Export Db and linked parameters</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def deleteDb(db_name) :
-    del bw.databases[db_name]</code></pre>
-</details>
-</dd>
-<dt id="lca_algebraic.importDb"><code class="name flex">
-<span>def <span class="ident">importDb</span></span>(<span>dbname, path)</span>
-</code></dt>
-<dd>
-<section class="desc"><p>Import eco invent DB</p></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def importDb(dbname, path):
-    &#39;&#39;&#39;Import eco invent DB&#39;&#39;&#39;
-
-    if dbname in bw.databases:
-        error(&#34;Database &#39;%s&#39; has already been imported &#34; % dbname)
-    else:
-        ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
-        ei34.apply_strategies()
-        ei34.statistics()
-        ei34.write_database()</code></pre>
-</details>
-</dd>
-<dt id="lca_algebraic.initDb"><code class="name flex">
-<span>def <span class="ident">initDb</span></span>(<span>project_name)</span>
-</code></dt>
-<dd>
-<section class="desc"><p>Init brightway and detect version of existing installation of ecoinvent</p></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def initDb(project_name) :
-    &#39;&#39;&#39;Init brightway and detect version of existing installation of ecoinvent&#39;&#39;&#39;
-    bw.projects.set_current(project_name)
-    bw.bw2setup()</code></pre>
-</details>
-</dd>
-<dt id="lca_algebraic.resetDb"><code class="name flex">
-<span>def <span class="ident">resetDb</span></span>(<span>db_name, foreground=True)</span>
-</code></dt>
-<dd>
-<section class="desc"><p>Create or cleanup a user DB</p></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def resetDb(db_name, foreground=True):
-    &#34;&#34;&#34; Create or cleanup a user DB&#34;&#34;&#34;
-    if db_name in bw.databases:
-        error(&#34;Db %s was here. Reseting it&#34; % db_name)
-        del bw.databases[db_name]
+<pre><code class="python">def export_db(db_name, filename) :
+    &#34;&#34;&#34;Export Db and linked parameters&#34;&#34;&#34;
     db = bw.Database(db_name)
-    db.write(dict())
-    if foreground :
-        setForeground(db_name)
-    else:
-        setBackground(db_name)</code></pre>
+    db_params = DatabaseParameter.select().where(DatabaseParameter.database == db_name)
+
+    # Export Db params
+    db.metadata[&#34;database_parameters&#34;] = [param_data(param) for param in db_params]
+
+    # List of all project params used in this dataset
+    used_project_params = list(param.name for param in _listParams(db_name) if param.dbname is None)
+
+    if len(used_project_params) &gt; 0 :
+        error(&#39;Warning : this DB uses project parameters that are exported as well and might override project params at import time : &#39;, used_project_params)
+
+        proj_params = list(ProjectParameter.get(ProjectParameter.name==name) for name in used_project_params)
+
+        db.metadata[&#34;project_parameters&#34;] = [param_data(param) for param in proj_params]
+
+    BW2Package._write_file(filename, [BW2Package._prepare_obj(db, False)])</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.io.import_db"><code class="name flex">
+<span>def <span class="ident">import_db</span></span>(<span>filename)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Export Db and linked parameters</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def import_db(filename) :
+    &#34;&#34;&#34;Export Db and linked parameters&#34;&#34;&#34;
+
+    db = BW2Package.import_file(filename)[0]
+    if &#34;database_parameters&#34; in db.metadata :
+        params = db.metadata[&#34;database_parameters&#34;]
+        bw.parameters.new_database_parameters(params, db.name)
+
+    if &#34;project_parameters&#34; in db.metadata:
+        params = db.metadata[&#34;project_parameters&#34;]
+        bw.parameters.new_project_parameters(params)
+
+    # Reload the parameters
+    loadParams()
+
+    return db</code></pre>
 </details>
 </dd>
 </dl>
@@ -186,22 +160,15 @@ def importDb(dbname, path):
 <ul></ul>
 </div>
 <ul id="index">
-<li><h3><a href="#header-submodules">Sub-modules</a></h3>
+<li><h3>Super-module</h3>
 <ul>
-<li><code><a title="lca_algebraic.base_utils" href="base_utils.html">lca_algebraic.base_utils</a></code></li>
-<li><code><a title="lca_algebraic.helpers" href="helpers.html">lca_algebraic.helpers</a></code></li>
-<li><code><a title="lca_algebraic.io" href="io.html">lca_algebraic.io</a></code></li>
-<li><code><a title="lca_algebraic.lca" href="lca.html">lca_algebraic.lca</a></code></li>
-<li><code><a title="lca_algebraic.params" href="params.html">lca_algebraic.params</a></code></li>
-<li><code><a title="lca_algebraic.stats" href="stats.html">lca_algebraic.stats</a></code></li>
+<li><code><a title="lca_algebraic" href="index.html">lca_algebraic</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
-<li><code><a title="lca_algebraic.deleteDb" href="#lca_algebraic.deleteDb">deleteDb</a></code></li>
-<li><code><a title="lca_algebraic.importDb" href="#lca_algebraic.importDb">importDb</a></code></li>
-<li><code><a title="lca_algebraic.initDb" href="#lca_algebraic.initDb">initDb</a></code></li>
-<li><code><a title="lca_algebraic.resetDb" href="#lca_algebraic.resetDb">resetDb</a></code></li>
+<li><code><a title="lca_algebraic.io.export_db" href="#lca_algebraic.io.export_db">export_db</a></code></li>
+<li><code><a title="lca_algebraic.io.import_db" href="#lca_algebraic.io.import_db">import_db</a></code></li>
 </ul>
 </li>
 </ul>

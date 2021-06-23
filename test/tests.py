@@ -76,6 +76,7 @@ def test_export():
 
     # Clear all
     resetDb(USER_DB)
+    resetParams()
     _param_registry().clear()
 
     import_db(filename)

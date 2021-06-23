@@ -24,21 +24,25 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">import warnings
+<pre><code class="python">import math
 import random
+import warnings
+from time import time
+from typing import Type, Dict, Tuple, List
+
 import seaborn as sns
-import math
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
+from jinja2.nodes import Add
 from matplotlib import pyplot as plt
-from sympy import Float, Number, Add, AtomicExpr
-from time import time
-from .base_utils import _method_unit, _eprint
+from sympy import Float, Number, Add, AtomicExpr, Mul, Expr
+from sympy.core.operations import AssocOp
+
+from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
-from .params import _variable_params, _param_registry, FixedParamMode
-
+from .params import _variable_params, _param_registry, FixedParamMode, _param_name
 
 PARALLEL=False
 
@@ -60,7 +64,7 @@ def _heatmap(df, title, vmax, ints=False):
     ax.tick_params(axis=&#34;y&#34;, labelsize=18)
 
 
-def extract_var_params(lambdas):
+def _extract_var_params(lambdas):
     required_param_names = set()
     for lamb in lambdas :
         required_param_names.update(_expanded_names_to_names(lamb.expanded_params))
@@ -68,14 +72,15 @@ def extract_var_params(lambdas):
     return sorted(var_params.values(), key=lambda p: (p.group, p.name))
 
 
+@with_db_context
 def oat_matrix(model, impacts, n=10, title=&#39;Impact variability (% of mean)&#39;):
     &#39;&#39;&#39;Generates a heatmap of the incertitude of the model, varying input parameters one a a time.&#39;&#39;&#39;
 
     # Compile model into lambda functions for fast LCA
-    lambdas = preMultiLCAAlgebric(model, impacts)
+    lambdas = _preMultiLCAAlgebric(model, impacts)
 
     # Sort params by category
-    sorted_params = extract_var_params(lambdas)
+    sorted_params = _extract_var_params(lambdas)
 
     change = np.zeros((len(sorted_params), len(impacts)))
 
@@ -86,7 +91,7 @@ def oat_matrix(model, impacts, n=10, title=&#39;Impact variability (% of mean)&#
         params[param.name] = param.range(n)
 
         # Compute LCA
-        df = postMultiLCAAlgebric(impacts, lambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, lambdas, **params)
 
         # Compute change
         change[iparam] = (df.max() - df.min()) / df.median() * 100
@@ -146,9 +151,10 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     # print(&#34;Params: &#34;, params)
 
     if isinstance(modelOrLambdas, Activity):
-        df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+        with DbContext(modelOrLambdas) :
+            df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else:
-        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
     # Add X values in the table
     pname = varying_param.name
@@ -165,7 +171,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         with warnings.catch_warnings():
             warnings.simplefilter(&#34;ignore&#34;)
 
-            nb_rows = int(math.ceil(len(impacts) /cols))
+            nb_rows = int(math.ceil(len(impacts) / cols))
 
             fig, axes = plt.subplots(figsize=figsize)
             plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
@@ -200,7 +206,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         (&#34;Variation&#34;, change)
     ])
 
-
+@with_db_context
 def oat_dashboard_interact(model, methods, **kwparams):
     &#39;&#39;&#39;Interactive dashboard, with a dropdown for selecting parameter
 
@@ -211,10 +217,11 @@ def oat_dashboard_interact(model, methods, **kwparams):
     sharex: Shared X axes ? True by default
     &#39;&#39;&#39;
 
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
-        oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
+        with DbContext(model):
+            oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
     param_list = list(_variable_params(param_list).keys())
@@ -248,7 +255,7 @@ def _compute_stochastics(modelOrLambdas, methods, params):
     if isinstance(modelOrLambdas, Activity):
         Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
     else:
-        Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
+        Y = _postMultiLCAAlgebric(methods, modelOrLambdas, **params)
     return Y
 
 def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None):
@@ -334,7 +341,7 @@ def _sobols(methods, problem, Y) -&gt; SobolResults :
             st_conf[:, imethod] = res[&#34;ST_conf&#34;]
 
         except Exception as e:
-            _eprint(&#34;Sobol failed on %s&#34; % imethod[2], e)
+            error(&#34;Sobol failed on %s&#34; % imethod[2], e)
 
     return SobolResults(s1, s2, st, s1_conf, s2_conf, st_conf)
 
@@ -342,7 +349,7 @@ def _sobols(methods, problem, Y) -&gt; SobolResults :
 
 
 
-def _incer_stochastic_matrix(methods, param_names, Y, sob):
+def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LABEL):
     &#39;&#39;&#39; Internal method computing matrix of parameter importance &#39;&#39;&#39;
 
 
@@ -365,7 +372,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob):
                 if mean != 0:
                     data[:, i] = np.sqrt((sx[:, i] * var)) / mean * 100
 
-        param_labels = [_param_registry()[name].get_label() for name in param_names]
+        param_labels = [_param_name(_param_registry()[name], name_type) for name in param_names]
         df = pd.DataFrame(data, index=param_labels, columns=[method_name(method) for method in methods])
         _heatmap(
             df.transpose(),
@@ -380,8 +387,8 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob):
                  (&#39;Relative to mean (%)&#39;, &#39;percent&#39;)]
              )
 
-
-def incer_stochastic_matrix(model, methods, n=1000):
+@with_db_context
+def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     &#39;&#39;&#39;
     Method computing matrix of parameter importance
 
@@ -391,15 +398,15 @@ def incer_stochastic_matrix(model, methods, n=1000):
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    lambdas = preMultiLCAAlgebric(model, methods)
-    var_params = extract_var_params(lambdas)
+    lambdas = _preMultiLCAAlgebric(model, methods)
+    var_params = _extract_var_params(lambdas)
 
     problem, _, Y = _stochastics(lambdas, methods, n, var_params)
 
     print(&#34;Processing Sobol indices ...&#34;)
     sob = _sobols(methods, problem, Y)
 
-    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob)
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob, name_type=name_type)
 
 
 def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, nb_cols=3):
@@ -446,6 +453,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
     plt.show(fig)
 
 
+@with_db_context
 def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
     &#39;&#39;&#39;
     Method for computing violin graph of impacts
@@ -455,7 +463,6 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **
     var_params: Optional list of parameters to vary.
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
-
     _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     _incer_stochastic_violin(methods, Y, **kwparams)
@@ -518,6 +525,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
     displayWithExportButton(df)
 
+@with_db_context
 def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
     &#39;&#39;&#39; Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
@@ -560,12 +568,14 @@ def _round_expr(expr, num_digits):
     &#39;&#39;&#39; Round all number in sympy expression with n digits&#39;&#39;&#39;
     return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
 
+@with_db_context
 def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
     num_digits=3,
-    simple_sums=True) :
+    simple_sums=True,
+    simple_products=True) -&gt; List[LambdaWithParamNames]:
 
     &#39;&#39;&#39;
     Computes Sobol indices and selects main parameters for explaining sensibility of at least &#39;min_ratio&#39;,
@@ -613,10 +623,12 @@ def sobol_simplify_model(
         print(&#39;ST: &#39;, np.sum(sob.st[:, imethod]))
 
         sum = 0
+
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
         sobols = dict()
+
         for iparam, param in enumerate(sorted_param_indices) :
 
 
@@ -651,10 +663,20 @@ def sobol_simplify_model(
         # Lambdify the expression
         lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
-        # Extra step of simplification : siplify sums with neligeable terms
-        expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
+        # Compute list of parameter values (monte carlo)
+        completed_params = lambd.complete_params(params)
+        expanded_params = _filter_param_values(completed_params, lambd.expanded_params)
+
+        # Extra step of simplification : simplify sums with neligeable terms
+        if simple_sums :
+            expr = _simplify_sums(expr, expanded_params)
+
+        if simple_products:
+            expr = _simplify_products(expr, expanded_params)
 
         simplified_expr = simplify(expr)
+
+        display(simplified_expr)
 
         res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
 
@@ -662,53 +684,91 @@ def sobol_simplify_model(
 
 TERM_MIN_LEVEL = 0.01
 
-def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
+def _rec_expression(exp, func) :
+    &#34;&#34;&#34; Recurse trough an expression, transforming each term with the result of f(term) &#34;&#34;&#34;
+    def rec(term) :
+        if issubclass(exp.func, AtomicExpr):
+            return func(term)
+        else :
+            args = filter(lambda x: x is not None, list(func(arg) for arg in term.args))
+            return term.func(*args)
 
-    # Gather all terms of any sum
-    terms = dict()
-    def pexp(expr):
-        for arg in expr.args :
-            if expr.func == Add:
-                terms[str(arg)] = arg
-            pexp(arg)
-    pexp(lambdaWithParams.expr)
+def _simplify_sums(expr, param_values) :
 
-    # Lambdify all terms
-    lambd_terms = {key : lambdify(lambdaWithParams.expanded_params, exp) for key, exp in terms.items()}
+    def replace_term(term, minv, maxv, max_max):
+        abs_max = max(abs(minv), abs(maxv))
+        if abs_max &lt; (TERM_MIN_LEVEL * max_max):
+            return None
+        else:
+            return term
 
-    completed_params = lambdaWithParams.complete_params(params_values)
-    filtered_params = _filter_param_values(completed_params, lambdaWithParams.expanded_params)
+    return _simplify_terms(expr, param_values, Add, replace_term)
 
-    # Compute their values
-    term_max = dict()
-    for key, lamb in lambd_terms.items() :
+def _simplify_products(expr, param_values) :
 
-        values = lamb(**filtered_params)
-        term_max[key] = np.max(np.abs(values))
+    def replace_term(term, minv, maxv, max_max) :
+
+        # Close to 1 or -1 ?
+        for factor in [-1, 1]:
+            if abs(minv - factor) &lt; TERM_MIN_LEVEL and abs(maxv - factor) &lt; TERM_MIN_LEVEL:
+                if factor == -1:
+                    return -1
+                else:
+                    # * 1.0 : remove term
+                    return None
+
+        return term
+
+    return _simplify_terms(expr, param_values, Mul, replace_term)
+
+def _simplify_terms(expr, expanded_param_values, op:Type[AssocOp], replace) :
+
+    # Determine max normalized value of this term, for all param values (monte carlo)
+    min_max_cache : Dict[str, Tuple[float, float]] = dict()
+    def min_max(term) :
+
+        # In cache ?
+        key = str(term)
+        if key in min_max_cache :
+            return min_max_cache[key]
+
+        # Non varying ?
+        if len(term.free_symbols) == 0:
+            values = [term.evalf()]
+        else:
+            lambd_term = lambdify(expanded_param_values.keys(), term)
+            values = lambd_term(**expanded_param_values)
+
+        minv = np.min(values)
+        maxv = np.max(values)
+        min_max_cache[key] = (minv, maxv)
+        return (minv, maxv)
 
     # Cleanup :keep only most relevant terms
     def cleanup(exp):
 
-        if issubclass(exp.func, AtomicExpr):
+        if (not isinstance(exp, Expr)) or issubclass(exp.func, AtomicExpr):
             return exp
 
-        # For sum, only select terms than are relevant
-        if exp.func == Add :
+        # For Op, only select terms than are relevant
+        if exp.func == op :
 
-            # Compute max term
-            mx = max([term_max[str(arg)] for arg in exp.args])
+            # Compute max of max
+            def abs_max(minv, maxv) :
+                return max(abs(minv), abs(maxv))
+
+            max_max = max([abs_max(*min_max(arg)) for arg in exp.args])
 
             # Only keep term above level
-            args = [arg for arg in exp.args if term_max[str(arg)] &gt; (TERM_MIN_LEVEL * mx)]
+            args = [replace(arg, *min_max(arg), max_max) for arg in exp.args]
         else:
             args = exp.args
 
-        args = [cleanup(arg) for arg in args]
+        args = [cleanup(arg) for arg in args if arg is not None]
 
         return exp.func(*args)
 
-    print(lambdaWithParams.expr)
-    return cleanup(lambdaWithParams.expr)
+    return cleanup(expr)
 
 
 
@@ -725,7 +785,7 @@ def _vline(x, ymin, ymax, linewidth=1, linestyle=&#39;solid&#39;):
 
 
 def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, color=None,
-           limit_xrange=False, percentiles=[5,95]):
+           limit_xrange=False, percentiles=[5,95], fontsize=12):
 
 
     if ax is not None:
@@ -762,7 +822,7 @@ def _graph(data, unit, title, ax, alpha=1, textboxtop=0.95, textboxright=0.95, c
     ] + perc_strs)
 
     props = dict(boxstyle=&#39;round&#39;, facecolor=&#39;wheat&#39; if not color else color, alpha=0.5)
-    ax.text(textboxright, textboxtop, textstr, transform=ax.transAxes, fontsize=12,
+    ax.text(textboxright, textboxtop, textstr, transform=ax.transAxes, fontsize=fontsize,
             verticalalignment=&#39;top&#39;, ha=&#39;right&#39;, bbox=props)
 
     # Axes
@@ -781,7 +841,7 @@ def distrib(*args, **kwargs) :
     &#34;&#34;&#34;
        Show distributions together with statistical outcomes
 
-       Synonym of graphs()
+       Synonym of #graphs()
 
        parameters
        ----------
@@ -798,6 +858,7 @@ def distrib(*args, **kwargs) :
     return graphs(*args, **kwargs)
 
 
+@with_db_context
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
@@ -822,6 +883,7 @@ def graphs(
     height: Height of graph : 10 inches be default
     width : Width of graphs : 15 inches by default
     &#34;&#34;&#34;
+
 
     if Y is None:
         _, _, Y = _stochastics(model, methods, n=10000)
@@ -873,9 +935,13 @@ def graphs(
     return pd.DataFrame(res)
 
 
-
-
-def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
+@with_db_context
+def compare_simplified(
+        model, methods, simpl_lambdas,
+        scales=None,  # Dict of method =&gt; scale
+        unit_overrides=None,
+        nb_cols=2, height=10, width=15, textboxright=0.6, r2_height=0.65, func_unit=&#34;kWh&#34;,
+        **kwargs):
     &#39;&#39;&#39;
     Compare distribution of simplified model with full model
 
@@ -889,12 +955,12 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     &#39;&#39;&#39;
 
     # Raw model
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
-    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows))
-
-    plt.subplots_adjust(hspace=0.4)
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0.3)
 
     colors = plt.rcParams[&#34;axes.prop_cycle&#34;].by_key()[&#34;color&#34;]
 
@@ -913,10 +979,21 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 
         title = method_name(method)
 
-        _graph(d1, _method_unit(method), title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
-        _graph(d2, _method_unit(method), title, ax=ax, alpha=0.6, textboxright=0.6, color=colors[1], **kwargs)
+        if scales and method in scales:
+            d1 = d1 * scales[method]
+            d2 = d2 * scales[method]
 
-        ax.text(0.9, 0.65, &#34;R² : %0.3g&#34; % r_value, transform=ax.transAxes, fontsize=14,
+        if unit_overrides and method in unit_overrides:
+            unit = unit_overrides[method]
+        else:
+            unit = _method_unit(method)
+
+        unit += &#34; / &#34; + func_unit
+
+        _graph(d1, unit, title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
+        _graph(d2, unit, title, ax=ax, alpha=0.6, textboxright=textboxright, color=colors[1], **kwargs)
+
+        ax.text(0.9, r2_height, &#34;R² : %0.3g&#34; % r_value, transform=ax.transAxes, fontsize=14,
                 verticalalignment=&#39;top&#39;, ha=&#39;right&#39;)
 
     # Hide missing graphs
@@ -933,7 +1010,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
 <dt id="lca_algebraic.stats.compare_simplified"><code class="name flex">
-<span>def <span class="ident">compare_simplified</span></span>(<span>model, methods, simpl_lambdas, nb_cols=2, **kwargs)</span>
+<span>def <span class="ident">compare_simplified</span></span>(<span>model, methods, simpl_lambdas, scales=None, unit_overrides=None, nb_cols=2, height=10, width=15, textboxright=0.6, r2_height=0.65, func_unit='kWh', **kwargs)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Compare distribution of simplified model with full model</p>
@@ -954,7 +1031,13 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
+<pre><code class="python">@with_db_context
+def compare_simplified(
+        model, methods, simpl_lambdas,
+        scales=None,  # Dict of method =&gt; scale
+        unit_overrides=None,
+        nb_cols=2, height=10, width=15, textboxright=0.6, r2_height=0.65, func_unit=&#34;kWh&#34;,
+        **kwargs):
     &#39;&#39;&#39;
     Compare distribution of simplified model with full model
 
@@ -968,12 +1051,12 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     &#39;&#39;&#39;
 
     # Raw model
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
-    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(20, 10 * nb_rows))
-
-    plt.subplots_adjust(hspace=0.4)
+    fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0.3)
 
     colors = plt.rcParams[&#34;axes.prop_cycle&#34;].by_key()[&#34;color&#34;]
 
@@ -992,10 +1075,21 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 
         title = method_name(method)
 
-        _graph(d1, _method_unit(method), title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
-        _graph(d2, _method_unit(method), title, ax=ax, alpha=0.6, textboxright=0.6, color=colors[1], **kwargs)
+        if scales and method in scales:
+            d1 = d1 * scales[method]
+            d2 = d2 * scales[method]
 
-        ax.text(0.9, 0.65, &#34;R² : %0.3g&#34; % r_value, transform=ax.transAxes, fontsize=14,
+        if unit_overrides and method in unit_overrides:
+            unit = unit_overrides[method]
+        else:
+            unit = _method_unit(method)
+
+        unit += &#34; / &#34; + func_unit
+
+        _graph(d1, unit, title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
+        _graph(d2, unit, title, ax=ax, alpha=0.6, textboxright=textboxright, color=colors[1], **kwargs)
+
+        ax.text(0.9, r2_height, &#34;R² : %0.3g&#34; % r_value, transform=ax.transAxes, fontsize=14,
                 verticalalignment=&#39;top&#39;, ha=&#39;right&#39;)
 
     # Hide missing graphs
@@ -1009,7 +1103,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 </code></dt>
 <dd>
 <section class="desc"><p>Show distributions together with statistical outcomes</p>
-<p>Synonym of graphs()</p>
+<p>Synonym of #graphs()</p>
 <h2 id="parameters">parameters</h2>
 <dl>
 <dt><strong><code>model</code></strong> :&ensp;<code>normalized</code> <code>model</code></dt>
@@ -1039,7 +1133,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     &#34;&#34;&#34;
        Show distributions together with statistical outcomes
 
-       Synonym of graphs()
+       Synonym of #graphs()
 
        parameters
        ----------
@@ -1054,23 +1148,6 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
        width : Width of graphs : 15 inches by default
        &#34;&#34;&#34;
     return graphs(*args, **kwargs)</code></pre>
-</details>
-</dd>
-<dt id="lca_algebraic.stats.extract_var_params"><code class="name flex">
-<span>def <span class="ident">extract_var_params</span></span>(<span>lambdas)</span>
-</code></dt>
-<dd>
-<section class="desc"></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def extract_var_params(lambdas):
-    required_param_names = set()
-    for lamb in lambdas :
-        required_param_names.update(_expanded_names_to_names(lamb.expanded_params))
-    var_params = _variable_params(required_param_names)
-    return sorted(var_params.values(), key=lambda p: (p.group, p.name))</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.graphs"><code class="name flex">
@@ -1103,7 +1180,8 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def graphs(
+<pre><code class="python">@with_db_context
+def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
         invert=None,
@@ -1127,6 +1205,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
     height: Height of graph : 10 inches be default
     width : Width of graphs : 15 inches by default
     &#34;&#34;&#34;
+
 
     if Y is None:
         _, _, Y = _stochastics(model, methods, n=10000)
@@ -1198,7 +1277,8 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
+<pre><code class="python">@with_db_context
+def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
     &#39;&#39;&#39; Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
     parameters
@@ -1237,7 +1317,7 @@ def compare_simplified(model, methods, simpl_lambdas, nb_cols=2, **kwargs):
 </details>
 </dd>
 <dt id="lca_algebraic.stats.incer_stochastic_matrix"><code class="name flex">
-<span>def <span class="ident">incer_stochastic_matrix</span></span>(<span>model, methods, n=1000)</span>
+<span>def <span class="ident">incer_stochastic_matrix</span></span>(<span>model, methods, n=1000, name_type=NameType.LABEL)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Method computing matrix of parameter importance</p>
@@ -1248,7 +1328,8 @@ By default use all the parameters with distribution not FIXED</p></section>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def incer_stochastic_matrix(model, methods, n=1000):
+<pre><code class="python">@with_db_context
+def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     &#39;&#39;&#39;
     Method computing matrix of parameter importance
 
@@ -1258,15 +1339,15 @@ By default use all the parameters with distribution not FIXED</p></section>
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
 
-    lambdas = preMultiLCAAlgebric(model, methods)
-    var_params = extract_var_params(lambdas)
+    lambdas = _preMultiLCAAlgebric(model, methods)
+    var_params = _extract_var_params(lambdas)
 
     problem, _, Y = _stochastics(lambdas, methods, n, var_params)
 
     print(&#34;Processing Sobol indices ...&#34;)
     sob = _sobols(methods, problem, Y)
 
-    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob)</code></pre>
+    _incer_stochastic_matrix(methods, problem[&#39;names&#39;], Y, sob, name_type=name_type)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.stats.incer_stochastic_violin"><code class="name flex">
@@ -1281,7 +1362,8 @@ By default use all the parameters with distribution not FIXED</p></section>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
+<pre><code class="python">@with_db_context
+def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
     &#39;&#39;&#39;
     Method for computing violin graph of impacts
 
@@ -1290,7 +1372,6 @@ By default use all the parameters with distribution not FIXED</p></section>
     var_params: Optional list of parameters to vary.
     By default use all the parameters with distribution not FIXED
     &#39;&#39;&#39;
-
     _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
 
     _incer_stochastic_violin(methods, Y, **kwparams)</code></pre>
@@ -1351,9 +1432,10 @@ The result heatmap shows percentage of variation relative to median value.</p>
     # print(&#34;Params: &#34;, params)
 
     if isinstance(modelOrLambdas, Activity):
-        df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+        with DbContext(modelOrLambdas) :
+            df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else:
-        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
     # Add X values in the table
     pname = varying_param.name
@@ -1370,7 +1452,7 @@ The result heatmap shows percentage of variation relative to median value.</p>
         with warnings.catch_warnings():
             warnings.simplefilter(&#34;ignore&#34;)
 
-            nb_rows = int(math.ceil(len(impacts) /cols))
+            nb_rows = int(math.ceil(len(impacts) / cols))
 
             fig, axes = plt.subplots(figsize=figsize)
             plt.subplots_adjust(None, None, None, None, figspace[0], figspace[1])
@@ -1424,7 +1506,8 @@ The result heatmap shows percentage of variation relative to median value.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def oat_dashboard_interact(model, methods, **kwparams):
+<pre><code class="python">@with_db_context
+def oat_dashboard_interact(model, methods, **kwparams):
     &#39;&#39;&#39;Interactive dashboard, with a dropdown for selecting parameter
 
     Parameters
@@ -1434,10 +1517,11 @@ The result heatmap shows percentage of variation relative to median value.</p>
     sharex: Shared X axes ? True by default
     &#39;&#39;&#39;
 
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
-        oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
+        with DbContext(model):
+            oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
     param_list = list(_variable_params(param_list).keys())
@@ -1454,14 +1538,15 @@ The result heatmap shows percentage of variation relative to median value.</p>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def oat_matrix(model, impacts, n=10, title=&#39;Impact variability (% of mean)&#39;):
+<pre><code class="python">@with_db_context
+def oat_matrix(model, impacts, n=10, title=&#39;Impact variability (% of mean)&#39;):
     &#39;&#39;&#39;Generates a heatmap of the incertitude of the model, varying input parameters one a a time.&#39;&#39;&#39;
 
     # Compile model into lambda functions for fast LCA
-    lambdas = preMultiLCAAlgebric(model, impacts)
+    lambdas = _preMultiLCAAlgebric(model, impacts)
 
     # Sort params by category
-    sorted_params = extract_var_params(lambdas)
+    sorted_params = _extract_var_params(lambdas)
 
     change = np.zeros((len(sorted_params), len(impacts)))
 
@@ -1472,7 +1557,7 @@ The result heatmap shows percentage of variation relative to median value.</p>
         params[param.name] = param.range(n)
 
         # Compute LCA
-        df = postMultiLCAAlgebric(impacts, lambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, lambdas, **params)
 
         # Compute change
         change[iparam] = (df.max() - df.min()) / df.median() * 100
@@ -1486,66 +1571,8 @@ The result heatmap shows percentage of variation relative to median value.</p>
     _heatmap(change.transpose(), title, 100, ints=True)</code></pre>
 </details>
 </dd>
-<dt id="lca_algebraic.stats.simplify_sums"><code class="name flex">
-<span>def <span class="ident">simplify_sums</span></span>(<span>lambdaWithParams, params_values)</span>
-</code></dt>
-<dd>
-<section class="desc"></section>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def simplify_sums(lambdaWithParams : LambdaWithParamNames, params_values) :
-
-    # Gather all terms of any sum
-    terms = dict()
-    def pexp(expr):
-        for arg in expr.args :
-            if expr.func == Add:
-                terms[str(arg)] = arg
-            pexp(arg)
-    pexp(lambdaWithParams.expr)
-
-    # Lambdify all terms
-    lambd_terms = {key : lambdify(lambdaWithParams.expanded_params, exp) for key, exp in terms.items()}
-
-    completed_params = lambdaWithParams.complete_params(params_values)
-    filtered_params = _filter_param_values(completed_params, lambdaWithParams.expanded_params)
-
-    # Compute their values
-    term_max = dict()
-    for key, lamb in lambd_terms.items() :
-
-        values = lamb(**filtered_params)
-        term_max[key] = np.max(np.abs(values))
-
-    # Cleanup :keep only most relevant terms
-    def cleanup(exp):
-
-        if issubclass(exp.func, AtomicExpr):
-            return exp
-
-        # For sum, only select terms than are relevant
-        if exp.func == Add :
-
-            # Compute max term
-            mx = max([term_max[str(arg)] for arg in exp.args])
-
-            # Only keep term above level
-            args = [arg for arg in exp.args if term_max[str(arg)] &gt; (TERM_MIN_LEVEL * mx)]
-        else:
-            args = exp.args
-
-        args = [cleanup(arg) for arg in args]
-
-        return exp.func(*args)
-
-    print(lambdaWithParams.expr)
-    return cleanup(lambdaWithParams.expr)</code></pre>
-</details>
-</dd>
 <dt id="lca_algebraic.stats.sobol_simplify_model"><code class="name flex">
-<span>def <span class="ident">sobol_simplify_model</span></span>(<span>model, methods, min_ratio=0.8, n=2000, var_params=None, fixed_mode='median', num_digits=3, simple_sums=True)</span>
+<span>def <span class="ident">sobol_simplify_model</span></span>(<span>model, methods, min_ratio=0.8, n=2000, var_params=None, fixed_mode='median', num_digits=3, simple_sums=True, simple_products=True)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -1559,7 +1586,7 @@ Then generates simplified models for those parameters.</p>
 <dd>&nbsp;</dd>
 <dt><strong><code>sob</code></strong> :&ensp;[optional] <code>Pre</code>-<code>computed</code> <code>sobol</code> <code>indices</code></dt>
 <dd>&nbsp;</dd>
-<dt><strong><a title="lca_algebraic.stats.simplify_sums" href="#lca_algebraic.stats.simplify_sums"><code>simplify_sums()</code></a></strong> :&ensp;<code>If</code> <code>true</code> (default) <code>remove</code> <code>terms</code> <code>in</code> <code>sums</code> <code>that</code> <code>are</code> <code>lower</code> <code>than</code> <code>1</code>%</dt>
+<dt><strong><code>simplify_sums</code></strong> :&ensp;<code>If</code> <code>true</code> (default) <code>remove</code> <code>terms</code> <code>in</code> <code>sums</code> <code>that</code> <code>are</code> <code>lower</code> <code>than</code> <code>1</code>%</dt>
 <dd>&nbsp;</dd>
 <dt><strong><code>returns</code></strong></dt>
 <dd>&nbsp;</dd>
@@ -1572,12 +1599,14 @@ list of required parameters and a fast complied lambda function for fast evaluat
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def sobol_simplify_model(
+<pre><code class="python">@with_db_context
+def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
     fixed_mode = FixedParamMode.MEDIAN,
     num_digits=3,
-    simple_sums=True) :
+    simple_sums=True,
+    simple_products=True) -&gt; List[LambdaWithParamNames]:
 
     &#39;&#39;&#39;
     Computes Sobol indices and selects main parameters for explaining sensibility of at least &#39;min_ratio&#39;,
@@ -1625,10 +1654,12 @@ list of required parameters and a fast complied lambda function for fast evaluat
         print(&#39;ST: &#39;, np.sum(sob.st[:, imethod]))
 
         sum = 0
+
         sorted_param_indices = list(range(0, len(var_param_names)))
         sorted_param_indices = sorted(sorted_param_indices, key=lambda i : s1[i, imethod], reverse=True)
         selected_params = []
         sobols = dict()
+
         for iparam, param in enumerate(sorted_param_indices) :
 
 
@@ -1663,10 +1694,20 @@ list of required parameters and a fast complied lambda function for fast evaluat
         # Lambdify the expression
         lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
-        # Extra step of simplification : siplify sums with neligeable terms
-        expr = simplify_sums(lambd, params) if simple_sums else lambd.expr
+        # Compute list of parameter values (monte carlo)
+        completed_params = lambd.complete_params(params)
+        expanded_params = _filter_param_values(completed_params, lambd.expanded_params)
+
+        # Extra step of simplification : simplify sums with neligeable terms
+        if simple_sums :
+            expr = _simplify_sums(expr, expanded_params)
+
+        if simple_products:
+            expr = _simplify_products(expr, expanded_params)
 
         simplified_expr = simplify(expr)
+
+        display(simplified_expr)
 
         res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
 
@@ -1771,7 +1812,6 @@ errors defaults to 'strict'.</p></section>
 <ul class="">
 <li><code><a title="lca_algebraic.stats.compare_simplified" href="#lca_algebraic.stats.compare_simplified">compare_simplified</a></code></li>
 <li><code><a title="lca_algebraic.stats.distrib" href="#lca_algebraic.stats.distrib">distrib</a></code></li>
-<li><code><a title="lca_algebraic.stats.extract_var_params" href="#lca_algebraic.stats.extract_var_params">extract_var_params</a></code></li>
 <li><code><a title="lca_algebraic.stats.graphs" href="#lca_algebraic.stats.graphs">graphs</a></code></li>
 <li><code><a title="lca_algebraic.stats.incer_stochastic_dashboard" href="#lca_algebraic.stats.incer_stochastic_dashboard">incer_stochastic_dashboard</a></code></li>
 <li><code><a title="lca_algebraic.stats.incer_stochastic_matrix" href="#lca_algebraic.stats.incer_stochastic_matrix">incer_stochastic_matrix</a></code></li>
@@ -1779,7 +1819,6 @@ errors defaults to 'strict'.</p></section>
 <li><code><a title="lca_algebraic.stats.oat_dasboard" href="#lca_algebraic.stats.oat_dasboard">oat_dasboard</a></code></li>
 <li><code><a title="lca_algebraic.stats.oat_dashboard_interact" href="#lca_algebraic.stats.oat_dashboard_interact">oat_dashboard_interact</a></code></li>
 <li><code><a title="lca_algebraic.stats.oat_matrix" href="#lca_algebraic.stats.oat_matrix">oat_matrix</a></code></li>
-<li><code><a title="lca_algebraic.stats.simplify_sums" href="#lca_algebraic.stats.simplify_sums">simplify_sums</a></code></li>
 <li><code><a title="lca_algebraic.stats.sobol_simplify_model" href="#lca_algebraic.stats.sobol_simplify_model">sobol_simplify_model</a></code></li>
 </ul>
 </li>

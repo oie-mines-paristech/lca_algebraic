@@ -25,46 +25,93 @@
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">import builtins
-import math
-import numpy as np
+import enum
+from collections import defaultdict
+from enum import Enum
 from typing import Dict, List, Union, Tuple
 
 import brightway2 as bw
-from tabulate import tabulate
+import ipywidgets as widgets
+import numpy as np
 from IPython.core.display import HTML
+from bw2data.backends import LCIBackend
+from bw2data.backends.peewee import Activity
+from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
-from scipy.stats import triang, truncnorm, norm, beta
-from sympy import Symbol
-from collections import defaultdict
+from bw2data.proxies import ActivityProxyBase
+from scipy.stats import triang, truncnorm, norm, beta, lognorm
+from sympy import Symbol, Basic
+from tabulate import tabulate
+
+from .base_utils import ExceptionContext, _snake2camel
+from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
 
 import lca_algebraic.base_utils
-from .base_utils import _eprint, as_np_array
+from .base_utils import as_np_array, _getAmountOrFormula, _actName
 
 DEFAULT_PARAM_GROUP = &#34;acv&#34;
 UNCERTAINTY_TYPE = &#34;uncertainty type&#34;
 
+
+
+
+class DbContext :
+    &#34;&#34;&#34;
+        Context class specifying the current foreground DB in use. in internal
+        Used internally to distinguish database parameters with same names
+
+        usage :
+        with DbContext(&#34;db&#34;) :
+            &lt;some code&gt;
+
+    &#34;&#34;&#34;
+    stack = []
+
+    @staticmethod
+    def current_db() :
+        if len(DbContext.stack) == 0:
+            return None
+        return DbContext.stack[-1]
+
+
+    def __init__(self, db : Union[str, ActivityProxyBase, LCIBackend]) :
+        if isinstance(db, ActivityProxyBase) :
+            self.db = db.key[0]
+        elif isinstance(db, str) :
+            self.db = db
+        else :
+            self.db = db.name
+
+    def __enter__(self):
+        DbContext.stack.append(self.db)
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        DbContext.stack.pop()
+
+
 def _param_registry():
     # Prevent reset upon auto reload in jupyter notebook
     if not &#39;param_registry&#39; in builtins.__dict__:
-        builtins.param_registry = dict()
+        builtins.param_registry = ParamRegistry()
 
     return builtins.param_registry
-
 
 
 class ParamType:
     &#34;&#34;&#34;Type of parameters&#34;&#34;&#34;
 
     ENUM = &#34;enum&#34;
+    &#34;&#34;&#34; Enum Parameter &#34;&#34;&#34;
 
     BOOL = &#34;bool&#34;
+    &#34;&#34;&#34; Boolean parameter &#34;&#34;&#34;
 
     FLOAT = &#34;float&#34;
+    &#34;&#34;&#34;Float parameter &#34;&#34;&#34;
 
-
-class DistributionType:
+class DistributionType():
     &#34;&#34;&#34;
-        Type of statistic distribution of a parameter.
+        Type of statistic distribution of a float parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
     &#34;&#34;&#34;
 
@@ -119,8 +166,13 @@ _DistributionTypeMapReverse = {val:key for key, val in _DistributionTypeMap.item
 class FixedParamMode:
     &#34;&#34;&#34; Enum describing what value to set for fixed params &#34;&#34;&#34;
     DEFAULT = &#34;default&#34;
+    &#34;&#34;&#34; Use the default value as the parameter &#34;&#34;&#34;
+
     MEDIAN = &#34;median&#34;
+    &#34;&#34;&#34; Use the median of the distribution of the parameter &#34;&#34;&#34;
+
     MEAN = &#34;mean&#34;
+    &#34;&#34;&#34; Use the mean of the distribution of the parameter &#34;&#34;&#34;
 
 class ParamDef(Symbol):
     &#39;&#39;&#39;Generic definition of a parameter, with name, bound, type, distribution
@@ -131,10 +183,15 @@ class ParamDef(Symbol):
     &#39;&#39;&#39;
 
     def __new__(cls, name, *karg, **kargs):
-        return Symbol.__new__(cls, name)
+        # We use dbname as an &#34;assumption&#34; so that two symbols with same name are not equal if from separate DBs
+        assumptions = dict()
+        if &#39;dbname&#39; in kargs and kargs[&#39;dbname&#39;] :
+            assumptions[kargs[&#39;dbname&#39;]] = True
+
+        return Symbol.__new__(cls, name, **assumptions)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None,
-                 group=None, distrib=None, **kwargs):
+                 group=None, distrib:DistributionType=None, dbname=None, **kwargs):
 
         self.name = name
         self.type = type
@@ -147,13 +204,18 @@ class ParamDef(Symbol):
         self.label_fr = label_fr
         self.group = group
         self.distrib = distrib
+        self.dbname = dbname
+
+        if (self.dbname == None) :
+            error(&#34;Warning : param &#39;%s&#39; linked to root project instead of a specific DB&#34; % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, &#34;_distrib&#34;) :
             del self._distrib
 
-        if not distrib :
-            if type == ParamType.FLOAT and self.min is None:
+        if not distrib and type == ParamType.FLOAT  :
+            if self.min is None:
+                error(&#34;No &#39;min/max&#39; provided, param %s marked as FIXED&#34; % self.name)
                 self.distrib = DistributionType.FIXED
             else:
                 self.distrib = DistributionType.LINEAR
@@ -164,7 +226,7 @@ class ParamDef(Symbol):
             self.std = kwargs[&#39;std&#39;]
 
             if distrib == DistributionType.LOGNORMAL and self.min is not None :
-                _eprint(&#34;Warning : LogNormal does not support min/max boundaries for parameter : &#34;, self.name)
+                error(&#34;Warning : LogNormal does not support min/max boundaries for parameter : &#34;, self.name)
 
         elif distrib == DistributionType.BETA :
             if not &#39;a&#39; in kwargs or not &#39;b&#39; in kwargs or not &#39;std&#39; in kwargs :
@@ -174,7 +236,7 @@ class ParamDef(Symbol):
             self.std = kwargs[&#39;std&#39;]
 
     def stat_value(self, mode : FixedParamMode):
-        &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
+        &#34;&#34;&#34; Compute a fixed value for this parameter, according to the requested FixedParamMode &#34;&#34;&#34;
         if mode == FixedParamMode.DEFAULT :
             return self.default
         else :
@@ -191,7 +253,7 @@ class ParamDef(Symbol):
 
 
     def get_label(self):
-        if lca_algebraic.base_utils.LANG == &#34;fr &#34; and self.label_fr is not None :
+        if LANG == &#34;fr &#34; and self.label_fr is not None :
             return self.label_fr
         elif self.label is not None:
             return self.label
@@ -199,7 +261,7 @@ class ParamDef(Symbol):
             return self.name.replace(&#34;_&#34;, &#34; &#34;)
 
     def range(self, n):
-        &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
+        &#34;&#34;&#34;Return N uniform values of this parameter, within its range of definition&#34;&#34;&#34;
         step = (self.max - self.min) / (n - 1)
         return list(i * step + self.min for i in range(0, n))
 
@@ -235,6 +297,10 @@ class ParamDef(Symbol):
                             loc=self.default,
                             scale=self.std)
 
+                elif self.distrib == DistributionType.LOGNORMAL:
+
+                    self._distrib = lognorm(self.default, self.std)
+
                 elif self.distrib == DistributionType.BETA:
                     self._distrib = beta(
                         self.a,
@@ -248,7 +314,14 @@ class ParamDef(Symbol):
 
             return self._distrib.ppf(alpha)
 
+    def __hash__(self):
+        return hash((self.dbname, self.name))
 
+    def __eq__(self, other):
+        if isinstance(other, ParamDef) :
+            return self.name == other.name and self.dbname == other.dbname
+        else :
+            return Symbol.__eq__(self, other)
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -&gt; Dict[str, float]:
@@ -284,7 +357,7 @@ class BooleanDef(ParamDef):
 
 
 class EnumParam(ParamDef):
-    &#34;&#34;&#34;Enum param is a facility representing a choice / switch as many boolean parameters.
+    &#34;&#34;&#34;Enum param is a facility wrapping a choice / switch as many boolean parameters.
     It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it.
     Statistics weight can be attached to values by providing a dict.
     &#34;&#34;&#34;
@@ -303,6 +376,10 @@ class EnumParam(ParamDef):
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
+        &#34;&#34;&#34;
+        Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
+        currValue can be either a single enum value (string) of dict of enum value =&gt; weight.
+        &#34;&#34;&#34;
 
         # A dict of weights was passed
         if isinstance(currValue, dict) :
@@ -310,8 +387,16 @@ class EnumParam(ParamDef):
             res[&#34;%s_default&#34; % self.name] = 0
             return res
 
+
+
         # Normal case
         values = self.values + [None]
+
+        # Bad value ?
+        if currValue not in values :
+            raise Exception(&#34;Invalid value %s for param %s. Should be in %s&#34; %
+                            (currValue, self.name, str(self.values)))
+
         res = dict()
         for enum_val in values:
             var_name = &#34;%s_%s&#34; % (self.name, enum_val if enum_val is not None else &#34;default&#34;)
@@ -319,7 +404,7 @@ class EnumParam(ParamDef):
         return res
 
     def symbol(self, enumValue):
-        &#34;&#34;&#34;Access parameter for each enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
+        &#34;&#34;&#34;Return the invididual symbol for a given enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
         if enumValue is None:
             return Symbol(self.name + &#39;_default&#39;)
         if not enumValue in self.values:
@@ -361,7 +446,7 @@ class EnumParam(ParamDef):
             return self.weights
 
 
-def newParamDef(name, type, save=True, **kwargs):
+def newParamDef(name, type, dbname=None, save=True, **kwargs):
     &#34;&#34;&#34;
         Creates a parameter and register it into a global registry and as a brightway parameter.
 
@@ -370,19 +455,17 @@ def newParamDef(name, type, save=True, **kwargs):
 
         type : Type of the parameter (From ParamType)
         save : Boolean, persist this into Brightway2 project (True by default)
+        dbname : Optional name of db. If None, the parameter is a project parameter
         other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
 
     &#34;&#34;&#34;
     if type == ParamType.ENUM:
-        param = EnumParam(name, **kwargs)
+        param = EnumParam(name, dbname=dbname, **kwargs)
     elif type == ParamType.BOOL:
-        param = BooleanDef(name, **kwargs)
+        param = BooleanDef(name, dbname=dbname, **kwargs)
     else:
-        param = ParamDef(name, type=type, **kwargs)
+        param = ParamDef(name, dbname=dbname, type=type, **kwargs)
 
-    # Put it in global registry (in memory)
-    if name in _param_registry():
-        _eprint(&#34;Param %s was already defined : overriding&#34; % name)
     _param_registry()[name] = param
 
     # Save in brightway2 project
@@ -402,7 +485,7 @@ def persistParams() :
      https://stats-arrays.readthedocs.io/en/latest/
     &#34;&#34;&#34;
 
-    for name, param in _param_registry().items() :
+    for param in _param_registry().all() :
         _persistParam(param)
 
 def _persistParam(param):
@@ -411,6 +494,9 @@ def _persistParam(param):
 
     # Common attributes for all types of params
     bwParam = dict(name=param.name, group=param.group, label=param.label, description=param.description)
+
+    if (param.dbname) :
+        bwParam[&#34;database&#34;] = param.dbname
 
     if param.type == ParamType.ENUM :
         # Enum are not real params but a set of parameters
@@ -448,29 +534,57 @@ def _persistParam(param):
                 bwParam[&#34;shape&#34;] = param.b
 
         else :
-            _eprint(&#34;Param type not supported&#34;, param.type)
+            error(&#34;Param type not supported&#34;, param.type)
 
         out.append(bwParam)
 
-    bw.parameters.new_project_parameters(out)
+    if param.dbname :
+        bw.parameters.new_database_parameters(out, param.dbname)
+    else:
+        bw.parameters.new_project_parameters(out)
 
 def _loadArgs(data) :
     &#34;&#34;&#34;Load persisted data attributes into ParamDef attributes&#34;&#34;&#34;
     return {
         &#34;group&#34;: data.get(&#34;group&#34;),
+        &#34;dbname&#34; : data.get(&#34;database&#34;),
         &#34;default&#34;: data.get(&#34;amount&#34;),
         &#34;label&#34;: data.get(&#34;label&#34;),
         &#34;description&#34;: data.get(&#34;description&#34;),
-        &#34;min&#34;: data.get(&#34;mininum&#34;),
+        &#34;min&#34;: data.get(&#34;minimum&#34;),
         &#34;max&#34;: data.get(&#34;maximum&#34;),
     }
 
-def loadParams():
-    &#34;&#34;&#34;Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/&#34;&#34;&#34;
+def loadParams(global_variable=True, dbname=None):
+    &#34;&#34;&#34;
+    Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/
+
+    Parameters
+    ----------
+    global_variable If true, loaded parameters are made available as global variable.
+    dbname : None. By default load all project and database parameters. If provided, only load DB params
+    &#34;&#34;&#34;
 
     enumParams=defaultdict(lambda : dict())
 
-    for bwParam in ProjectParameter.select():
+    def register(param) :
+        _param_registry()[param.name] = param
+
+        # Make it available as global var
+        if global_variable:
+            if param.name in builtins.__dict__ :
+                error(&#34;Variable &#39;%s&#39; was already defined : overidding it with param.&#34; % param.name)
+            builtins.__dict__[param.name] = param
+
+    select = DatabaseParameter.select()
+    if dbname :
+        select = select.where(DatabaseParameter.database == dbname)
+
+    params = list(select)
+    if not dbname :
+        params += list(ProjectParameter.select())
+
+    for bwParam in params:
         data = bwParam.data
         data[&#34;amount&#34;] = bwParam.amount
         name = bwParam.name
@@ -494,11 +608,16 @@ def loadParams():
                 continue
 
             elif data[&#34;maximum&#34;] == 2 :
+                del args[&#34;max&#34;], args[&#34;min&#34;]
                 param = newBoolParam(name, save=False, **args)
             else:
-                _eprint(&#34;Non boolean discrete values (max != 2) are not supported for param :&#34;, name)
+                error(&#34;Non boolean discrete values (max != 2) are not supported for param :&#34;, name)
                 continue
         else :
+            # Float parameter
+            if type is None:
+                error(&#34;&#39;Uncertainty type&#39; of param %s not provided. Assuming UNIFORM&#34;)
+                type = _UncertaintyType.UNIFORM
 
             # Uncertainty type to distribution type
             args[&#34;distrib&#34;] = _DistributionTypeMapReverse[type]
@@ -506,7 +625,7 @@ def loadParams():
             if type == _UncertaintyType.TRIANGLE :
                 args[&#34;default&#34;] = data[&#34;loc&#34;]
 
-            if type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+            elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
                 args[&#34;default&#34;] = data[&#34;loc&#34;]
                 args[&#34;std&#34;] = data[&#34;scale&#34;]
 
@@ -518,8 +637,9 @@ def loadParams():
 
             param = newFloatParam(name, save=False, **args)
 
-        # Save it in shared dict
-        _param_registry()[bwParam.name] = param
+        # Save it in shared dictionnary
+        register(param)
+
 
     # Loop on EnumParams
     for param_name, param_values in enumParams.items() :
@@ -536,26 +656,25 @@ def loadParams():
             default = defaults[0]
         else :
             default= None
-            _eprint(&#34;No default enum value found for &#34;, param_name, defaults)
+            error(&#34;No default enum value found for &#34;, param_name, defaults)
 
         param = newEnumParam(param_name, default, save=False, **args)
 
         # Save it in shared dict
-        _param_registry()[bwParam.name] = param
+        register(param)
 
 
-def newFloatParam(name, default, **kwargs):
+def newFloatParam(name, default, dbname=None, **kwargs):
     &#34;&#34;&#34; Create a FLOAT parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
-    return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)
+    return newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)
 
-
-def newBoolParam(name, default, save=True, **kwargs):
+def newBoolParam(name, default, dbname=None, **kwargs):
     &#34;&#34;&#34; Create a BOOL parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
-    return newParamDef(name, ParamType.BOOL, default=default, **kwargs)
+    return newParamDef(name, ParamType.BOOL, dbname=dbname, default=default, **kwargs)
 
-def newEnumParam(name, default, save=True, **kwargs):
+def newEnumParam(name, default, dbname=None, **kwargs):
     &#34;&#34;&#34; Create a ENUM parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
-    return newParamDef(name, ParamType.ENUM, default=default, **kwargs)
+    return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, **kwargs)
 
 def _variable_params(param_names=None):
     if param_names is None :
@@ -574,8 +693,77 @@ def _fixed_params(param_names=None):
 def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
+class DuplicateParamsAndNoContextException(Exception) :
+    pass
 
-def _completeParamValues(params, required_params : List[str]=None):
+class ParamRegistry :
+    &#34;&#34;&#34; In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs&#34;&#34;&#34;
+    def __init__(self) :
+        # We store a dict of dict
+        # Param Name -&gt; { dbname -&gt;  param}
+        self.params : Dict[Dict[ParamDef]] = defaultdict(dict)
+
+    def __len__(self):
+        return len(self.params)
+
+    def __getitem__(self, key):
+        params_per_db = self.params[key]
+        if len(params_per_db) == 1 :
+            return list(params_per_db.values())[0]
+
+        if DbContext.current_db() == None :
+            dbs = [key or &#39;&lt;project&gt;&#39; for key in params_per_db.keys()]
+            raise DuplicateParamsAndNoContextException(
+
+                &#34;&#34;&#34;
+                Found several params with name &#39;%s&#39;, linked to databases (%s) . Yet no context is provided. 
+                Please embed you code in a DbContext :
+                    with DbContext(currentdb) :
+                        &lt;code&gt;
+                &#34;&#34;&#34; % (key, &#34;, &#34;.join(dbs)))
+        if DbContext.current_db() in params_per_db :
+            return params_per_db[DbContext.current_db()]
+        else :
+            return params_per_db[None]
+
+    def __setitem__(self, key, param : ParamDef):
+        if param.dbname in self.params[key]:
+            error(&#34;[ParamRegistry] Param %s was already defined in &#39;%s&#39; : overriding.&#34; %
+                  (param.name, param.dbname or &#39;&lt;project&gt;&#39;))
+
+        self.params[key][param.dbname] = param
+
+    def __contains__(self, key):
+        return key in self.params
+
+    def values(self) :
+        return [self.__getitem__(key) for key in (self.params)]
+
+    def keys(self) :
+        return self.params.keys()
+
+    def items(self) :
+        return [(key, self.__getitem__(key)) for key in self.params.keys()]
+
+    def clear(self, db_name=None):
+        if db_name is None :
+            self.params.clear()
+        else :
+            for param_name, db_params in self.params.items() :
+                if db_name in db_params :
+                    del db_params[db_name]
+
+    def all(self) :
+        &#34;&#34;&#34;Return list of all parameters, including params with same names and different DB&#34;&#34;&#34;
+        return list(param for params in self.params.values() for param in params.values())
+
+# Possible param values : either floator string (enum value)
+ParamValue = Union[float, str]
+
+# Single value or list of values
+ParamValues = Union[List[ParamValue],  ParamValue]
+
+def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False) :
     &#34;&#34;&#34;Check parameters and expand enum params.
 
     Returns
@@ -589,7 +777,13 @@ def _completeParamValues(params, required_params : List[str]=None):
             param = _param_registry()[param_name]
             if not param_name in params :
                 params[param_name] = param.default
-                _eprint(&#34;Required param &#39;%s&#39; was missing, replacing by default value : %s&#34; % (param_name, str(param.default)))
+                error(&#34;Required param &#39;%s&#39; was missing, replacing by default value : %s&#34; % (param_name, str(param.default)))
+
+    # Set default variables for missing values
+    if setDefaults :
+        for name, param in _param_registry().items() :
+            if not name in params :
+                params[name] = param.default
 
     res = dict()
     for key, val in params.items():
@@ -606,22 +800,140 @@ def _completeParamValues(params, required_params : List[str]=None):
     return res
 
 
-def resetParams(db_name):
-    &#34;&#34;&#34;Reset project and activity parameters&#34;&#34;&#34;
-    _param_registry().clear()
-    ProjectParameter.delete().execute()
-    ActivityParameter.delete().execute()
-    DatabaseParameter.delete().execute()
-    Group.delete().execute()
+def resetParams(db_name=None):
+    &#34;&#34;&#34;Clear parameters in live memory (registry) and on disk.
+    Clear either all params (project and all db params) or db params from a single database (if db_name provided)&#34;&#34;&#34;
+    _param_registry().clear(db_name)
 
+    if db_name is None :
+        ProjectParameter.delete().execute()
+        ActivityParameter.delete().execute()
+        DatabaseParameter.delete().execute()
+    else :
+        ActivityParameter.delete().where(ActivityParameter.database == db_name).execute()
+        DatabaseParameter.delete().where(DatabaseParameter.database == db_name).execute()
+        Group.delete().execute()
 
-def list_parameters():
+class NameType(Enum) :
+    NAME=&#34;name&#34;
+    LABEL=&#34;label&#34;
+    CAMEL_NAME = &#34;CAMEL_NAME&#34;
+
+def _param_name(param, name_type:NameType) :
+    if name_type == NameType.NAME :
+        return param.name
+    elif name_type == NameType.LABEL :
+        return param.get_label()
+    else :
+        return _snake2camel(param.name)
+
+def list_parameters(name_type=NameType.LABEL):
+
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.get_label(), param.default, param.min, param.max, param.std if hasattr(param, &#39;std&#39;) else None, param.distrib, param.unit] for param in
-              _param_registry().values()]
-    groups = list({p[0] for p in params})
-    sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
-    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;std&#34;, &#34;distrib&#34;, &#34;unit&#34;])))</code></pre>
+    params = [dict(
+        group=param.group or &#34;&#34;,
+        name=_param_name(param, name_type),
+        label=param.get_label(),
+        default=param.default,
+        min=param.min,
+        max=param.max,
+        std=getattr(param, &#34;std&#34;, None),
+        distrib=param.distrib,
+        unit=param.unit,
+        db=param.dbname or &#34;[project]&#34;) for  param in _param_registry().all()]
+
+    groups = list({p[&#34;group&#34;] for p in params})
+    groups = sorted(groups)
+
+    # Sort by Group / name
+    def keyf(param) :
+        return (groups.index(param[&#34;group&#34;]), param[&#34;name&#34;])
+
+    sorted_params = sorted(params, key=keyf)
+
+    return HTML(tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=&#34;keys&#34;))
+
+
+def freezeParams(db_name, **params) :
+    &#34;&#34;&#34;
+        Freeze parameters values in all exchanges amounts of a DB.
+        The formulas are computed and the &#39;amount&#39; attributes are set with the result.
+        This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+    &#34;&#34;&#34;
+
+    db = bw.Database(db_name)
+
+    with DbContext(db) :
+        for act in db :
+            for exc in act.exchanges():
+
+                amount = _getAmountOrFormula(exc)
+
+                # Amount is a formula ?
+                if isinstance(amount, Basic):
+
+                    replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
+                    val = amount.subs(replace).evalf()
+
+                    with ExceptionContext(val) :
+                        val = float(val)
+
+                    print(&#34;Freezing %s // %s : %s =&gt; %d&#34; % (act, exc[&#39;name&#39;], amount, val))
+
+                    # Update in DB
+                    exc[&#34;amount&#34;] = val
+                    exc.save()
+
+
+def _listParams(db_name) -&gt; List[ParamDef]:
+    &#34;&#34;&#34;
+    Return a set of all parameters used in activities
+    &#34;&#34;&#34;
+
+    db = bw.Database(db_name)
+    res = set()
+
+    with DbContext(db) :
+        for act in db :
+            for exc in act.exchanges():
+
+                amount = _getAmountOrFormula(exc)
+
+                # Amount is a formula ?
+                if isinstance(amount, Basic):
+                    expanded_names = list(str(symbol) for symbol in amount.free_symbols)
+                    param_names = _expanded_names_to_names(expanded_names)
+                    params = list(_param_registry()[param_name] for param_name in param_names)
+                    res.update(params)
+    return res
+
+
+def _expand_param_names(param_names):
+    &#39;&#39;&#39;Expand parameters names (with enum params) &#39;&#39;&#39;
+    return [name for key in param_names for name in _param_registry()[key].names()]
+
+
+def _expanded_names_to_names(param_names):
+    &#34;&#34;&#34;Find params corresponding to expanded names, including enums.&#34;&#34;&#34;
+    param_names = set(param_names)
+
+    # param name =&gt; param
+    res = dict()
+
+    # Search for param with same name of prefix paramName_enumValue
+    for expended_name in param_names :
+        for param_name in _param_registry().keys():
+            if expended_name.startswith(param_name) :
+                param = _param_registry()[param_name]
+                for name in param.names():
+                    if name == expended_name:
+                        res[expended_name] = param
+
+    missing = param_names - set(res.keys())
+    if len(missing) &gt; 0:
+        raise Exception(&#34;Unkown params : %s&#34; % missing)
+
+    return {param.name for param in res.values()}</code></pre>
 </details>
 </section>
 <section>
@@ -631,8 +943,50 @@ def list_parameters():
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
+<dt id="lca_algebraic.params.freezeParams"><code class="name flex">
+<span>def <span class="ident">freezeParams</span></span>(<span>db_name, **params)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Freeze parameters values in all exchanges amounts of a DB.
+The formulas are computed and the 'amount' attributes are set with the result.
+This enables parametric datasets to be used by standard, non parametric tools of Brightway2.</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def freezeParams(db_name, **params) :
+    &#34;&#34;&#34;
+        Freeze parameters values in all exchanges amounts of a DB.
+        The formulas are computed and the &#39;amount&#39; attributes are set with the result.
+        This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+    &#34;&#34;&#34;
+
+    db = bw.Database(db_name)
+
+    with DbContext(db) :
+        for act in db :
+            for exc in act.exchanges():
+
+                amount = _getAmountOrFormula(exc)
+
+                # Amount is a formula ?
+                if isinstance(amount, Basic):
+
+                    replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
+                    val = amount.subs(replace).evalf()
+
+                    with ExceptionContext(val) :
+                        val = float(val)
+
+                    print(&#34;Freezing %s // %s : %s =&gt; %d&#34; % (act, exc[&#39;name&#39;], amount, val))
+
+                    # Update in DB
+                    exc[&#34;amount&#34;] = val
+                    exc.save()</code></pre>
+</details>
+</dd>
 <dt id="lca_algebraic.params.list_parameters"><code class="name flex">
-<span>def <span class="ident">list_parameters</span></span>(<span>)</span>
+<span>def <span class="ident">list_parameters</span></span>(<span>name_type=NameType.LABEL)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Print a pretty list of all defined parameters</p></section>
@@ -640,30 +994,78 @@ def list_parameters():
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def list_parameters():
+<pre><code class="python">def list_parameters(name_type=NameType.LABEL):
+
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
-    params = [[param.group, param.get_label(), param.default, param.min, param.max, param.std if hasattr(param, &#39;std&#39;) else None, param.distrib, param.unit] for param in
-              _param_registry().values()]
-    groups = list({p[0] for p in params})
-    sorted_params = sorted(params, key=lambda p: groups.index(p[0]))
-    return HTML((tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=[&#34;Phase&#34;, &#34;param&#34;, &#34;default&#34;, &#34;min&#34;, &#34;max&#34;, &#34;std&#34;, &#34;distrib&#34;, &#34;unit&#34;])))</code></pre>
+    params = [dict(
+        group=param.group or &#34;&#34;,
+        name=_param_name(param, name_type),
+        label=param.get_label(),
+        default=param.default,
+        min=param.min,
+        max=param.max,
+        std=getattr(param, &#34;std&#34;, None),
+        distrib=param.distrib,
+        unit=param.unit,
+        db=param.dbname or &#34;[project]&#34;) for  param in _param_registry().all()]
+
+    groups = list({p[&#34;group&#34;] for p in params})
+    groups = sorted(groups)
+
+    # Sort by Group / name
+    def keyf(param) :
+        return (groups.index(param[&#34;group&#34;]), param[&#34;name&#34;])
+
+    sorted_params = sorted(params, key=keyf)
+
+    return HTML(tabulate(sorted_params, tablefmt=&#34;html&#34;, headers=&#34;keys&#34;))</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.loadParams"><code class="name flex">
-<span>def <span class="ident">loadParams</span></span>(<span>)</span>
+<span>def <span class="ident">loadParams</span></span>(<span>global_variable=True, dbname=None)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Load parameters from Brightway database, as per : <a href="https://stats-arrays.readthedocs.io/en/latest/">https://stats-arrays.readthedocs.io/en/latest/</a></p></section>
+<section class="desc"><p>Load parameters from Brightway database, as per : <a href="https://stats-arrays.readthedocs.io/en/latest/">https://stats-arrays.readthedocs.io/en/latest/</a></p>
+<h2 id="parameters">Parameters</h2>
+<dl>
+<dt>global_variable If true, loaded parameters are made available as global variable.</dt>
+<dt><strong><code>dbname</code></strong> :&ensp;<code>None.</code> <code>By</code> default <code>load</code> <code>all</code> <code>project</code> <code>and</code> <code>database</code> <code>parameters.</code> <code>If</code> <code>provided</code>, <code>only</code> <code>load</code> <code>DB</code> <code>params</code></dt>
+<dd>&nbsp;</dd>
+</dl></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def loadParams():
-    &#34;&#34;&#34;Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/&#34;&#34;&#34;
+<pre><code class="python">def loadParams(global_variable=True, dbname=None):
+    &#34;&#34;&#34;
+    Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/
+
+    Parameters
+    ----------
+    global_variable If true, loaded parameters are made available as global variable.
+    dbname : None. By default load all project and database parameters. If provided, only load DB params
+    &#34;&#34;&#34;
 
     enumParams=defaultdict(lambda : dict())
 
-    for bwParam in ProjectParameter.select():
+    def register(param) :
+        _param_registry()[param.name] = param
+
+        # Make it available as global var
+        if global_variable:
+            if param.name in builtins.__dict__ :
+                error(&#34;Variable &#39;%s&#39; was already defined : overidding it with param.&#34; % param.name)
+            builtins.__dict__[param.name] = param
+
+    select = DatabaseParameter.select()
+    if dbname :
+        select = select.where(DatabaseParameter.database == dbname)
+
+    params = list(select)
+    if not dbname :
+        params += list(ProjectParameter.select())
+
+    for bwParam in params:
         data = bwParam.data
         data[&#34;amount&#34;] = bwParam.amount
         name = bwParam.name
@@ -687,11 +1089,16 @@ def list_parameters():
                 continue
 
             elif data[&#34;maximum&#34;] == 2 :
+                del args[&#34;max&#34;], args[&#34;min&#34;]
                 param = newBoolParam(name, save=False, **args)
             else:
-                _eprint(&#34;Non boolean discrete values (max != 2) are not supported for param :&#34;, name)
+                error(&#34;Non boolean discrete values (max != 2) are not supported for param :&#34;, name)
                 continue
         else :
+            # Float parameter
+            if type is None:
+                error(&#34;&#39;Uncertainty type&#39; of param %s not provided. Assuming UNIFORM&#34;)
+                type = _UncertaintyType.UNIFORM
 
             # Uncertainty type to distribution type
             args[&#34;distrib&#34;] = _DistributionTypeMapReverse[type]
@@ -699,7 +1106,7 @@ def list_parameters():
             if type == _UncertaintyType.TRIANGLE :
                 args[&#34;default&#34;] = data[&#34;loc&#34;]
 
-            if type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+            elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
                 args[&#34;default&#34;] = data[&#34;loc&#34;]
                 args[&#34;std&#34;] = data[&#34;scale&#34;]
 
@@ -711,8 +1118,9 @@ def list_parameters():
 
             param = newFloatParam(name, save=False, **args)
 
-        # Save it in shared dict
-        _param_registry()[bwParam.name] = param
+        # Save it in shared dictionnary
+        register(param)
+
 
     # Loop on EnumParams
     for param_name, param_values in enumParams.items() :
@@ -729,16 +1137,16 @@ def list_parameters():
             default = defaults[0]
         else :
             default= None
-            _eprint(&#34;No default enum value found for &#34;, param_name, defaults)
+            error(&#34;No default enum value found for &#34;, param_name, defaults)
 
         param = newEnumParam(param_name, default, save=False, **args)
 
         # Save it in shared dict
-        _param_registry()[bwParam.name] = param</code></pre>
+        register(param)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newBoolParam"><code class="name flex">
-<span>def <span class="ident">newBoolParam</span></span>(<span>name, default, save=True, **kwargs)</span>
+<span>def <span class="ident">newBoolParam</span></span>(<span>name, default, dbname=None, **kwargs)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Create a BOOL parameter. See the documentation of arguments for #newParamDef().</p></section>
@@ -746,13 +1154,13 @@ def list_parameters():
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newBoolParam(name, default, save=True, **kwargs):
+<pre><code class="python">def newBoolParam(name, default, dbname=None, **kwargs):
     &#34;&#34;&#34; Create a BOOL parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
-    return newParamDef(name, ParamType.BOOL, default=default, **kwargs)</code></pre>
+    return newParamDef(name, ParamType.BOOL, dbname=dbname, default=default, **kwargs)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newEnumParam"><code class="name flex">
-<span>def <span class="ident">newEnumParam</span></span>(<span>name, default, save=True, **kwargs)</span>
+<span>def <span class="ident">newEnumParam</span></span>(<span>name, default, dbname=None, **kwargs)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Create a ENUM parameter. See the documentation of arguments for #newParamDef().</p></section>
@@ -760,13 +1168,13 @@ def list_parameters():
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newEnumParam(name, default, save=True, **kwargs):
+<pre><code class="python">def newEnumParam(name, default, dbname=None, **kwargs):
     &#34;&#34;&#34; Create a ENUM parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
-    return newParamDef(name, ParamType.ENUM, default=default, **kwargs)</code></pre>
+    return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, **kwargs)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newFloatParam"><code class="name flex">
-<span>def <span class="ident">newFloatParam</span></span>(<span>name, default, **kwargs)</span>
+<span>def <span class="ident">newFloatParam</span></span>(<span>name, default, dbname=None, **kwargs)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Create a FLOAT parameter. See the documentation of arguments for #newParamDef().</p></section>
@@ -774,13 +1182,13 @@ def list_parameters():
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newFloatParam(name, default, **kwargs):
+<pre><code class="python">def newFloatParam(name, default, dbname=None, **kwargs):
     &#34;&#34;&#34; Create a FLOAT parameter. See the documentation of arguments for #newParamDef().&#34;&#34;&#34;
-    return newParamDef(name, ParamType.FLOAT, default=default, **kwargs)</code></pre>
+    return newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.newParamDef"><code class="name flex">
-<span>def <span class="ident">newParamDef</span></span>(<span>name, type, save=True, **kwargs)</span>
+<span>def <span class="ident">newParamDef</span></span>(<span>name, type, dbname=None, save=True, **kwargs)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Creates a parameter and register it into a global registry and as a brightway parameter.</p>
@@ -790,13 +1198,15 @@ def list_parameters():
 <dd>&nbsp;</dd>
 <dt><strong><code>save</code></strong> :&ensp;<code>Boolean</code>, <code>persist</code> <code>this</code> <code>into</code> <code>Brightway2</code> <code>project</code> (<code>True</code> <code>by</code> default)</dt>
 <dd>&nbsp;</dd>
+<dt><strong><code>dbname</code></strong> :&ensp;<code>Optional</code> <code>name</code> of <code>db.</code> <code>If</code> <code>None</code>, <code>the</code> <code>parameter</code> <code>is</code> <code>a</code> <code>project</code> <code>parameter</code></dt>
+<dd>&nbsp;</dd>
 </dl>
 <p>other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def newParamDef(name, type, save=True, **kwargs):
+<pre><code class="python">def newParamDef(name, type, dbname=None, save=True, **kwargs):
     &#34;&#34;&#34;
         Creates a parameter and register it into a global registry and as a brightway parameter.
 
@@ -805,19 +1215,17 @@ def list_parameters():
 
         type : Type of the parameter (From ParamType)
         save : Boolean, persist this into Brightway2 project (True by default)
+        dbname : Optional name of db. If None, the parameter is a project parameter
         other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
 
     &#34;&#34;&#34;
     if type == ParamType.ENUM:
-        param = EnumParam(name, **kwargs)
+        param = EnumParam(name, dbname=dbname, **kwargs)
     elif type == ParamType.BOOL:
-        param = BooleanDef(name, **kwargs)
+        param = BooleanDef(name, dbname=dbname, **kwargs)
     else:
-        param = ParamDef(name, type=type, **kwargs)
+        param = ParamDef(name, dbname=dbname, type=type, **kwargs)
 
-    # Put it in global registry (in memory)
-    if name in _param_registry():
-        _eprint(&#34;Param %s was already defined : overriding&#34; % name)
     _param_registry()[name] = param
 
     # Save in brightway2 project
@@ -842,26 +1250,33 @@ def list_parameters():
      https://stats-arrays.readthedocs.io/en/latest/
     &#34;&#34;&#34;
 
-    for name, param in _param_registry().items() :
+    for param in _param_registry().all() :
         _persistParam(param)</code></pre>
 </details>
 </dd>
 <dt id="lca_algebraic.params.resetParams"><code class="name flex">
-<span>def <span class="ident">resetParams</span></span>(<span>db_name)</span>
+<span>def <span class="ident">resetParams</span></span>(<span>db_name=None)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Reset project and activity parameters</p></section>
+<section class="desc"><p>Clear parameters in live memory (registry) and on disk.
+Clear either all params (project and all db params) or db params from a single database (if db_name provided)</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def resetParams(db_name):
-    &#34;&#34;&#34;Reset project and activity parameters&#34;&#34;&#34;
-    _param_registry().clear()
-    ProjectParameter.delete().execute()
-    ActivityParameter.delete().execute()
-    DatabaseParameter.delete().execute()
-    Group.delete().execute()</code></pre>
+<pre><code class="python">def resetParams(db_name=None):
+    &#34;&#34;&#34;Clear parameters in live memory (registry) and on disk.
+    Clear either all params (project and all db params) or db params from a single database (if db_name provided)&#34;&#34;&#34;
+    _param_registry().clear(db_name)
+
+    if db_name is None :
+        ProjectParameter.delete().execute()
+        ActivityParameter.delete().execute()
+        DatabaseParameter.delete().execute()
+    else :
+        ActivityParameter.delete().where(ActivityParameter.database == db_name).execute()
+        DatabaseParameter.delete().where(DatabaseParameter.database == db_name).execute()
+        Group.delete().execute()</code></pre>
 </details>
 </dd>
 </dl>
@@ -917,19 +1332,94 @@ def list_parameters():
 </li>
 </ul>
 </dd>
+<dt id="lca_algebraic.params.DbContext"><code class="flex name class">
+<span>class <span class="ident">DbContext</span></span>
+<span>(</span><span>db)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Context class specifying the current foreground DB in use. in internal
+Used internally to distinguish database parameters with same names</p>
+<p>usage :
+with DbContext("db") :
+<some code></p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class DbContext :
+    &#34;&#34;&#34;
+        Context class specifying the current foreground DB in use. in internal
+        Used internally to distinguish database parameters with same names
+
+        usage :
+        with DbContext(&#34;db&#34;) :
+            &lt;some code&gt;
+
+    &#34;&#34;&#34;
+    stack = []
+
+    @staticmethod
+    def current_db() :
+        if len(DbContext.stack) == 0:
+            return None
+        return DbContext.stack[-1]
+
+
+    def __init__(self, db : Union[str, ActivityProxyBase, LCIBackend]) :
+        if isinstance(db, ActivityProxyBase) :
+            self.db = db.key[0]
+        elif isinstance(db, str) :
+            self.db = db
+        else :
+            self.db = db.name
+
+    def __enter__(self):
+        DbContext.stack.append(self.db)
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        DbContext.stack.pop()</code></pre>
+</details>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.params.DbContext.stack"><code class="name">var <span class="ident">stack</span></code></dt>
+<dd>
+<section class="desc"><p>list() -&gt; new empty list
+list(iterable) -&gt; new list initialized from iterable's items</p></section>
+</dd>
+</dl>
+<h3>Static methods</h3>
+<dl>
+<dt id="lca_algebraic.params.DbContext.current_db"><code class="name flex">
+<span>def <span class="ident">current_db</span></span>(<span>)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">@staticmethod
+def current_db() :
+    if len(DbContext.stack) == 0:
+        return None
+    return DbContext.stack[-1]</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
 <dt id="lca_algebraic.params.DistributionType"><code class="flex name class">
 <span>class <span class="ident">DistributionType</span></span>
 </code></dt>
 <dd>
-<section class="desc"><p>Type of statistic distribution of a parameter.
+<section class="desc"><p>Type of statistic distribution of a float parameter.
 Some type of distribution requires extra parameters, in italic, to be provided in the constructor of <strong>ParamDef</strong>()</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class DistributionType:
+<pre><code class="python">class DistributionType():
     &#34;&#34;&#34;
-        Type of statistic distribution of a parameter.
+        Type of statistic distribution of a float parameter.
         Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
     &#34;&#34;&#34;
 
@@ -983,12 +1473,31 @@ See <a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.be
 </dd>
 </dl>
 </dd>
+<dt id="lca_algebraic.params.DuplicateParamsAndNoContextException"><code class="flex name class">
+<span>class <span class="ident">DuplicateParamsAndNoContextException</span></span>
+<span>(</span><span>...)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Common base class for all non-exit exceptions.</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class DuplicateParamsAndNoContextException(Exception) :
+    pass</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>builtins.Exception</li>
+<li>builtins.BaseException</li>
+</ul>
+</dd>
 <dt id="lca_algebraic.params.EnumParam"><code class="flex name class">
 <span>class <span class="ident">EnumParam</span></span>
 <span>(</span><span>name, *karg, **kargs)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Enum param is a facility representing a choice / switch as many boolean parameters.
+<section class="desc"><p>Enum param is a facility wrapping a choice / switch as many boolean parameters.
 It is not itself a Sympy symbol. use #symbol("value") to access it.
 Statistics weight can be attached to values by providing a dict.</p></section>
 <details class="source">
@@ -996,7 +1505,7 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class EnumParam(ParamDef):
-    &#34;&#34;&#34;Enum param is a facility representing a choice / switch as many boolean parameters.
+    &#34;&#34;&#34;Enum param is a facility wrapping a choice / switch as many boolean parameters.
     It is not itself a Sympy symbol. use #symbol(&#34;value&#34;) to access it.
     Statistics weight can be attached to values by providing a dict.
     &#34;&#34;&#34;
@@ -1015,6 +1524,10 @@ Statistics weight can be attached to values by providing a dict.</p></section>
         self.sum = sum(self.weights.values())
 
     def expandParams(self, currValue=None):
+        &#34;&#34;&#34;
+        Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
+        currValue can be either a single enum value (string) of dict of enum value =&gt; weight.
+        &#34;&#34;&#34;
 
         # A dict of weights was passed
         if isinstance(currValue, dict) :
@@ -1022,8 +1535,16 @@ Statistics weight can be attached to values by providing a dict.</p></section>
             res[&#34;%s_default&#34; % self.name] = 0
             return res
 
+
+
         # Normal case
         values = self.values + [None]
+
+        # Bad value ?
+        if currValue not in values :
+            raise Exception(&#34;Invalid value %s for param %s. Should be in %s&#34; %
+                            (currValue, self.name, str(self.values)))
+
         res = dict()
         for enum_val in values:
             var_name = &#34;%s_%s&#34; % (self.name, enum_val if enum_val is not None else &#34;default&#34;)
@@ -1031,7 +1552,7 @@ Statistics weight can be attached to values by providing a dict.</p></section>
         return res
 
     def symbol(self, enumValue):
-        &#34;&#34;&#34;Access parameter for each enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
+        &#34;&#34;&#34;Return the invididual symbol for a given enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
         if enumValue is None:
             return Symbol(self.name + &#39;_default&#39;)
         if not enumValue in self.values:
@@ -1089,12 +1610,17 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <span>def <span class="ident">expandParams</span></span>(<span>self, currValue=None)</span>
 </code></dt>
 <dd>
-<section class="desc"></section>
+<section class="desc"><p>Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
+currValue can be either a single enum value (string) of dict of enum value =&gt; weight.</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def expandParams(self, currValue=None):
+    &#34;&#34;&#34;
+    Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.
+    currValue can be either a single enum value (string) of dict of enum value =&gt; weight.
+    &#34;&#34;&#34;
 
     # A dict of weights was passed
     if isinstance(currValue, dict) :
@@ -1102,8 +1628,16 @@ Statistics weight can be attached to values by providing a dict.</p></section>
         res[&#34;%s_default&#34; % self.name] = 0
         return res
 
+
+
     # Normal case
     values = self.values + [None]
+
+    # Bad value ?
+    if currValue not in values :
+        raise Exception(&#34;Invalid value %s for param %s. Should be in %s&#34; %
+                        (currValue, self.name, str(self.values)))
+
     res = dict()
     for enum_val in values:
         var_name = &#34;%s_%s&#34; % (self.name, enum_val if enum_val is not None else &#34;default&#34;)
@@ -1132,13 +1666,13 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <span>def <span class="ident">symbol</span></span>(<span>self, enumValue)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Access parameter for each enum value : <paramName>_<paramValue></p></section>
+<section class="desc"><p>Return the invididual symbol for a given enum value : <paramName>_<paramValue></p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def symbol(self, enumValue):
-    &#34;&#34;&#34;Access parameter for each enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
+    &#34;&#34;&#34;Return the invididual symbol for a given enum value : &lt;paramName&gt;_&lt;paramValue&gt;&#34;&#34;&#34;
     if enumValue is None:
         return Symbol(self.name + &#39;_default&#39;)
     if not enumValue in self.values:
@@ -1171,46 +1705,62 @@ Statistics weight can be attached to values by providing a dict.</p></section>
 <pre><code class="python">class FixedParamMode:
     &#34;&#34;&#34; Enum describing what value to set for fixed params &#34;&#34;&#34;
     DEFAULT = &#34;default&#34;
+    &#34;&#34;&#34; Use the default value as the parameter &#34;&#34;&#34;
+
     MEDIAN = &#34;median&#34;
-    MEAN = &#34;mean&#34;</code></pre>
+    &#34;&#34;&#34; Use the median of the distribution of the parameter &#34;&#34;&#34;
+
+    MEAN = &#34;mean&#34;
+    &#34;&#34;&#34; Use the mean of the distribution of the parameter &#34;&#34;&#34;</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
 <dt id="lca_algebraic.params.FixedParamMode.DEFAULT"><code class="name">var <span class="ident">DEFAULT</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Use the default value as the parameter</p></section>
 </dd>
 <dt id="lca_algebraic.params.FixedParamMode.MEAN"><code class="name">var <span class="ident">MEAN</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Use the mean of the distribution of the parameter</p></section>
 </dd>
 <dt id="lca_algebraic.params.FixedParamMode.MEDIAN"><code class="name">var <span class="ident">MEDIAN</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Use the median of the distribution of the parameter</p></section>
+</dd>
+</dl>
+</dd>
+<dt id="lca_algebraic.params.NameType"><code class="flex name class">
+<span>class <span class="ident">NameType</span></span>
+<span>(</span><span>value, names=None, *, module=None, qualname=None, type=None, start=1)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>An enumeration.</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class NameType(Enum) :
+    NAME=&#34;name&#34;
+    LABEL=&#34;label&#34;
+    CAMEL_NAME = &#34;CAMEL_NAME&#34;</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>enum.Enum</li>
+</ul>
+<h3>Class variables</h3>
+<dl>
+<dt id="lca_algebraic.params.NameType.CAMEL_NAME"><code class="name">var <span class="ident">CAMEL_NAME</span></code></dt>
+<dd>
+<section class="desc"><p>An enumeration.</p></section>
+</dd>
+<dt id="lca_algebraic.params.NameType.LABEL"><code class="name">var <span class="ident">LABEL</span></code></dt>
+<dd>
+<section class="desc"><p>An enumeration.</p></section>
+</dd>
+<dt id="lca_algebraic.params.NameType.NAME"><code class="name">var <span class="ident">NAME</span></code></dt>
+<dd>
+<section class="desc"><p>An enumeration.</p></section>
 </dd>
 </dl>
 </dd>
@@ -1236,10 +1786,15 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     &#39;&#39;&#39;
 
     def __new__(cls, name, *karg, **kargs):
-        return Symbol.__new__(cls, name)
+        # We use dbname as an &#34;assumption&#34; so that two symbols with same name are not equal if from separate DBs
+        assumptions = dict()
+        if &#39;dbname&#39; in kargs and kargs[&#39;dbname&#39;] :
+            assumptions[kargs[&#39;dbname&#39;]] = True
+
+        return Symbol.__new__(cls, name, **assumptions)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit=&#34;&#34;, description=&#34;&#34;, label=None, label_fr=None,
-                 group=None, distrib=None, **kwargs):
+                 group=None, distrib:DistributionType=None, dbname=None, **kwargs):
 
         self.name = name
         self.type = type
@@ -1252,13 +1807,18 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
         self.label_fr = label_fr
         self.group = group
         self.distrib = distrib
+        self.dbname = dbname
+
+        if (self.dbname == None) :
+            error(&#34;Warning : param &#39;%s&#39; linked to root project instead of a specific DB&#34; % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, &#34;_distrib&#34;) :
             del self._distrib
 
-        if not distrib :
-            if type == ParamType.FLOAT and self.min is None:
+        if not distrib and type == ParamType.FLOAT  :
+            if self.min is None:
+                error(&#34;No &#39;min/max&#39; provided, param %s marked as FIXED&#34; % self.name)
                 self.distrib = DistributionType.FIXED
             else:
                 self.distrib = DistributionType.LINEAR
@@ -1269,7 +1829,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
             self.std = kwargs[&#39;std&#39;]
 
             if distrib == DistributionType.LOGNORMAL and self.min is not None :
-                _eprint(&#34;Warning : LogNormal does not support min/max boundaries for parameter : &#34;, self.name)
+                error(&#34;Warning : LogNormal does not support min/max boundaries for parameter : &#34;, self.name)
 
         elif distrib == DistributionType.BETA :
             if not &#39;a&#39; in kwargs or not &#39;b&#39; in kwargs or not &#39;std&#39; in kwargs :
@@ -1279,7 +1839,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
             self.std = kwargs[&#39;std&#39;]
 
     def stat_value(self, mode : FixedParamMode):
-        &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
+        &#34;&#34;&#34; Compute a fixed value for this parameter, according to the requested FixedParamMode &#34;&#34;&#34;
         if mode == FixedParamMode.DEFAULT :
             return self.default
         else :
@@ -1296,7 +1856,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 
 
     def get_label(self):
-        if lca_algebraic.base_utils.LANG == &#34;fr &#34; and self.label_fr is not None :
+        if LANG == &#34;fr &#34; and self.label_fr is not None :
             return self.label_fr
         elif self.label is not None:
             return self.label
@@ -1304,7 +1864,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
             return self.name.replace(&#34;_&#34;, &#34; &#34;)
 
     def range(self, n):
-        &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
+        &#34;&#34;&#34;Return N uniform values of this parameter, within its range of definition&#34;&#34;&#34;
         step = (self.max - self.min) / (n - 1)
         return list(i * step + self.min for i in range(0, n))
 
@@ -1340,6 +1900,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
                             loc=self.default,
                             scale=self.std)
 
+                elif self.distrib == DistributionType.LOGNORMAL:
+
+                    self._distrib = lognorm(self.default, self.std)
+
                 elif self.distrib == DistributionType.BETA:
                     self._distrib = beta(
                         self.a,
@@ -1353,7 +1917,14 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 
             return self._distrib.ppf(alpha)
 
+    def __hash__(self):
+        return hash((self.dbname, self.name))
 
+    def __eq__(self, other):
+        if isinstance(other, ParamDef) :
+            return self.name == other.name and self.dbname == other.dbname
+        else :
+            return Symbol.__eq__(self, other)
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -&gt; Dict[str, float]:
@@ -1421,7 +1992,7 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_label(self):
-    if lca_algebraic.base_utils.LANG == &#34;fr &#34; and self.label_fr is not None :
+    if LANG == &#34;fr &#34; and self.label_fr is not None :
         return self.label_fr
     elif self.label is not None:
         return self.label
@@ -1486,6 +2057,10 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
                         loc=self.default,
                         scale=self.std)
 
+            elif self.distrib == DistributionType.LOGNORMAL:
+
+                self._distrib = lognorm(self.default, self.std)
+
             elif self.distrib == DistributionType.BETA:
                 self._distrib = beta(
                     self.a,
@@ -1504,13 +2079,13 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <span>def <span class="ident">range</span></span>(<span>self, n)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Used for parametric analysis</p></section>
+<section class="desc"><p>Return N uniform values of this parameter, within its range of definition</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def range(self, n):
-    &#39;&#39;&#39;Used for parametric analysis&#39;&#39;&#39;
+    &#34;&#34;&#34;Return N uniform values of this parameter, within its range of definition&#34;&#34;&#34;
     step = (self.max - self.min) / (n - 1)
     return list(i * step + self.min for i in range(0, n))</code></pre>
 </details>
@@ -1519,13 +2094,13 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 <span>def <span class="ident">stat_value</span></span>(<span>self, mode)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Method used to compute fixed statistic value to use for fixed variables</p></section>
+<section class="desc"><p>Compute a fixed value for this parameter, according to the requested FixedParamMode</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def stat_value(self, mode : FixedParamMode):
-    &#34;&#34;&#34;Method used to compute fixed statistic value to use for fixed variables&#34;&#34;&#34;
+    &#34;&#34;&#34; Compute a fixed value for this parameter, according to the requested FixedParamMode &#34;&#34;&#34;
     if mode == FixedParamMode.DEFAULT :
         return self.default
     else :
@@ -1543,6 +2118,151 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
 </dd>
 </dl>
 </dd>
+<dt id="lca_algebraic.params.ParamRegistry"><code class="flex name class">
+<span>class <span class="ident">ParamRegistry</span></span>
+</code></dt>
+<dd>
+<section class="desc"><p>In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class ParamRegistry :
+    &#34;&#34;&#34; In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs&#34;&#34;&#34;
+    def __init__(self) :
+        # We store a dict of dict
+        # Param Name -&gt; { dbname -&gt;  param}
+        self.params : Dict[Dict[ParamDef]] = defaultdict(dict)
+
+    def __len__(self):
+        return len(self.params)
+
+    def __getitem__(self, key):
+        params_per_db = self.params[key]
+        if len(params_per_db) == 1 :
+            return list(params_per_db.values())[0]
+
+        if DbContext.current_db() == None :
+            dbs = [key or &#39;&lt;project&gt;&#39; for key in params_per_db.keys()]
+            raise DuplicateParamsAndNoContextException(
+
+                &#34;&#34;&#34;
+                Found several params with name &#39;%s&#39;, linked to databases (%s) . Yet no context is provided. 
+                Please embed you code in a DbContext :
+                    with DbContext(currentdb) :
+                        &lt;code&gt;
+                &#34;&#34;&#34; % (key, &#34;, &#34;.join(dbs)))
+        if DbContext.current_db() in params_per_db :
+            return params_per_db[DbContext.current_db()]
+        else :
+            return params_per_db[None]
+
+    def __setitem__(self, key, param : ParamDef):
+        if param.dbname in self.params[key]:
+            error(&#34;[ParamRegistry] Param %s was already defined in &#39;%s&#39; : overriding.&#34; %
+                  (param.name, param.dbname or &#39;&lt;project&gt;&#39;))
+
+        self.params[key][param.dbname] = param
+
+    def __contains__(self, key):
+        return key in self.params
+
+    def values(self) :
+        return [self.__getitem__(key) for key in (self.params)]
+
+    def keys(self) :
+        return self.params.keys()
+
+    def items(self) :
+        return [(key, self.__getitem__(key)) for key in self.params.keys()]
+
+    def clear(self, db_name=None):
+        if db_name is None :
+            self.params.clear()
+        else :
+            for param_name, db_params in self.params.items() :
+                if db_name in db_params :
+                    del db_params[db_name]
+
+    def all(self) :
+        &#34;&#34;&#34;Return list of all parameters, including params with same names and different DB&#34;&#34;&#34;
+        return list(param for params in self.params.values() for param in params.values())</code></pre>
+</details>
+<h3>Methods</h3>
+<dl>
+<dt id="lca_algebraic.params.ParamRegistry.all"><code class="name flex">
+<span>def <span class="ident">all</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Return list of all parameters, including params with same names and different DB</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def all(self) :
+    &#34;&#34;&#34;Return list of all parameters, including params with same names and different DB&#34;&#34;&#34;
+    return list(param for params in self.params.values() for param in params.values())</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamRegistry.clear"><code class="name flex">
+<span>def <span class="ident">clear</span></span>(<span>self, db_name=None)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def clear(self, db_name=None):
+    if db_name is None :
+        self.params.clear()
+    else :
+        for param_name, db_params in self.params.items() :
+            if db_name in db_params :
+                del db_params[db_name]</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamRegistry.items"><code class="name flex">
+<span>def <span class="ident">items</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def items(self) :
+    return [(key, self.__getitem__(key)) for key in self.params.keys()]</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamRegistry.keys"><code class="name flex">
+<span>def <span class="ident">keys</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def keys(self) :
+    return self.params.keys()</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.params.ParamRegistry.values"><code class="name flex">
+<span>def <span class="ident">values</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<section class="desc"></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def values(self) :
+    return [self.__getitem__(key) for key in (self.params)]</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
 <dt id="lca_algebraic.params.ParamType"><code class="flex name class">
 <span>class <span class="ident">ParamType</span></span>
 </code></dt>
@@ -1556,48 +2276,27 @@ while keeping it as a symbolic expression (delayed evaluation).</p></section>
     &#34;&#34;&#34;Type of parameters&#34;&#34;&#34;
 
     ENUM = &#34;enum&#34;
+    &#34;&#34;&#34; Enum Parameter &#34;&#34;&#34;
 
     BOOL = &#34;bool&#34;
+    &#34;&#34;&#34; Boolean parameter &#34;&#34;&#34;
 
-    FLOAT = &#34;float&#34;</code></pre>
+    FLOAT = &#34;float&#34;
+    &#34;&#34;&#34;Float parameter &#34;&#34;&#34;</code></pre>
 </details>
 <h3>Class variables</h3>
 <dl>
 <dt id="lca_algebraic.params.ParamType.BOOL"><code class="name">var <span class="ident">BOOL</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Boolean parameter</p></section>
 </dd>
 <dt id="lca_algebraic.params.ParamType.ENUM"><code class="name">var <span class="ident">ENUM</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Enum Parameter</p></section>
 </dd>
 <dt id="lca_algebraic.params.ParamType.FLOAT"><code class="name">var <span class="ident">FLOAT</span></code></dt>
 <dd>
-<section class="desc"><p>str(object='') -&gt; str
-str(bytes_or_buffer[, encoding[, errors]]) -&gt; str</p>
-<p>Create a new string object from the given object. If encoding or
-errors is specified, then the object must expose a data buffer
-that will be decoded using the given encoding and error handler.
-Otherwise, returns the result of object.<strong>str</strong>() (if defined)
-or repr(object).
-encoding defaults to sys.getdefaultencoding().
-errors defaults to 'strict'.</p></section>
+<section class="desc"><p>Float parameter</p></section>
 </dd>
 </dl>
 </dd>
@@ -1617,6 +2316,7 @@ errors defaults to 'strict'.</p></section>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="two-column">
+<li><code><a title="lca_algebraic.params.freezeParams" href="#lca_algebraic.params.freezeParams">freezeParams</a></code></li>
 <li><code><a title="lca_algebraic.params.list_parameters" href="#lca_algebraic.params.list_parameters">list_parameters</a></code></li>
 <li><code><a title="lca_algebraic.params.loadParams" href="#lca_algebraic.params.loadParams">loadParams</a></code></li>
 <li><code><a title="lca_algebraic.params.newBoolParam" href="#lca_algebraic.params.newBoolParam">newBoolParam</a></code></li>
@@ -1633,6 +2333,13 @@ errors defaults to 'strict'.</p></section>
 <h4><code><a title="lca_algebraic.params.BooleanDef" href="#lca_algebraic.params.BooleanDef">BooleanDef</a></code></h4>
 </li>
 <li>
+<h4><code><a title="lca_algebraic.params.DbContext" href="#lca_algebraic.params.DbContext">DbContext</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.DbContext.current_db" href="#lca_algebraic.params.DbContext.current_db">current_db</a></code></li>
+<li><code><a title="lca_algebraic.params.DbContext.stack" href="#lca_algebraic.params.DbContext.stack">stack</a></code></li>
+</ul>
+</li>
+<li>
 <h4><code><a title="lca_algebraic.params.DistributionType" href="#lca_algebraic.params.DistributionType">DistributionType</a></code></h4>
 <ul class="two-column">
 <li><code><a title="lca_algebraic.params.DistributionType.BETA" href="#lca_algebraic.params.DistributionType.BETA">BETA</a></code></li>
@@ -1642,6 +2349,9 @@ errors defaults to 'strict'.</p></section>
 <li><code><a title="lca_algebraic.params.DistributionType.NORMAL" href="#lca_algebraic.params.DistributionType.NORMAL">NORMAL</a></code></li>
 <li><code><a title="lca_algebraic.params.DistributionType.TRIANGLE" href="#lca_algebraic.params.DistributionType.TRIANGLE">TRIANGLE</a></code></li>
 </ul>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.params.DuplicateParamsAndNoContextException" href="#lca_algebraic.params.DuplicateParamsAndNoContextException">DuplicateParamsAndNoContextException</a></code></h4>
 </li>
 <li>
 <h4><code><a title="lca_algebraic.params.EnumParam" href="#lca_algebraic.params.EnumParam">EnumParam</a></code></h4>
@@ -1660,6 +2370,14 @@ errors defaults to 'strict'.</p></section>
 </ul>
 </li>
 <li>
+<h4><code><a title="lca_algebraic.params.NameType" href="#lca_algebraic.params.NameType">NameType</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.NameType.CAMEL_NAME" href="#lca_algebraic.params.NameType.CAMEL_NAME">CAMEL_NAME</a></code></li>
+<li><code><a title="lca_algebraic.params.NameType.LABEL" href="#lca_algebraic.params.NameType.LABEL">LABEL</a></code></li>
+<li><code><a title="lca_algebraic.params.NameType.NAME" href="#lca_algebraic.params.NameType.NAME">NAME</a></code></li>
+</ul>
+</li>
+<li>
 <h4><code><a title="lca_algebraic.params.ParamDef" href="#lca_algebraic.params.ParamDef">ParamDef</a></code></h4>
 <ul class="two-column">
 <li><code><a title="lca_algebraic.params.ParamDef.default_assumptions" href="#lca_algebraic.params.ParamDef.default_assumptions">default_assumptions</a></code></li>
@@ -1669,6 +2387,16 @@ errors defaults to 'strict'.</p></section>
 <li><code><a title="lca_algebraic.params.ParamDef.rand" href="#lca_algebraic.params.ParamDef.rand">rand</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.range" href="#lca_algebraic.params.ParamDef.range">range</a></code></li>
 <li><code><a title="lca_algebraic.params.ParamDef.stat_value" href="#lca_algebraic.params.ParamDef.stat_value">stat_value</a></code></li>
+</ul>
+</li>
+<li>
+<h4><code><a title="lca_algebraic.params.ParamRegistry" href="#lca_algebraic.params.ParamRegistry">ParamRegistry</a></code></h4>
+<ul class="">
+<li><code><a title="lca_algebraic.params.ParamRegistry.all" href="#lca_algebraic.params.ParamRegistry.all">all</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamRegistry.clear" href="#lca_algebraic.params.ParamRegistry.clear">clear</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamRegistry.items" href="#lca_algebraic.params.ParamRegistry.items">items</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamRegistry.keys" href="#lca_algebraic.params.ParamRegistry.keys">keys</a></code></li>
+<li><code><a title="lca_algebraic.params.ParamRegistry.values" href="#lca_algebraic.params.ParamRegistry.values">values</a></code></li>
 </ul>
 </li>
 <li>

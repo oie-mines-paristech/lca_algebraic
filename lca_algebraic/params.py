@@ -801,7 +801,7 @@ def _param_name(param, name_type:NameType) :
     else :
         return _snake2camel(param.name)
 
-def list_parameters(name_type=NameType.LABEL):
+def list_parameters(name_type=NameType.NAME):
 
     """ Print a pretty list of all defined parameters """
     params = [dict(
@@ -830,9 +830,9 @@ def list_parameters(name_type=NameType.LABEL):
 
 def freezeParams(db_name, **params) :
     """
-        Freeze parameters values in all exchanges amounts of a DB.
-        The formulas are computed and the 'amount' attributes are set with the result.
-        This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+    Freeze parameters values in all exchanges amounts of a DB.
+    The formulas are computed and the 'amount' attributes are set with the result.
+    This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
     """
 
     db = bw.Database(db_name)

@@ -1,3 +1,11 @@
+# 1.0.0
+
+* Add multi-dataset support, replacing **SET_USER_DB** by **setBackground()**, **setForeground()**
+* Added **freezeParams()** to freeze parametric dataset for specific scenario to be used by non parametric tools or other foreground datasets.
+* Added dataset parameters : parameters scoped to a specific dataset, with scope / conflict resolution of parameters with same names.
+* Added extended import / export of datasets with their parameters : **export_db()**, **import_db()**
+* Added non regression tests
+
 # 0.0.15
 
 * Added explicit error when cycle is detected in activities. 

@@ -15,7 +15,7 @@ from sympy.core.operations import AssocOp
 
 from .base_utils import _method_unit
 from .lca import *
-from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr
+from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
 from .params import _variable_params, _param_registry, FixedParamMode, _param_name
 
 PARALLEL=False
@@ -38,7 +38,7 @@ def _heatmap(df, title, vmax, ints=False):
     ax.tick_params(axis="y", labelsize=18)
 
 
-def extract_var_params(lambdas):
+def _extract_var_params(lambdas):
     required_param_names = set()
     for lamb in lambdas :
         required_param_names.update(_expanded_names_to_names(lamb.expanded_params))
@@ -51,10 +51,10 @@ def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
-    lambdas = preMultiLCAAlgebric(model, impacts)
+    lambdas = _preMultiLCAAlgebric(model, impacts)
 
     # Sort params by category
-    sorted_params = extract_var_params(lambdas)
+    sorted_params = _extract_var_params(lambdas)
 
     change = np.zeros((len(sorted_params), len(impacts)))
 
@@ -65,7 +65,7 @@ def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
         params[param.name] = param.range(n)
 
         # Compute LCA
-        df = postMultiLCAAlgebric(impacts, lambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, lambdas, **params)
 
         # Compute change
         change[iparam] = (df.max() - df.min()) / df.median() * 100
@@ -128,7 +128,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         with DbContext(modelOrLambdas) :
             df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
     else:
-        df = postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
     # Add X values in the table
     pname = varying_param.name
@@ -191,7 +191,7 @@ def oat_dashboard_interact(model, methods, **kwparams):
     sharex: Shared X axes ? True by default
     '''
 
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods)
 
     def process_func(param):
         with DbContext(model):
@@ -229,7 +229,7 @@ def _compute_stochastics(modelOrLambdas, methods, params):
     if isinstance(modelOrLambdas, Activity):
         Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
     else:
-        Y = postMultiLCAAlgebric(methods, modelOrLambdas, **params)
+        Y = _postMultiLCAAlgebric(methods, modelOrLambdas, **params)
     return Y
 
 def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None):
@@ -372,8 +372,8 @@ def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     By default use all the parameters with distribution not FIXED
     '''
 
-    lambdas = preMultiLCAAlgebric(model, methods)
-    var_params = extract_var_params(lambdas)
+    lambdas = _preMultiLCAAlgebric(model, methods)
+    var_params = _extract_var_params(lambdas)
 
     problem, _, Y = _stochastics(lambdas, methods, n, var_params)
 
@@ -643,10 +643,10 @@ def sobol_simplify_model(
 
         # Extra step of simplification : simplify sums with neligeable terms
         if simple_sums :
-            expr = simplify_sums(expr, expanded_params)
+            expr = _simplify_sums(expr, expanded_params)
 
         if simple_products:
-            expr = simplify_products(expr, expanded_params)
+            expr = _simplify_products(expr, expanded_params)
 
         simplified_expr = simplify(expr)
 
@@ -667,7 +667,7 @@ def _rec_expression(exp, func) :
             args = filter(lambda x: x is not None, list(func(arg) for arg in term.args))
             return term.func(*args)
 
-def simplify_sums(expr, param_values) :
+def _simplify_sums(expr, param_values) :
 
     def replace_term(term, minv, maxv, max_max):
         abs_max = max(abs(minv), abs(maxv))
@@ -676,9 +676,9 @@ def simplify_sums(expr, param_values) :
         else:
             return term
 
-    return simplify_terms(expr, param_values, Add, replace_term)
+    return _simplify_terms(expr, param_values, Add, replace_term)
 
-def simplify_products(expr, param_values) :
+def _simplify_products(expr, param_values) :
 
     def replace_term(term, minv, maxv, max_max) :
 
@@ -693,9 +693,9 @@ def simplify_products(expr, param_values) :
 
         return term
 
-    return simplify_terms(expr, param_values, Mul, replace_term)
+    return _simplify_terms(expr, param_values, Mul, replace_term)
 
-def simplify_terms(expr, expanded_param_values, op:Type[AssocOp], replace) :
+def _simplify_terms(expr, expanded_param_values, op:Type[AssocOp], replace) :
 
     # Determine max normalized value of this term, for all param values (monte carlo)
     min_max_cache : Dict[str, Tuple[float, float]] = dict()
@@ -815,7 +815,7 @@ def distrib(*args, **kwargs) :
     """
        Show distributions together with statistical outcomes
 
-       Synonym of graphs()
+       Synonym of #graphs()
 
        parameters
        ----------
@@ -929,7 +929,7 @@ def compare_simplified(
     '''
 
     # Raw model
-    lambdas = preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
     fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))

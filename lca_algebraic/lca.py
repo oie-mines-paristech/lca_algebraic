@@ -128,21 +128,6 @@ def _modelToExpr(
     return exprs, expected_names
 
 
-def simplifiedModel(model, impacts) :
-    '''
-    Computes simplified expressions corresponding to a model for each impact, replacing activities by the value of its impact.
-
-    Return
-    ------
-    list of sympy expressions (one per impact)
-
-    Parameters
-    ----------
-    extraFixedParams : List of extra parameters to fix
-    '''
-    exprs, expected_names = _modelToExpr(model, impacts)
-    return [simplify(ex) for ex in exprs]
-
 def _filter_param_values(params, expanded_param_names) :
     return {key : val for key, val in params.items() if key in expanded_param_names}
 
@@ -213,7 +198,7 @@ class LambdaWithParamNames :
     def _repr_latex_(self):
         return self.expr._repr_latex_()
 
-def preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:List[Activity]=None):
+def _preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:List[Activity]=None):
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -228,6 +213,7 @@ def preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:Lis
 
 
 def method_name(method):
+    """Return name of method, taking into account custom label set via set_custom_impact_labels(...) """
     if method in _impact_labels() :
         return _impact_labels()[method]
     return method[1] + " - " + method[2]
@@ -246,7 +232,7 @@ def _compute_param_length(params) :
                 raise Exception("Parameters should be a single value or a list of same number of values")
     return param_length
 
-def postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
+def _postMultiLCAAlgebric(methods, lambdas, alpha=1, **params):
     '''
         Compute LCA for a given set of parameters and pre-compiled lambda functions.
         This function is used by **multiLCAAlgebric**
@@ -299,7 +285,8 @@ def _filter_params(params, expected_names, model) :
     return res
 
 def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **params):
-    """Compute LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    """
+    Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
     Then, compute 'static' inventory of the referenced background activities.
     This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
 
@@ -333,9 +320,9 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
                     error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
 
-            lambdas = preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
+            lambdas = _preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
 
-            df = postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
+            df = _postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
             model_name = _actName(model)
             while model_name in dfs :
