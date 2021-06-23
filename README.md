@@ -32,7 +32,7 @@ Alternatively, you can download and execute [this installer](https://github.com/
 
 # Usage & documentation 
 
-Please refer to the [sample notebook](./example-notebook.ipynb).
+Please refer to the [sample notebook (Markdown)](./example-notebook.md) [(or here as ipynb)](./example-notebook.ipynb). 
 
 The full API is [documented here](https://oie-mines-paristech.github.io/lca_algebraic/doc/).
 
