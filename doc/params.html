@@ -827,7 +827,7 @@ def _param_name(param, name_type:NameType) :
     else :
         return _snake2camel(param.name)
 
-def list_parameters(name_type=NameType.LABEL):
+def list_parameters(name_type=NameType.NAME):
 
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
     params = [dict(
@@ -856,9 +856,9 @@ def list_parameters(name_type=NameType.LABEL):
 
 def freezeParams(db_name, **params) :
     &#34;&#34;&#34;
-        Freeze parameters values in all exchanges amounts of a DB.
-        The formulas are computed and the &#39;amount&#39; attributes are set with the result.
-        This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+    Freeze parameters values in all exchanges amounts of a DB.
+    The formulas are computed and the &#39;amount&#39; attributes are set with the result.
+    This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
     &#34;&#34;&#34;
 
     db = bw.Database(db_name)
@@ -956,9 +956,9 @@ This enables parametric datasets to be used by standard, non parametric tools of
 </summary>
 <pre><code class="python">def freezeParams(db_name, **params) :
     &#34;&#34;&#34;
-        Freeze parameters values in all exchanges amounts of a DB.
-        The formulas are computed and the &#39;amount&#39; attributes are set with the result.
-        This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+    Freeze parameters values in all exchanges amounts of a DB.
+    The formulas are computed and the &#39;amount&#39; attributes are set with the result.
+    This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
     &#34;&#34;&#34;
 
     db = bw.Database(db_name)
@@ -986,7 +986,7 @@ This enables parametric datasets to be used by standard, non parametric tools of
 </details>
 </dd>
 <dt id="lca_algebraic.params.list_parameters"><code class="name flex">
-<span>def <span class="ident">list_parameters</span></span>(<span>name_type=NameType.LABEL)</span>
+<span>def <span class="ident">list_parameters</span></span>(<span>name_type=NameType.NAME)</span>
 </code></dt>
 <dd>
 <section class="desc"><p>Print a pretty list of all defined parameters</p></section>
@@ -994,7 +994,7 @@ This enables parametric datasets to be used by standard, non parametric tools of
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def list_parameters(name_type=NameType.LABEL):
+<pre><code class="python">def list_parameters(name_type=NameType.NAME):
 
     &#34;&#34;&#34; Print a pretty list of all defined parameters &#34;&#34;&#34;
     params = [dict(

@@ -52,11 +52,15 @@ def resetDb(db_name, foreground=True):
         setBackground(db_name)
 
 
-def initDb(project_name) :
-    &#39;&#39;&#39;Init brightway and detect version of existing installation of ecoinvent&#39;&#39;&#39;
+def initProject(project_name) :
+    &#39;&#39;&#39;Setup the project if not already done.&#39;&#39;&#39;
     bw.projects.set_current(project_name)
     bw.bw2setup()
 
+def initDb(project_name) :
+    &#39;&#39;&#39;Deprecated : use initProject(...) &#39;&#39;&#39;
+    error(&#34;Deprecated : use initProject&#34;)
+    initProject(project_name)
 
 def importDb(dbname, path):
     &#39;&#39;&#39;Import eco invent DB&#39;&#39;&#39;
@@ -142,13 +146,28 @@ def importDb(dbname, path):
 <span>def <span class="ident">initDb</span></span>(<span>project_name)</span>
 </code></dt>
 <dd>
-<section class="desc"><p>Init brightway and detect version of existing installation of ecoinvent</p></section>
+<section class="desc"><p>Deprecated : use initProject(&hellip;)</p></section>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def initDb(project_name) :
-    &#39;&#39;&#39;Init brightway and detect version of existing installation of ecoinvent&#39;&#39;&#39;
+    &#39;&#39;&#39;Deprecated : use initProject(...) &#39;&#39;&#39;
+    error(&#34;Deprecated : use initProject&#34;)
+    initProject(project_name)</code></pre>
+</details>
+</dd>
+<dt id="lca_algebraic.initProject"><code class="name flex">
+<span>def <span class="ident">initProject</span></span>(<span>project_name)</span>
+</code></dt>
+<dd>
+<section class="desc"><p>Setup the project if not already done.</p></section>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def initProject(project_name) :
+    &#39;&#39;&#39;Setup the project if not already done.&#39;&#39;&#39;
     bw.projects.set_current(project_name)
     bw.bw2setup()</code></pre>
 </details>
@@ -201,6 +220,7 @@ def importDb(dbname, path):
 <li><code><a title="lca_algebraic.deleteDb" href="#lca_algebraic.deleteDb">deleteDb</a></code></li>
 <li><code><a title="lca_algebraic.importDb" href="#lca_algebraic.importDb">importDb</a></code></li>
 <li><code><a title="lca_algebraic.initDb" href="#lca_algebraic.initDb">initDb</a></code></li>
+<li><code><a title="lca_algebraic.initProject" href="#lca_algebraic.initProject">initProject</a></code></li>
 <li><code><a title="lca_algebraic.resetDb" href="#lca_algebraic.resetDb">resetDb</a></code></li>
 </ul>
 </li>
