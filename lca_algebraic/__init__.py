@@ -36,13 +36,13 @@ def initDb(project_name) :
     error("Deprecated : use initProject")
     initProject(project_name)
 
-def importDb(dbname, path):
+def importDb(dbname, path, parallel=False):
     '''Import eco invent DB'''
 
     if dbname in bw.databases:
         error("Database '%s' has already been imported " % dbname)
     else:
-        ei34 = bw.SingleOutputEcospold2Importer(path, dbname)
+        ei34 = bw.SingleOutputEcospold2Importer(path, dbname, use_mp=parallel)
         ei34.apply_strategies()
         ei34.statistics()
         ei34.write_database()

@@ -1,3 +1,7 @@
+# 1.0.2 
+
+Disabled parallel import of DB : was causing error on windows
+
 # 1.0.1
 
 * Added better formatting of formulas : render enum switch as piecewize functions
