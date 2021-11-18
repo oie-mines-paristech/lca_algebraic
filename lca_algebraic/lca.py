@@ -483,7 +483,6 @@ def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
-
 def exploreImpacts(impact, *activities : ActivityExtended, **params):
     """
     Advanced version of #printAct()

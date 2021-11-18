@@ -57,6 +57,6 @@ setup(
         'sympy',
         'matplotlib',
         'deprecation',
-        'brightway2>=2.3',
+        'brightway2=2.3',
         'SALib']
 )

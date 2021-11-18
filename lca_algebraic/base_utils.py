@@ -14,6 +14,7 @@ import numpy as np
 
 DEBUG=False
 LANG="fr"
+UNIT_OVERRIDE = dict()
 
 
 def set_debug(value=True) :
@@ -79,6 +80,8 @@ def _actDesc(act: Activity):
 
 
 def _method_unit(method) :
+    if method in UNIT_OVERRIDE :
+        return UNIT_OVERRIDE[method]
     return bw.Method(method).metadata['unit']
 
 

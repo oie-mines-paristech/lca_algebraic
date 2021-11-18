@@ -1,3 +1,8 @@
+# 1.0.1
+
+* Added better formatting of formulas : render enum switch as piecewize functions
+* Fixed version of brightway to prevent dependencies issues
+
 # 1.0.0
 
 * Add multi-dataset support, replacing **SET_USER_DB** by **setBackground()**, **setForeground()**

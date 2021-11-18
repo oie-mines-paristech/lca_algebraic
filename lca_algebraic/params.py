@@ -63,12 +63,7 @@ class DbContext :
         DbContext.stack.pop()
 
 
-def _param_registry():
-    # Prevent reset upon auto reload in jupyter notebook
-    if not 'param_registry' in builtins.__dict__:
-        builtins.param_registry = ParamRegistry()
 
-    return builtins.param_registry
 
 
 class ParamType:
@@ -246,6 +241,8 @@ class ParamDef(Symbol):
             return self.default
         
         elif self.distrib == DistributionType.LINEAR:
+            if self.min is None or self.max is None :
+                raise Exception("Missing min/max for : " + self.name)
             return self.min + alpha * (self.max - self.min)
 
         else :
@@ -736,6 +733,14 @@ ParamValue = Union[float, str]
 
 # Single value or list of values
 ParamValues = Union[List[ParamValue],  ParamValue]
+
+
+def _param_registry() -> Dict[str, ParamDef] :
+    # Prevent reset upon auto reload in jupyter notebook
+    if not 'param_registry' in builtins.__dict__:
+        builtins.param_registry = ParamRegistry()
+
+    return builtins.param_registry
 
 def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False) :
     """Check parameters and expand enum params.

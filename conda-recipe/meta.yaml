@@ -19,7 +19,7 @@ requirements:
     - python 
     - pip
   run:
-    - brightway2 >=2.3
+    - brightway2=2.3
     - ipywidgets
     - matplotlib
     - python

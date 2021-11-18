@@ -4,13 +4,17 @@ import warnings
 from time import time
 from typing import Type, Dict, Tuple, List
 
+import numpy as np
 import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
 from jinja2.nodes import Add
 from matplotlib import pyplot as plt
-from sympy import Float, Number, Add, AtomicExpr, Mul, Expr
+from matplotlib.lines import Line2D
+from numpy import piecewise
+from sympy import Float, Number, Add, AtomicExpr, Mul, Expr, Function, Abs, Sum, Eq, Piecewise
+from sympy.core import symbol
 from sympy.core.operations import AssocOp
 
 from .base_utils import _method_unit
@@ -47,7 +51,7 @@ def _extract_var_params(lambdas):
 
 
 @with_db_context
-def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
+def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)', name_type=NameType.LABEL):
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
@@ -74,7 +78,7 @@ def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)'):
 
     # Build final heatmap
     change = pd.DataFrame(change,
-                index=[param.get_label() for param in sorted_params],
+                index=[_param_name(param, name_type) for param in sorted_params],
                 columns=[method_name(imp) for imp in impacts])
     _heatmap(change.transpose(), title, 100, ints=True)
 
@@ -160,7 +164,9 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 
             for ax, impact in zip(axes, impacts):
                 ax.set_ylim(ymin=0)
-                ax.set_ylabel(_method_unit(impact) + " / " + func_unit)
+                unit = _method_unit(impact) + " / " + func_unit
+                ax.set_ylabel(unit, fontsize=15)
+                ax.set_xlabel(pname, fontsize=15)
 
             plt.show(fig)
 
@@ -542,6 +548,129 @@ def _round_expr(expr, num_digits):
     ''' Round all number in sympy expression with n digits'''
     return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
 
+def _snake2camel(val) :
+    return ''.join(word.title() for word in val.split('_'))
+
+
+def _enum_to_piecewize(exp) :
+
+    def checkEnumSymbol(term) :
+        if not isinstance(term, Symbol) :
+            return (None, None)
+        if not "_" in term.name :
+            return (None, None)
+        enum_name, enum_val = term.name.rsplit("_", 1)
+
+        if not enum_name in _param_registry() :
+            return (None, None)
+        return enum_name, enum_val
+
+    def checkEnumProduct(term) :
+
+        """If term is enumVal * X return (param, value, X) else return null"""
+
+        if not isinstance(term, Mul) :
+            return (None, None, None)
+
+        if len(term.args) != 2 :
+            return (None, None, None)
+
+        a, b = term.args
+
+        name, value = checkEnumSymbol(a)
+        if name is not None :
+            return (name, value, b)
+
+        name, value = checkEnumSymbol(b)
+        if name is not None:
+            return (name, value, a)
+
+        return (None, None, None)
+
+
+    def _replace_enums(expr) :
+        # Dict of enum_name -> { enum_value -> ratio }
+        enums = defaultdict(lambda : dict())
+        res_terms = []
+
+        for term in expr.args :
+
+            name, value, ratio = checkEnumProduct(term)
+            if name is not None :
+                # This is a enum value !
+                enums[name][value] = ratio
+            else :
+                # Other term
+                res_terms.append(term)
+
+        if len(enums) == 0 :
+            # No change
+            return expr
+
+        for enum_name, ratio_dict in enums.items() :
+            choices = [(ratio, Eq(symbols(enum_name), symbols(enum_value))) for enum_value, ratio in ratio_dict.items()]
+            if len(choices) < len(_param_registry()[enum_name].values) :
+                # Not all choices covered ? => Add default
+                choices.append((0, True))
+
+            res_terms.append(Piecewise(*choices))
+
+        return Add(*res_terms)
+
+    return exp.replace(
+        lambda x: isinstance(x, Sum) or isinstance(x, Add),
+        _replace_enums)
+
+def prettify(exp) :
+     """
+     Prettify expression for publication :
+     > change snake_symbols to SnakeSymbols (avoiding lowerscript in Latex)"""
+
+     res = _enum_to_piecewize(exp)
+
+     res = res.replace(
+         lambda x: isinstance(x, Symbol),
+         lambda x: Symbol(_snake2camel(str(x))))
+
+     # Replace absolute values for positive parameters
+     res, nb_match = _replace_abs(res)
+     if nb_match > 0:
+         # It changed => simplify again
+         res = simplify(res)
+
+     return res
+
+def _replace_abs(exp) :
+    """Replace |X| by X if X is float param """
+
+    nb_match = 0
+
+    def replaceAbs(absExp : Abs) :
+        nonlocal nb_match
+        if len(absExp.args) != 1 :
+            return absExp
+        arg = absExp.args[0]
+
+        if not isinstance(arg, Symbol) :
+            return absExp
+
+        params = _param_registry()
+        if not arg.name in params :
+            return absExp
+
+        param = params[arg.name]
+        if param.type == ParamType.FLOAT and param.min >= 0 :
+            nb_match += 1
+            return arg
+        else :
+            return absExp
+
+    res = exp.replace(
+        lambda x: isinstance(x, Abs),
+        lambda x: replaceAbs(x))
+
+    return res, nb_match
+
 @with_db_context
 def sobol_simplify_model(
     model, methods,
@@ -648,11 +777,12 @@ def sobol_simplify_model(
         if simple_products:
             expr = _simplify_products(expr, expanded_params)
 
-        simplified_expr = simplify(expr)
 
-        display(simplified_expr)
+        expr = simplify(expr)
 
-        res.append(LambdaWithParamNames(simplified_expr, params=selected_params, sobols=sobols))
+        display(prettify(expr))
+
+        res.append(LambdaWithParamNames(expr, params=selected_params, sobols=sobols))
 
     return res
 
@@ -696,6 +826,8 @@ def _simplify_products(expr, param_values) :
     return _simplify_terms(expr, param_values, Mul, replace_term)
 
 def _simplify_terms(expr, expanded_param_values, op:Type[AssocOp], replace) :
+
+    """Generic simplification of sum or product"""
 
     # Determine max normalized value of this term, for all param values (monte carlo)
     min_max_cache : Dict[str, Tuple[float, float]] = dict()
@@ -915,6 +1047,7 @@ def compare_simplified(
         scales=None,  # Dict of method => scale
         unit_overrides=None,
         nb_cols=2, height=10, width=15, textboxright=0.6, r2_height=0.65, func_unit="kWh",
+        residuals=False,
         **kwargs):
     '''
     Compare distribution of simplified model with full model
@@ -922,6 +1055,7 @@ def compare_simplified(
     Parameters
     ----------
     model: Model
+    residuals : If true, draw heat map of residuals, instead of distributions
     methods : Impact methods
     simpl_lambdas : Simplified lambdas, as returned by sobol_simplify_model(...)
     nb_cols: number of columns for displaying graphs
@@ -933,6 +1067,10 @@ def compare_simplified(
 
     nb_rows = math.ceil(len(methods) / nb_cols)
     fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))
+
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
+
     plt.tight_layout()
     plt.subplots_adjust(hspace=0.3)
 
@@ -964,8 +1102,25 @@ def compare_simplified(
 
         unit += " / " + func_unit
 
-        _graph(d1, unit, title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
-        _graph(d2, unit, title, ax=ax, alpha=0.6, textboxright=textboxright, color=colors[1], **kwargs)
+        if residuals :
+            hb = ax.hexbin(d1, d2, gridsize=(200, 200), mincnt=1)
+            cb = fig.colorbar(hb, ax=ax)
+
+            xmin, xmax = ax.get_xlim()
+            ymin, ymax = ax.get_ylim()
+            vmax= max(ymax, xmax)
+            line = Line2D([0, vmax], [0, vmax], color='grey', linestyle='dashed')
+            ax.add_line(line)
+            ax.set_xlim(0, vmax)
+            ax.set_ylim(0, vmax)
+            cb.set_label("Counts")
+            ax.set_xlabel("Reference model [%s]" % (unit), dict(fontsize=14))
+            ax.set_ylabel("Simplified model [%s]" % (unit), dict(fontsize=14))
+            ax.set_title(title, dict(fontsize=16))
+
+        else:
+            _graph(d1, unit, title, ax=ax, alpha=0.6, color=colors[0], **kwargs)
+            _graph(d2, unit, title, ax=ax, alpha=0.6, textboxright=textboxright, color=colors[1], **kwargs)
 
         ax.text(0.9, r2_height, "R² : %0.3g" % r_value, transform=ax.transAxes, fontsize=14,
                 verticalalignment='top', ha='right')
@@ -973,4 +1128,3 @@ def compare_simplified(
     # Hide missing graphs
     for i in range(0, -len(methods) % nb_cols):
         ax = axes.flatten()[-(i + 1)]
-        ax.axis("off")
