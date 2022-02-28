@@ -13,11 +13,12 @@ from bw2data.backends.peewee import Activity
 from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from bw2data.proxies import ActivityProxyBase
+from lca_algebraic.base_utils import ExceptionContext
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
 from sympy import Symbol, Basic
 from tabulate import tabulate
 
-from .base_utils import ExceptionContext, _snake2camel
+from .base_utils import _snake2camel
 from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
 
 import lca_algebraic.base_utils
@@ -464,7 +465,12 @@ def _persistParam(param):
     out = []
 
     # Common attributes for all types of params
-    bwParam = dict(name=param.name, group=param.group, label=param.label, description=param.description)
+    bwParam = dict(
+        name=param.name,
+        group=param.group,
+        label=param.label,
+        unit=param.unit,
+        description=param.description)
 
     if (param.dbname) :
         bwParam["database"] = param.dbname
@@ -524,6 +530,7 @@ def _loadArgs(data) :
         "description": data.get("description"),
         "min": data.get("minimum"),
         "max": data.get("maximum"),
+        "unit" : data.get("unit")
     }
 
 def loadParams(global_variable=True, dbname=None):

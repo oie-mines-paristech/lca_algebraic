@@ -1,4 +1,5 @@
 import functools
+import inspect
 import re
 import types
 
@@ -15,6 +16,7 @@ from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName, _isOutp
 from .params import *
 from .params import _param_registry, _completeParamValues
 from typing import Tuple, Dict
+import inspect
 
 
 BIOSPHERE3_DB_NAME="biosphere3"
@@ -78,14 +80,40 @@ def list_databases() :
     return res.set_index("name")
 
 
-def with_db_context(func):
+def with_db_context(func=None, arg="self"):
     """ Internal decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)"""
+
+    if func is None:
+        return functools.partial(with_db_context, arg=arg)
+
+    param_specs = inspect.signature(func).parameters
+
+    if not arg in param_specs :
+        raise Exception("No param %s in signature of %s" % (arg, func))
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        act = args[0]
-        dbname = act.key[0]
+
+        # Transform all parameters (positionnal and named) to named ones
+        all_param = {
+            k: args[n] if n < len(args) else v.default
+            for n, (k, v) in enumerate(param_specs.items()) if k != 'kwargs'
+        }
+        all_param.update(kwargs)
+
+        val = all_param[arg]
+        if hasattr(val, "key") :
+            # value is an activity
+            dbname = val.key[0]
+        elif isinstance(val, str) :
+            # Value is directly a  db_name
+            dbname = val
+        else:
+            raise Exception("Param %s is neither an Activity or a db_name : %s" % (arg, val))
+
         with DbContext(dbname) :
             return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -442,12 +470,14 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
 
 def findBioAct(name=None, loc=None, **kwargs):
-    """Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME) """
+    """Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME). See doc for #findActivity """
     return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)
 
 
 def findTechAct(name=None, loc=None, single=True, **kwargs):
-    """ Search activities in any background db not being biospehere """
+    """
+        Search activities in technosphere. This function try to guess which database is your background database.
+        See also doc for #findActivity """
     dbs = _listTechBackgroundDbs()
     if len(dbs) > 1 :
         raise Exception("There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)" % str(dbs))
@@ -534,6 +564,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
     res._data[u'code'] = code
     res['name'] = code
     res['type'] = 'process'
+    res['inherited_from'] = activity.key
     res.save()
 
     if withExchanges:

@@ -50,7 +50,7 @@ def _extract_var_params(lambdas):
     return sorted(var_params.values(), key=lambda p: (p.group, p.name))
 
 
-@with_db_context
+@with_db_context(arg="model")
 def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)', name_type=NameType.LABEL):
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
@@ -186,7 +186,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         ("Variation", change)
     ])
 
-@with_db_context
+@with_db_context(arg="model")
 def oat_dashboard_interact(model, methods, **kwparams):
     '''Interactive dashboard, with a dropdown for selecting parameter
 
@@ -367,7 +367,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
                  ('Relative to mean (%)', 'percent')]
              )
 
-@with_db_context
+@with_db_context(arg="model")
 def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     '''
     Method computing matrix of parameter importance
@@ -433,7 +433,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
     plt.show(fig)
 
 
-@with_db_context
+@with_db_context(arg="modelOrLambdas")
 def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
     '''
     Method for computing violin graph of impacts
@@ -505,7 +505,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
     displayWithExportButton(df)
 
-@with_db_context
+@with_db_context(arg="model")
 def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
     ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
@@ -671,7 +671,7 @@ def _replace_abs(exp) :
 
     return res, nb_match
 
-@with_db_context
+@with_db_context(arg="model")
 def sobol_simplify_model(
     model, methods,
     min_ratio=0.8, n=2000, var_params=None,
@@ -964,7 +964,7 @@ def distrib(*args, **kwargs) :
     return graphs(*args, **kwargs)
 
 
-@with_db_context
+@with_db_context(arg="model")
 def graphs(
         model, methods,
         Y=None, nb_cols=1, axes=None, title=None,
@@ -1041,7 +1041,7 @@ def graphs(
     return pd.DataFrame(res)
 
 
-@with_db_context
+@with_db_context(arg="model")
 def compare_simplified(
         model, methods, simpl_lambdas,
         scales=None,  # Dict of method => scale

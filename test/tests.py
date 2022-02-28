@@ -318,7 +318,7 @@ def test_db_params_lca() :
 
 
 def test_params_as_power() :
-
+    """Tests parameters can be used in 'power' """
 
     p1 = newFloatParam("p1", 2, min=0, max=2)
 
@@ -327,6 +327,14 @@ def test_params_as_power() :
 
     res = multiLCAAlgebric(m1, [ibio1], p1=2)
     assert res.values[0] == 4.0
+
+def test_named_parameters_for_with_db_context() :
+    """Tests functions annotated with with_context_db, still support named db .
+     See: https://github.com/oie-mines-paristech/lca_algebraic/issues/12
+    """
+    m1 = newActivity(USER_DB, "m1", "kg", {bio1 : 1})
+
+    actToExpression(act=m1)
 
 if __name__ == '__main__':
     pytest.main(sys.argv)

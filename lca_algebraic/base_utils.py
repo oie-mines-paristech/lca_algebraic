@@ -1,11 +1,10 @@
-from sys import stderr
-import sys
-from typing import Union
 from contextlib import AbstractContextManager
+from sys import stderr
+from typing import Union
 
 import brightway2 as bw
 from bw2data.backends.peewee import Activity, ExchangeDataset
-from future.utils import raise_from
+from six import raise_from
 from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets

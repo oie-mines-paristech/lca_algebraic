@@ -591,7 +591,7 @@ A dashboard groups all this information in a single interface with tabs.
 It also shows total variation of impacts. This last graph could be improved by showing stacked colored bars with the contribution of each parameter to this variation, according to Sobol indices. 
 
 ```{python}
-incer_stochastic_dashboard(model, impacts)
+incer_stochastic_dashboard(model=model, methods=impacts)
 ```
 
 # Producing simplified models 

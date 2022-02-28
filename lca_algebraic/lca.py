@@ -362,7 +362,9 @@ def _createTechProxyForBio(act_key, target_db):
             name = act['name'] + ' # asTech'
 
             # Create biosphere proxy in User Db
-            res = newActivity(target_db, name, act['unit'], {act: 1}, code=code_to_find)
+            res = newActivity(target_db, name, act['unit'], {act: 1},
+                              code=code_to_find,
+                              isProxy=True) # add a this flag to distinguish this dummy activity from others
             return res
     else :
         return act
@@ -373,7 +375,7 @@ def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT)
     sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
     return expr.xreplace(sub)
 
-@with_db_context
+@with_db_context(arg="act")
 def actToExpression(act: Activity, extract_activities=None):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
