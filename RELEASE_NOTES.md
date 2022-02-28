@@ -1,3 +1,13 @@
+
+# 1.0.3
+
+* Custom fixes for lca_publish : 
+  * added meta data "interited_from", for Activities copied from other Db
+  * added meta data "isProxy", for dummy tech activities used as proxy to bio activities by lca_algebraic
+* Fixed [bug #12](https://github.com/oie-mines-paristech/lca_algebraic/issues/12) : 
+  functions decorated with @with_db_context now accept named parameters again
+
+
 # 1.0.2 
 
 Disabled parallel import of DB : was causing error on windows
