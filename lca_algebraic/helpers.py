@@ -169,13 +169,13 @@ class ActivityExtended(Activity):
                 if not 'location' in act or (negative and act['location'] == loc) or (
                         not negative and act['location'] != loc):
                     return False
-
-            if '*' in name:
-                name = name.replace('*', '')
+          if '*' in name:
+            name = name.replace('*', '')
+            if "name" in exch :
                 return name in exch['name']
-            else:
-                return name == exch['name']
-
+            else: 
+                return name == exch.input
+           
         def match(exch):
             if name:
                 if isinstance(name, list):
@@ -655,8 +655,11 @@ def printAct(*args, impact=None, **params):
                 if len(params) > 0 and isinstance(amount, Basic):
                     new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                     amount = amount.subs(new_params)
-
-                ex_name = exc['name']
+                if "name" in exc :
+                    ex_name = exc['name']
+                else: 
+                    ex_name=str(exc.input)
+                    
                 #if 'location' in input and input['location'] != "GLO":
                 #    name += "#%s" % input['location']
                 #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
