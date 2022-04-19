@@ -6,7 +6,8 @@
   * added meta data "isProxy", for dummy tech activities used as proxy to bio activities by lca_algebraic
 * Fixed [bug #12](https://github.com/oie-mines-paristech/lca_algebraic/issues/12) : 
   functions decorated with @with_db_context now accept named parameters again
-
+* Fixed [bug #13](https://github.com/oie-mines-paristech/lca_algebraic/issues/13) : '<' not supported between instances of 'str' and 'NoneType'
+* Added support for dict of models in multLCAAlgebraic
 
 # 1.0.2 
 

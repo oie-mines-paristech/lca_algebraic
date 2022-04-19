@@ -292,7 +292,12 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
 
     Parameters
     ----------
-    models : Single model or list of models or dict of model:amount : if list of models, you cannot use param lists
+    models :
+        Single model or
+        List of model or
+        List of (model, alpha)
+        or Dict of model:amount
+        In case of several models, you cannot use list of parameters
     methods : List of methods / impacts to consider
     extract_activities : Optionnal : list of foregound or background activities. If provided, the result only integrate their contribution
     params : You should provide named values of all the parameters declared in the model. \
@@ -300,14 +305,18 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
     """
     dfs = dict()
 
+    if isinstance(models, list):
+        def to_tuple(item) :
+            if isinstance(item, tuple) :
+                return item
+            else:
+                return (item, 1)
+        models = dict(to_tuple(item) for item in models)
+    elif not isinstance(models, dict):
+        models = {models:1}
 
+    for model, alpha in models.items():
 
-    if not isinstance(models, list):
-        models = [models]
-
-    for model in models:
-
-        alpha = 1
         if type(model) is tuple:
             model, alpha = model
 
