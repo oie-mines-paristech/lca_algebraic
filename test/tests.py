@@ -316,6 +316,18 @@ def test_db_params_lca() :
     res = multiLCAAlgebric(m2, [ibio1], p1=4)
     assert res.values[0] == 8.0
 
+def test_should_list_params_with_mixed_groups() :
+
+    p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
+    bar = newFloatParam("bar", 2, min=1, max=3)
+
+    m1 = newActivity(USER_DB, "m1", "kg",
+                     {bio1: 2.0 * p1 + bar})
+
+    oat_matrix(m1, [ibio1, ibio2])
+
+
+
 
 def test_params_as_power() :
     """Tests parameters can be used in 'power' """

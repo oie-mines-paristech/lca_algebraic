@@ -47,7 +47,7 @@ def _extract_var_params(lambdas):
     for lamb in lambdas :
         required_param_names.update(_expanded_names_to_names(lamb.expanded_params))
     var_params = _variable_params(required_param_names)
-    return sorted(var_params.values(), key=lambda p: (p.group, p.name))
+    return sorted(var_params.values(), key=lambda p: (p.group if p.group else "", p.name))
 
 
 @with_db_context(arg="model")
