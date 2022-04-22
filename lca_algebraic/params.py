@@ -4,12 +4,11 @@ from collections import defaultdict
 from enum import Enum
 from typing import Dict, List, Union, Tuple
 
-import brightway2 as bw
 import ipywidgets as widgets
 import numpy as np
 from IPython.core.display import HTML
-from bw2data.backends import LCIBackend
-from bw2data.backends.peewee import Activity
+from bw2data import parameters, Database
+from bw2data.backends import SQLiteBackend
 from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from bw2data.proxies import ActivityProxyBase
@@ -49,7 +48,7 @@ class DbContext :
         return DbContext.stack[-1]
 
 
-    def __init__(self, db : Union[str, ActivityProxyBase, LCIBackend]) :
+    def __init__(self, db : Union[str, ActivityProxyBase, SQLiteBackend]) :
         if isinstance(db, ActivityProxyBase) :
             self.db = db.key[0]
         elif isinstance(db, str) :
@@ -516,9 +515,9 @@ def _persistParam(param):
         out.append(bwParam)
 
     if param.dbname :
-        bw.parameters.new_database_parameters(out, param.dbname)
+        parameters.new_database_parameters(out, param.dbname)
     else:
-        bw.parameters.new_project_parameters(out)
+        parameters.new_project_parameters(out)
 
 def _loadArgs(data) :
     """Load persisted data attributes into ParamDef attributes"""
@@ -847,7 +846,7 @@ def freezeParams(db_name, **params) :
     This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
     """
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
 
     with DbContext(db) :
         for act in db :
@@ -876,7 +875,7 @@ def _listParams(db_name) -> List[ParamDef]:
     Return a set of all parameters used in activities
     """
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
     res = set()
 
     with DbContext(db) :

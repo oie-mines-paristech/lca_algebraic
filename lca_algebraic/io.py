@@ -1,9 +1,8 @@
 from os.path import basename, dirname
 
-import bw2data
+from bw2data import Database, parameters
 from bw2data.parameters import DatabaseParameter, ProjectParameter
 from bw2io import BW2Package
-import brightway2 as bw
 
 from lca_algebraic import loadParams, error
 from lca_algebraic.params import _listParams
@@ -21,7 +20,7 @@ def param_data(param) :
 
 def export_db(db_name, filename) :
     """Export Db and linked parameters"""
-    db = bw.Database(db_name)
+    db = Database(db_name)
     db_params = DatabaseParameter.select().where(DatabaseParameter.database == db_name)
 
     # Export Db params
@@ -47,11 +46,11 @@ def import_db(filename) :
     db = BW2Package.import_file(filename)[0]
     if "database_parameters" in db.metadata :
         params = db.metadata["database_parameters"]
-        bw.parameters.new_database_parameters(params, db.name)
+        parameters.new_database_parameters(params, db.name)
 
     if "project_parameters" in db.metadata:
         params = db.metadata["project_parameters"]
-        bw.parameters.new_project_parameters(params)
+        parameters.new_project_parameters(params)
 
     # Reload the parameters
     loadParams()

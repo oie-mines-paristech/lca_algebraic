@@ -2,8 +2,9 @@ from contextlib import AbstractContextManager
 from sys import stderr
 from typing import Union
 
-import brightway2 as bw
-from bw2data.backends.peewee import Activity, ExchangeDataset
+from bw2io import SingleOutputEcospold2Importer, bw2setup
+from bw2data import Database, Method, databases, projects, get_activity, methods
+from bw2data.backends import Activity, ExchangeDataset
 from six import raise_from
 from sympy import Basic
 from sympy.parsing.sympy_parser import parse_expr
@@ -43,10 +44,10 @@ def _isnumber(value):
     return isinstance(value, int) or isinstance(value, float)
 
 dbs = dict()
-def _getDb(dbname) -> bw.Database:
+def _getDb(dbname) -> Database:
     """Pool of Database instances"""
     if not dbname in dbs:
-        dbs[dbname] = bw.Database(dbname)
+        dbs[dbname] = Database(dbname)
     return dbs[dbname]
 
 
@@ -81,7 +82,7 @@ def _actDesc(act: Activity):
 def _method_unit(method) :
     if method in UNIT_OVERRIDE :
         return UNIT_OVERRIDE[method]
-    return bw.Method(method).metadata['unit']
+    return Method(method).metadata['unit']
 
 
 def _actName(act: Activity):

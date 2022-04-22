@@ -7,7 +7,7 @@ from copy import deepcopy
 from itertools import chain
 
 import pandas as pd
-from bw2data.backends.peewee.utils import dict_as_exchangedataset
+from bw2data.backends.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
 from sympy import symbols
 
@@ -18,12 +18,12 @@ from .params import _param_registry, _completeParamValues
 from typing import Tuple, Dict
 import inspect
 
+BIOSPHERE3_DB_NAME = "biosphere3"
 
-BIOSPHERE3_DB_NAME="biosphere3"
+_metaCache = defaultdict(lambda: {})
 
-_metaCache = defaultdict(lambda : {})
 
-def _setMeta(dbname, key, value) :
+def _setMeta(dbname, key, value):
     """Set meta param on DB"""
     _metaCache[dbname][key] = value
 
@@ -33,49 +33,56 @@ def _setMeta(dbname, key, value) :
     dbmeta.flush()
 
 
-def _getMeta(db_name, key) :
-
-    if key in _metaCache[db_name] :
+def _getMeta(db_name, key):
+    if key in _metaCache[db_name]:
         return _metaCache[db_name][key]
 
     val = dbmeta[db_name].get(key)
     _metaCache[db_name][key] = val
     return val
 
+
 FOREGROUND_KEY = "fg"
 
-def _isForeground(db_name) :
+
+def _isForeground(db_name):
     """ Check is db is marked as foreground DB : which means activities may be parametrized / should be developped. """
     return _getMeta(db_name, FOREGROUND_KEY)
 
-def setForeground(db_name) :
+
+def setForeground(db_name):
     """ Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities"""
     return _setMeta(db_name, FOREGROUND_KEY, True)
 
-def setBackground(db_name) :
+
+def setBackground(db_name):
     """ Set a db as being a foreground database, meaning it should be considred as static"""
     return _setMeta(db_name, FOREGROUND_KEY, False)
 
-def SET_USER_DB(db_name) :
+
+def SET_USER_DB(db_name):
     """Deprecated, use #setForeground() / setBackground() instead"""
     error("Deprecated, use #setForeground() / setBackground() instead")
     setForeground(db_name)
 
-def _listTechBackgroundDbs() :
-    """List all background databases technosphere (non biosphere) batabases"""
-    return list(name for name in bw.databases if not _isForeground(name) and not name == BIOSPHERE3_DB_NAME)
 
-old_amount = symbols("old_amount")  # Can be used in expression of amount for updateExchanges, in order to reference the previous value
+def _listTechBackgroundDbs():
+    """List all background databases technosphere (non biosphere) batabases"""
+    return list(name for name in databases if not _isForeground(name) and not name == BIOSPHERE3_DB_NAME)
+
+
+old_amount = symbols(
+    "old_amount")  # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 NumOrExpression = Union[float, Basic]
 
 
-def list_databases() :
+def list_databases():
     """List of databases and their status"""
     data = list(
         dict(
             name=name,
             backend=_getMeta(name, "backend"),
-            type="foreground" if _isForeground(name) else "background") for name in bw.databases)
+            type="foreground" if _isForeground(name) else "background") for name in databases)
     res = pd.DataFrame(data)
     return res.set_index("name")
 
@@ -88,7 +95,7 @@ def with_db_context(func=None, arg="self"):
 
     param_specs = inspect.signature(func).parameters
 
-    if not arg in param_specs :
+    if not arg in param_specs:
         raise Exception("No param %s in signature of %s" % (arg, func))
 
     @functools.wraps(func)
@@ -102,16 +109,16 @@ def with_db_context(func=None, arg="self"):
         all_param.update(kwargs)
 
         val = all_param[arg]
-        if hasattr(val, "key") :
+        if hasattr(val, "key"):
             # value is an activity
             dbname = val.key[0]
-        elif isinstance(val, str) :
+        elif isinstance(val, str):
             # Value is directly a  db_name
             dbname = val
         else:
             raise Exception("Param %s is neither an Activity or a db_name : %s" % (arg, val))
 
-        with DbContext(dbname) :
+        with DbContext(dbname):
             return func(*args, **kwargs)
 
     return wrapper
@@ -123,16 +130,16 @@ class ActivityExtended(Activity):
     """
 
     @with_db_context
-    def listExchanges(self) :
+    def listExchanges(self):
         """ Iterates on all exchanges (except "production") and return a list of (exch-name, target-act, amount) """
         res = []
         for exc in self.exchanges():
 
             # Don't show production
-            if _isOutputExch(exc) :
+            if _isOutputExch(exc):
                 continue
 
-            input = bw.get_activity(exc.input.key)
+            input = get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
             res.append((exc["name"], input, amount))
         return res
@@ -169,13 +176,13 @@ class ActivityExtended(Activity):
                 if not 'location' in act or (negative and act['location'] == loc) or (
                         not negative and act['location'] != loc):
                     return False
-          if '*' in name:
-            name = name.replace('*', '')
-            if "name" in exch :
+            if '*' in name:
+                name = name.replace('*', '')
+            if "name" in exch:
                 return name in exch['name']
-            else: 
+            else:
                 return name == exch.input
-           
+
         def match(exch):
             if name:
                 if isinstance(name, list):
@@ -228,7 +235,6 @@ class ActivityExtended(Activity):
             if not isinstance(exchs, list):
                 exchs = [exchs]
 
-
             for exch in exchs:
 
                 if attrs is None:
@@ -252,7 +258,6 @@ class ActivityExtended(Activity):
                 # We have a formula now ? => register it to parametrized exchange
                 if 'formula' in attrs:
                     parametrized = True
-
 
     def deleteExchanges(self, name, single=True):
         ''' Remove matching exchanges '''
@@ -300,7 +305,7 @@ class ActivityExtended(Activity):
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         """
 
-        with DbContext(self.key[0]) :
+        with DbContext(self.key[0]):
 
             for sub_act, attrs in exchanges.items():
 
@@ -314,7 +319,8 @@ class ActivityExtended(Activity):
                     input=sub_act.key,
                     name=sub_act['name'],
                     unit=sub_act['unit'] if 'unit' in sub_act else None,
-                    type='production' if self == sub_act else 'technosphere' if sub_act.get('type') == 'process' else 'biosphere')
+                    type='production' if self == sub_act else 'technosphere' if sub_act.get(
+                        'type') == 'process' else 'biosphere')
 
                 exch.update(attrs)
                 exch.update(_amountToFormula(amount))
@@ -323,7 +329,6 @@ class ActivityExtended(Activity):
 
                 exch.save()
             self.save()
-
 
     @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
@@ -345,14 +350,13 @@ class ActivityExtended(Activity):
 
         """ Return the amount of the production : 1 if none is found """
         res = 1
-        for exch in self.exchanges() :
+        for exch in self.exchanges():
             if exch['input'] == exch['output']:
                 # Not 1 ?
                 if exch['amount'] != 1:
                     res = exch['amount']
                 break
         return res
-
 
     def exchangesNp(self):
         """ List of exchange, except production (output) one."""
@@ -411,7 +415,7 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, unit=None) -> ActivityExtended :
+                 single=True, unit=None) -> ActivityExtended:
     """
         Find single activity by name & location
         Uses index for fast fetching
@@ -448,7 +452,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         # candidates = _find_candidates(db_name, name_key)
         candidates = _getDb(db_name).search(search, limit=200)
 
-        if len(candidates) == 0 :
+        if len(candidates) == 0:
             # Try again removing strange caracters
             search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
             candidates = _getDb(db_name).search(search, limit=200)
@@ -479,11 +483,12 @@ def findTechAct(name=None, loc=None, single=True, **kwargs):
         Search activities in technosphere. This function try to guess which database is your background database.
         See also doc for #findActivity """
     dbs = _listTechBackgroundDbs()
-    if len(dbs) > 1 :
-        raise Exception("There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)" % str(dbs))
+    if len(dbs) > 1:
+        raise Exception(
+            "There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)" % str(
+                dbs))
 
     return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
-
 
 
 def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
@@ -512,9 +517,10 @@ def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
 
 
 def _newAct(db_name, code):
-
-    if not _isForeground(db_name) :
-        error("WARNING: You are creating activity in background DB. You should only do it in your foreground / user DB : ", db_name)
+    if not _isForeground(db_name):
+        error(
+            "WARNING: You are creating activity in background DB. You should only do it in your foreground / user DB : ",
+            db_name)
 
     db = _getDb(db_name)
     # Already present : delete it ?
@@ -578,7 +584,10 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
 
     return res
 
+
 ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
+
+
 def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
     """Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
@@ -605,13 +614,13 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     """
 
     # Transform map of enum values to corresponding formulas <param_name>_<enum_value>
-    exch = defaultdict(lambda : 0)
+    exch = defaultdict(lambda: 0)
 
     # Forward last unit as unit of the switch
-    unit= None
-    for key, act in acts_dict.items() :
+    unit = None
+    for key, act in acts_dict.items():
         amount = 1
-        if type(act) == list or type(act) == tuple :
+        if type(act) == list or type(act) == tuple:
             act, amount = act
         exch[act] += amount * paramDef.symbol(key)
         unit = act["unit"]
@@ -636,33 +645,32 @@ def printAct(*args, impact=None, **params):
 
     activities = args
 
-
     for act in activities:
-        with DbContext(act.key[0]) :
+        with DbContext(act.key[0]):
             inputs_by_ex_name = dict()
             df = pd.DataFrame(index=['input', 'amount', 'unit'])
             data = dict()
             for (i, exc) in enumerate(act.exchanges()):
 
                 # Don't show production
-                if _isOutputExch(exc) :
+                if _isOutputExch(exc):
                     continue
 
-                input = bw.get_activity(exc.input.key)
+                input = get_activity(exc.input.key)
                 amount = _getAmountOrFormula(exc)
 
                 # Params provided ? Evaluate formulas
                 if len(params) > 0 and isinstance(amount, Basic):
                     new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                     amount = amount.subs(new_params)
-                if "name" in exc :
+                if "name" in exc:
                     ex_name = exc['name']
-                else: 
-                    ex_name=str(exc.input)
-                    
-                #if 'location' in input and input['location'] != "GLO":
+                else:
+                    ex_name = str(exc.input)
+
+                # if 'location' in input and input['location'] != "GLO":
                 #    name += "#%s" % input['location']
-                #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
+                # if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
                 #    name += " {user-db}"
 
                 # Unique name : some exchanges may havve same names
@@ -681,7 +689,6 @@ def printAct(*args, impact=None, **params):
                 data[ex_name] = [input_name, amount, exc.unit]
 
             # Provide impact calculation if impact provided
-
 
             for key, values in data.items():
                 df[key] = values
@@ -758,9 +765,7 @@ def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: Act
     return res
 
 
-
-def findMethods(search=None, mainCat=None) :
-
+def findMethods(search=None, mainCat=None):
     """
     Find impact method. Search in all methods against a list of match strings.
     Each parameter can be either an exact match match, or case insenstive search, if suffixed by '*'
@@ -772,11 +777,11 @@ def findMethods(search=None, mainCat=None) :
     """
     res = []
     search = search.lower()
-    for method in bw.methods:
+    for method in methods:
         text = str(method).lower()
-        match  = search in text
-        if mainCat :
+        match = search in text
+        if mainCat:
             match = match and (mainCat == method[0])
-        if match :
+        if match:
             res.append(method)
     return res

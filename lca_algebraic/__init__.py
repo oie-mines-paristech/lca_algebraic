@@ -11,14 +11,14 @@ from .params import *
 from .io import *
 
 def deleteDb(db_name) :
-    del bw.databases[db_name]
+    del databases[db_name]
 
 def resetDb(db_name, foreground=True):
     """ Create or cleanup a user DB"""
-    if db_name in bw.databases:
+    if db_name in databases:
         error("Db %s was here. Reseting it" % db_name)
-        del bw.databases[db_name]
-    db = bw.Database(db_name)
+        del databases[db_name]
+    db = Database(db_name)
     db.write(dict())
     if foreground :
         setForeground(db_name)
@@ -28,8 +28,8 @@ def resetDb(db_name, foreground=True):
 
 def initProject(project_name) :
     '''Setup the project if not already done.'''
-    bw.projects.set_current(project_name)
-    bw.bw2setup()
+    projects.set_current(project_name)
+    bw2setup()
 
 def initDb(project_name) :
     '''Deprecated : use initProject(...) '''
@@ -39,10 +39,10 @@ def initDb(project_name) :
 def importDb(dbname, path, parallel=False):
     '''Import eco invent DB'''
 
-    if dbname in bw.databases:
+    if dbname in databases:
         error("Database '%s' has already been imported " % dbname)
     else:
-        ei34 = bw.SingleOutputEcospold2Importer(path, dbname, use_mp=parallel)
+        ei34 = SingleOutputEcospold2Importer(path, dbname, use_mp=parallel)
         ei34.apply_strategies()
         ei34.statistics()
         ei34.write_database()

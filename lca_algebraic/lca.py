@@ -9,7 +9,8 @@ from .base_utils import _getAmountOrFormula
 from .helpers import *
 from .helpers import _actDesc, _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
-
+from bw2data import calculation_setups
+from bw2calc import MultiLCA
 
 def _impact_labels():
     """Dictionnary of custom impact names
@@ -27,8 +28,8 @@ def set_custom_impact_labels(impact_labels:Dict) :
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
-    lca = bw.MultiLCA('process')
+    calculation_setups['process'] = {'inv': activities, 'ia': methods}
+    lca = MultiLCA('process')
     cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
     return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
 
