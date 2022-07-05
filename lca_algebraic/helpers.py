@@ -169,12 +169,13 @@ class ActivityExtended(Activity):
                 if not 'location' in act or (negative and act['location'] == loc) or (
                         not negative and act['location'] != loc):
                     return False
-          if '*' in name:
-            name = name.replace('*', '')
-            if "name" in exch :
-                return name in exch['name']
-            else: 
-                return name == exch.input
+
+            if '*' in name:
+                name = name.replace('*', '')
+                if "name" in exch:
+                    return name in exch['name']
+                else:
+                    return name == exch.input
            
         def match(exch):
             if name:

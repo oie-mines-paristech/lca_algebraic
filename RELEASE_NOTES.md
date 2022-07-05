@@ -1,3 +1,6 @@
+# 1.0.4 
+
+Fix typo in helpers
 
 # 1.0.3
 
