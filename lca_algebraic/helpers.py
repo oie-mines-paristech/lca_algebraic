@@ -638,7 +638,7 @@ def printAct(*args, impact=None, **params):
     activities = args
 
 
-    for act in activities:
+    for iact, act in enumerate(activities):
         with DbContext(act.key[0]) :
             inputs_by_ex_name = dict()
             df = pd.DataFrame(index=['input', 'amount', 'unit'])
@@ -688,7 +688,10 @@ def printAct(*args, impact=None, **params):
                 df[key] = values
 
             tables.append(df.T)
-            names.append(_actDesc(act))
+
+            # ensure the name is unique
+            name = _actDesc(act) + ("#%d" % iact if iact > 0 else "")
+            names.append(name)
 
     full = pd.concat(tables, axis=1, keys=names, sort=True)
 

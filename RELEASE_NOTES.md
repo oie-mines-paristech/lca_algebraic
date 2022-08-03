@@ -1,3 +1,6 @@
+
+* Fix printAct() for two activities when activity names are the same
+
 # 1.0.4 
 
 Fix typo in helpers
