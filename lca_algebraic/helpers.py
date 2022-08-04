@@ -626,7 +626,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def printAct(*args, impact=None, **params):
+def printAct(activities, show_db=False, **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
@@ -635,8 +635,8 @@ def printAct(*args, impact=None, **params):
     tables = []
     names = []
 
-    activities = args
-
+    if not isinstance(activities, list) :
+        activities = [activities]
 
     for iact, act in enumerate(activities):
         with DbContext(act.key[0]) :
@@ -660,11 +660,6 @@ def printAct(*args, impact=None, **params):
                     ex_name = exc['name']
                 else: 
                     ex_name=str(exc.input)
-                    
-                #if 'location' in input and input['location'] != "GLO":
-                #    name += "#%s" % input['location']
-                #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
-                #    name += " {user-db}"
 
                 # Unique name : some exchanges may havve same names
                 _name = ex_name
@@ -676,6 +671,10 @@ def printAct(*args, impact=None, **params):
                 inputs_by_ex_name[ex_name] = input
 
                 input_name = _actName(input)
+
+                if show_db  : # and exc.input.key[0] != act.key[0]:
+                   input_name += "{%s}" % exc.input.key[0]
+
                 if _isForeground(input.key[0]):
                     input_name += "{FG}"
 
@@ -697,6 +696,7 @@ def printAct(*args, impact=None, **params):
 
     # Highlight differences in case two activites are provided
     if len(activities) == 2:
+
         yellow = "background-color:yellow"
         iamount1 = full.columns.get_loc((names[0], "amount"))
         iamount2 = full.columns.get_loc((names[1], "amount"))
@@ -704,7 +704,7 @@ def printAct(*args, impact=None, **params):
         iact2 = full.columns.get_loc((names[1], "input"))
 
         def same_amount(row):
-            res = [""] * len(row)
+            res = [None] * len(row)
 
             if row[iamount1] != row[iamount2]:
                 res[iamount1] = yellow
@@ -714,7 +714,11 @@ def printAct(*args, impact=None, **params):
                 res[iact2] = yellow
             return res
 
-        full = full.style.apply(same_amount, axis=1)
+        full = full.style.format(
+            "{:.03g}",
+            subset=[
+                (names[0], "amount"),
+                (names[1], "amount")]).apply(same_amount, axis=1)
 
     display(full)
 

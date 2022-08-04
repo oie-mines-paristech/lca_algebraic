@@ -1,5 +1,8 @@
 
 * Fix printAct() for two activities when activity names are the same
+* BREAKING: Change signature of printAct()  : an explicit list should be provided to show several activities
+* Add show_db option to printAct : for adding "{db}" suffix to exchanges
+* Fix float format in printAct in case of highlighting diff
 
 # 1.0.4 
 
