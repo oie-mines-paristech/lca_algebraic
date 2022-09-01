@@ -12,3 +12,5 @@ scipy
 brightway2==2.3
 ipython
 SALib
+ipysheet
+ipyevents

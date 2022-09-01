@@ -5,8 +5,10 @@ import types
 
 from copy import deepcopy
 from itertools import chain
+from types import SimpleNamespace
 
 import pandas as pd
+from IPython import display
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
 from sympy import symbols
@@ -17,6 +19,7 @@ from .params import *
 from .params import _param_registry, _completeParamValues
 from typing import Tuple, Dict
 import inspect
+import ipysheet
 
 
 BIOSPHERE3_DB_NAME="biosphere3"
@@ -134,7 +137,7 @@ class ActivityExtended(Activity):
 
             input = bw.get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
-            res.append((exc["name"], input, amount))
+            res.append(SimpleNamespace(name=exc["name"], input=input, amount=amount, unit=exc["unit"]))
         return res
 
     @with_db_context
@@ -626,7 +629,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def printAct(activities, show_db=False, **params):
+def printAct(activities, show_db=False, doDisplay=True, **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
@@ -704,7 +707,7 @@ def printAct(activities, show_db=False, **params):
         iact2 = full.columns.get_loc((names[1], "input"))
 
         def same_amount(row):
-            res = [None] * len(row)
+            res = [""] * len(row)
 
             if row[iamount1] != row[iamount2]:
                 res[iamount1] = yellow
@@ -720,7 +723,10 @@ def printAct(activities, show_db=False, **params):
                 (names[0], "amount"),
                 (names[1], "amount")]).apply(same_amount, axis=1)
 
-    display(full)
+    if doDisplay :
+        display(full)
+    else:
+        return full
 
 
 def newInterpolatedAct(dbname: str, name: str, act1: ActivityExtended, act2: ActivityExtended, x1, x2, x, alpha1=1,

@@ -1,7 +1,9 @@
 import concurrent.futures
 from collections import OrderedDict
+from functools import partial
 from typing import Dict, List
 
+from IPython import display
 from sympy import lambdify, simplify
 
 from .base_utils import _actName, error, _getDb, _method_unit
@@ -9,6 +11,8 @@ from .base_utils import _getAmountOrFormula
 from .helpers import *
 from .helpers import _actDesc, _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
+from ipywidgets import HTML, Label, Button, HBox, VBox, Layout, Combobox, Output, Accordion, ToggleButton
+from ipyevents import Event
 
 
 def _impact_labels():
@@ -71,6 +75,7 @@ def _multiLCAWithCache(acts, methods) :
     remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in _BG_IMPACTS_CACHE))
 
     if (len(remaining_acts) > 0) :
+        debug("remaining act", remaining_acts, methods)
         lca = _multiLCA(
             [{act: 1} for act in remaining_acts],
             methods)
@@ -328,7 +333,7 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
                 if key in _fixed_params() :
                     error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
-
+            debug("computing : ", model)
             lambdas = _preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
 
             df = _postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
@@ -494,7 +499,55 @@ def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
-def exploreImpacts(impact, *activities : ActivityExtended, **params):
+def _uniq_name(name, names) :
+    i = 1
+    res = name
+    while res in names:
+        res = "%s#%d" % (name, i)
+        i += 1
+    return res
+
+def _ellipsis(value, max=40) :
+    if len(value) < max :
+        return value
+    else :
+        short = value[0:max]
+        return "<span title='%s'>%s…</span>" % (value, short)
+
+def _sci_repr(float_val) :
+    if isinstance(float_val, float):
+        return "%02.3g" % float_val
+    else:
+        return float_val
+
+
+def _none_float(float_val) :
+    return 0.0 if float_val is None else float_val
+
+_SMALL_DIFF_COLOR = "LemonChiffon"
+_HIGH_DIFF_COLOR = "Coral"
+_RIGHT_BORDER = {'border-right-width':'2px', 'border-right-color':'black'}
+_DB_COLORS = ["lightgreen", "lightyellow", "lightsteelblue", "lightpink", "NavajoWhite", "khaki"]
+
+def _db_shortname(db_name) :
+    """Return 'shortname' metadata if Db has one. Otherwize, return DB name"""
+    db = bw.Database(db_name)
+    if "shortname" in db.metadata :
+        return db.metadata["shortname"]
+    return db_name
+
+def _db_idx(db) :
+    """Return index if DB, in list of all DBs"""
+    dbs = list(bw.databases.keys())
+    return dbs.index(db)
+
+def _explore_impacts(
+        activities : ActivityExtended,
+        method,
+        withImpactPerUnit=False,
+        diff_impact=0.1,
+        act_callback=None,
+        **params):
     """
     Advanced version of #printAct()
 
@@ -502,88 +555,372 @@ def exploreImpacts(impact, *activities : ActivityExtended, **params):
     If parameter values are provided, formulas will be evaluated accordingly.
     If two activities are provided, they will be shown side by side and compared.
     """
-    tables = []
-    names = []
 
-    diffOnly = params.pop("diffOnly", False)
-    withImpactPerUnit = params.pop("withImpactPerUnit", False)
+    if not isinstance(activities, (list, tuple)):
+        activities = [activities]
+
+    # List of dict[exchange=>attributes]
+    # As many items as source activities
+    datas = list()
+    nact = len(activities)
 
     for main_act in activities:
 
         inputs_by_ex_name = dict()
-        data = dict()
 
-        for i, (name, input, amount) in enumerate(main_act.listExchanges()):
+        # Dict of exchange name => attributes
+        data = dict()
+        datas.append(data)
+
+        for ex in main_act.listExchanges():
+
+            amount = ex.amount
 
             # Params provided ? Evaluate formulas
-            if len(params) > 0 and isinstance(amount, Basic):
+            if len(params) > 0 and isinstance(ex.amount, Basic):
                 new_params = [(name, value) for name, value in _completeParamValues(params).items()]
-                amount = amount.subs(new_params)
+                amount = ex.amount.subs(new_params)
 
-            i = 1
-            ex_name = name
-            while ex_name in data:
-                ex_name = "%s#%d" % (name, i)
-                i += 1
+            ex_name = _uniq_name(ex.name, data)
+            inputs_by_ex_name[ex_name] = _createTechProxyForBio(ex.input.key, main_act.key[0])
 
-            inputs_by_ex_name[ex_name] = _createTechProxyForBio(input.key, main_act.key[0])
-
-            input_name = _actName(input)
-
-            if _isForeground(input.key[0]) :
-                input_name += "{user-db}"
-
-            data[ex_name] = dict(input=input_name, amount=amount)
-
+            data[ex_name] = SimpleNamespace(
+                input=ex.input["name"],
+                amount=amount,
+                db= ex.input.key[0],
+                code= ex.input.key[1],
+                loc="GLO" if not "location" in ex.input else ex.input["location"],
+                unit=ex.unit)
 
         # Provide impact calculation if impact provided
         all_acts = list(set(inputs_by_ex_name.values()))
-        res = multiLCAAlgebric(all_acts, [impact], **params)
+
+        res = multiLCAAlgebric(all_acts, [method], **params)
         impacts = res[res.columns.tolist()[0]].to_list()
 
         impact_by_act = {act : value for act, value in zip(all_acts, impacts)}
 
         # Add impacts to data
-        for key, vals in data.items() :
-            amount = vals["amount"]
+        for key, attrs in data.items() :
+            amount = attrs.amount
             act = inputs_by_ex_name[key]
             impact = impact_by_act[act]
 
             if withImpactPerUnit :
-                vals["impact_per_unit"] = impact
-            vals["impact"] = amount * impact
+                attrs.impact_per_unit = impact
+            attrs.impact = amount * impact
 
-        # To dataframe
-        df = pd.DataFrame(data)
+    # All exch
+    all_ex_names = list(set(ex for data in datas for ex in data.keys()))
 
-        tables.append(df.T)
-        names.append(_actDesc(main_act))
+    headers = ["exchange", "unit"]
 
-    full = pd.concat(tables, axis=1, keys=names, sort=True)
+    # Exchange, Unit, Inputs, Amounts, Impacts
+    widths = [170, 50] \
+             + [210] * nact \
+             + [70] * nact \
+             + [70] * nact
 
-    # Highlight differences in case two activites are provided
-    if len(activities) == 2:
-        YELLOW = "background-color:NavajoWhite"
-        diff_cols = ["amount", "input", "impact"]
-        cols1 = dict()
-        cols2 = dict()
-        for col_name in diff_cols :
-            cols1[col_name] = full.columns.get_loc((names[0], col_name))
-            cols2[col_name] = full.columns.get_loc((names[1], col_name))
+    def _numerate(str_val) :
+        return [str_val] + ["%s #%d" % (str_val, i) for i in range(1, nact)]
 
-        if diffOnly:
-            def isDiff(row):
-                return row[cols1['impact']] != row[cols2['impact']]
+    headers += _numerate("input") + _numerate("amount") + _numerate("impact")
 
-            full = full.loc[isDiff]
+    # Compute sum of impacts for first activity
+    sum_impact = sum(attrs.impact for attrs in datas[0].values())
 
-        def same_amount(row):
-            res = [""] * len(row)
-            for col_name in diff_cols :
-                if row[cols1[col_name]] != row[cols2[col_name]] :
-                    res[cols1[col_name]] = YELLOW
-                    res[cols2[col_name]] = YELLOW
-            return res
-        full = full.style.apply(same_amount, axis=1)
+    # To sheet
+    sheet  = ipysheet.sheet(
+        rows=len(all_ex_names),
+        columns=len(headers),
+        column_headers=headers,
+        row_headers=False,
+        stretch_headers="none",
+        column_width=widths)
 
-    return full
+    # Loop on exchanges
+    for i_ex, ex_name in enumerate(all_ex_names) :
+
+        ipysheet.cell(row=i_ex, column=0, value=HTML("<b class='trunc' title='%s'>%s</b>" % (ex_name, ex_name)))
+
+        # Loop on type of columns
+        for column in ["input", "amount", "impact"] :
+
+            # On or two cells, one per activity
+            values = []
+            cells = []
+
+            # Loop on activity (1 or 2)
+            for i_act, (act, data) in enumerate(zip(activities, datas)) :
+
+                # Empty attr for this exchange ?
+                attrs = data[ex_name] if ex_name in data else SimpleNamespace(
+                    unit="-",
+                    input="_",
+                    amount="_",
+                    impact=None,
+                    db="-",
+                    loc="-")
+
+                # Override unit (common column)
+                if attrs.unit != "-" :
+                    ipysheet.cell(row=i_ex, column=1, value=attrs.unit, style=_RIGHT_BORDER, read_only=True)
+
+                # Switch on column type
+                if column == "input" :
+
+                    if attrs.input == "_":
+                        input = "-"
+                        values.append(input)
+                    else:
+                        input_name = "<a href='#'>%s</a>" % attrs.input
+                        loc_html = "<span class='loc'> %s </span>" % attrs.loc
+                        db_html = "&nbsp;<span class='db%d'> %s </span>" % (_db_idx(attrs.db), _db_shortname(attrs.db))
+                        html = input_name + "<br/>" + loc_html + db_html
+
+                        values.append(html)
+
+                        input = HTML(html)
+
+                        # Link the callback to click on it
+                        if act_callback is not None :
+
+                            sub_act = getActByCode(attrs.db, attrs.code)
+
+                            def cb(sub_act, event):
+                                act_callback(sub_act)
+
+                            event = Event(source=input, watched_events=['click'])
+                            event.on_dom_event(partial(cb, sub_act))
+
+                    cells.append(input)
+
+                elif column == "amount":
+
+                    values.append(attrs.amount)
+                    cells.append(_sci_repr(attrs.amount))
+
+                else:
+
+                    values.append(attrs.impact)
+                    cells.append(_sci_repr(attrs.impact))
+
+            # Colorize background according to Diff
+            color = None
+
+            if (nact > 1) and values[0] != values[1] :
+
+                # For impact, highlight differently difference higher than a given share of total impact
+                if column == "impact":
+                    diff = abs(
+                        _none_float(values[1]) -
+                        _none_float(values[0]))
+                    rel_diff = diff / sum_impact
+
+                    color = _HIGH_DIFF_COLOR if rel_diff > diff_impact else _SMALL_DIFF_COLOR
+
+                else:
+                    color = _SMALL_DIFF_COLOR
+
+
+            # Display cells for this column
+            for icell, cell in enumerate(cells) :
+                icol = 2 + nact * (0 if column == "input" else 1 if column == "amount" else 2)
+
+
+                style= _RIGHT_BORDER if (icell == nact - 1) else None
+
+                ipysheet.cell(
+                    row=i_ex,
+                    column=icol + icell,
+                    style=style.copy() if style else None,
+                    background_color=color,
+                    value=cell,
+                    read_only=True)
+
+    # Styling
+
+    style = """
+    .trunc {
+           white-space: nowrap;
+           overflow: hidden;
+           text-overflow: ellipsis;
+    }"""
+
+    # Add colors for each DB number
+    style += "".join(""".db%d {
+            background-color : %s    
+        }""" % (i, color) for i, color in enumerate(_DB_COLORS))
+
+    style = HTML("""<style>%s</style>""" % style)
+    display(style)
+
+    return sheet
+
+
+
+def _acts_by_name(db_name) :
+    return {_actName(act):act for act in bw.Database(db_name)}
+
+def explore_impacts(main_db, base_db, method):
+    """
+    Interactive interface to explore activities, compare them to other activities of other DB and compare impacts
+
+    :param main_db: Name of main DB
+    :param base_db: Name of base DB
+    :param method: Method for impact calculation
+    :return: Interactive widget ready to be displayed
+    """
+    message = HTML()
+    table_container = VBox()
+    history = []
+
+    home_button = Button(icon="home")
+    back_button = Button(icon="arrow-left")
+
+    output = Output()
+
+    main_act = None
+    base_act = None
+
+    # List activities by name in other DB
+    main_acts_by_name = _acts_by_name(main_db)
+    base_acts_by_name = _acts_by_name(base_db)
+
+    main_combo = Combobox(
+        description=_db_shortname(main_db),
+        layout=widgets.Layout(width='700px'),
+        options=list(main_acts_by_name.keys()),
+        placeholder="Select activity",
+        ensure_option=True)
+
+    base_combo = Combobox(
+        description=_db_shortname(base_db),
+        layout=widgets.Layout(width='700px'),
+        options=list(base_acts_by_name.keys()),
+        placeholder="Select activity",
+        ensure_options=True)
+
+    # Comments
+    main_comment = HTML(layout=Layout(display="none"))
+    base_comment = HTML(layout=Layout(display="none"))
+
+    main_button_switch = ToggleButton(
+        value=False,
+        icon="chevron-down",
+        description="Comment")
+
+    base_button_switch = ToggleButton(
+        value=False,
+        icon="chevron-down",
+        description="Comment")
+
+    with output :
+
+        def update_main(act) :
+            """Update main activity. Try to update base activity with same name"""
+
+            nonlocal main_act, base_act
+
+            if main_act == act :
+                return
+
+            if main_act is not None or base_act is not None :
+                history.append((main_act, base_act))
+
+            main_act = act
+
+
+            name = _actName(act)
+
+            if act.key[0] == main_db and name in base_acts_by_name:
+                base_act = base_acts_by_name[name]
+            else:
+                base_act = None
+
+
+            update_view()
+
+        def update_base(act) :
+
+            nonlocal base_act
+
+            if base_act == act:
+                return
+
+            base_act = act
+
+            history.append((main_act, base_act))
+            update_view()
+
+        def pop_and_update(event) :
+            nonlocal main_act, base_act
+            if len(history) > 0 :
+                main_act, base_act = history.pop()
+                update_view()
+
+        def reset(event) :
+            nonlocal main_act, base_act
+            if len(history) > 0 :
+                main_act, base_act = history[0]
+                history.clear()
+                update_view()
+
+        def update_view():
+
+            # Update names in combo
+            main_combo.value = "" if main_act is None else _actName(main_act)
+            base_combo.value = "" if base_act is None else _actName(base_act)
+
+            # Update comments
+            main_comment.value = "" if main_act is None else main_act["comment"]
+            base_comment.value = "" if base_act is None else base_act["comment"]
+
+            message.value = "<h4>Computing ...</h4>"
+
+            try:
+                acts = main_act if base_act is None else [main_act, base_act]
+                table = _explore_impacts(acts, method, act_callback=update_main)
+                table_container.children = [table]
+
+            finally:
+                message.value = ""
+
+        def main_combo_change(change):
+            val = change.new
+            if not val in main_acts_by_name :
+                return
+            act = main_acts_by_name[val]
+            update_main(act)
+
+        def base_combo_change(change):
+            val = change.new
+            if not val in base_acts_by_name :
+                return
+            act = base_acts_by_name[val]
+            update_base(act)
+
+        def comment_visibility_switch(container, change) :
+            val = change.new
+            container.layout.display = "block" if val else "none"
+
+
+    # Bind events
+    home_button.on_click(reset)
+    back_button.on_click(pop_and_update)
+
+    main_combo.observe(main_combo_change, "value")
+    base_combo.observe(base_combo_change, "value")
+
+    main_button_switch.observe(partial(comment_visibility_switch, main_comment), "value")
+    base_button_switch.observe(partial(comment_visibility_switch, base_comment), "value")
+
+    display(VBox([
+        HBox([home_button, back_button]),
+        HBox([main_combo, main_button_switch]),
+        main_comment,
+        HBox([base_combo, base_button_switch]),
+        base_comment,
+        message,
+        table_container,
+        output]))

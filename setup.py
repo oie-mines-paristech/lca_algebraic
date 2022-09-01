@@ -52,6 +52,7 @@ setup(
     install_requires=[
         'tabulate',
         'ipywidgets',
+        'ipyevents',
         'pandas',
         'seaborn',
         'sympy',
