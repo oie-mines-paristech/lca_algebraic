@@ -178,7 +178,9 @@ class ActivityExtended(Activity):
                 if "name" in exch:
                     return name in exch['name']
                 else:
-                    return name == exch.input
+                    return False
+            else:
+                return name == exch['name']
            
         def match(exch):
             if name:
@@ -192,7 +194,9 @@ class ActivityExtended(Activity):
 
         exchs = list(exch for exch in self.exchangesNp() if match(exch))
         if len(exchs) == 0:
-            raise Exception("Found no exchange matching name : %s" % name)
+            all_names = list(ex['name'] for ex in self.exchangesNp())
+            print(type(name))
+            raise Exception("Found no exchange matching name : '%s'. List of exchanges : %s " % (name, str(all_names)))
 
         if single and len(exchs) != 1:
             raise Exception("Expected 1 exchange with name '%s' found %d" % (name, len(exchs)))
@@ -641,6 +645,8 @@ def printAct(activities, show_db=False, doDisplay=True, **params):
     if not isinstance(activities, list) :
         activities = [activities]
 
+    hasFormulas = [False] * len(activities)
+
     for iact, act in enumerate(activities):
         with DbContext(act.key[0]) :
             inputs_by_ex_name = dict()
@@ -681,11 +687,13 @@ def printAct(activities, show_db=False, doDisplay=True, **params):
                 if _isForeground(input.key[0]):
                     input_name += "{FG}"
 
+                # Do we have formulas : important for formatting
+                if isinstance(amount, Basic) :
+                    hasFormulas[iact] = True
+
                 data[ex_name] = [input_name, amount, exc.unit]
 
             # Provide impact calculation if impact provided
-
-
             for key, values in data.items():
                 df[key] = values
 
@@ -706,7 +714,7 @@ def printAct(activities, show_db=False, doDisplay=True, **params):
         iact1 = full.columns.get_loc((names[0], "input"))
         iact2 = full.columns.get_loc((names[1], "input"))
 
-        def same_amount(row):
+        def format(row):
             res = [""] * len(row)
 
             if row[iamount1] != row[iamount2]:
@@ -715,13 +723,16 @@ def printAct(activities, show_db=False, doDisplay=True, **params):
             if row[iact1] != row[iact2]:
                 res[iact1] = yellow
                 res[iact2] = yellow
+
             return res
 
-        full = full.style.format(
-            "{:.03g}",
-            subset=[
-                (names[0], "amount"),
-                (names[1], "amount")]).apply(same_amount, axis=1)
+        no_formulas_cols = [(names[iact], "amount") for iact, has_formulas in enumerate(hasFormulas) if not has_formulas]
+
+        # Float formatting for columns with float only (no formulas)
+        #full = full.style.format(
+        #    "{:.03g}",
+        #    subset=no_formulas_cols).apply(format, axis=1)
+        full = full.style.apply(format, axis=1)
 
     if doDisplay :
         display(full)

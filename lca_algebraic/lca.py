@@ -1,18 +1,19 @@
 import concurrent.futures
 from collections import OrderedDict
 from functools import partial
-from typing import Dict, List
 
-from IPython import display
+import ipysheet
+from lxml.etree import HTML
 from sympy import lambdify, simplify
 
-from .base_utils import _actName, error, _getDb, _method_unit
+from .base_utils import _actName, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
 from .helpers import *
-from .helpers import _actDesc, _isForeground
+from .helpers import _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
-from ipywidgets import HTML, Label, Button, HBox, VBox, Layout, Combobox, Output, Accordion, ToggleButton
+from ipywidgets import HTML, Button, HBox, VBox, Layout, Combobox, Output, Accordion, ToggleButton
 from ipyevents import Event
+from sympy.printing.mathml import mathml
 
 
 def _impact_labels():
@@ -90,8 +91,7 @@ def _multiLCAWithCache(acts, methods) :
 
 def _modelToExpr(
         model: ActivityExtended,
-        methods,
-        extract_activities=None) :
+        methods) :
     '''
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -101,9 +101,7 @@ def _modelToExpr(
 
     '''
     # print("computing model to expression for %s" % model)
-    expr, actBySymbolName = actToExpression(
-        model,
-        extract_activities=extract_activities)
+    expr, actBySymbolName = actToExpression(model)
 
     # Required params
     free_names = set([str(symb) for symb in expr.free_symbols])
@@ -203,7 +201,7 @@ class LambdaWithParamNames :
     def _repr_latex_(self):
         return self.expr._repr_latex_()
 
-def _preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:List[Activity]=None):
+def _modelsToLambdas(model: Union[ActivityExtended, List[ActivityExtended]], methods):
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
         You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -211,7 +209,7 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods, extract_activities:Li
         This method is used by multiLCAAlgebric
     '''
     with DbContext(model) :
-        exprs, expected_names = _modelToExpr(model, methods, extract_activities=extract_activities)
+        exprs, expected_names = _modelToExpr(model, methods)
 
         # Lambdify (compile) expressions
         return [LambdaWithParamNames(expr, expected_names) for expr in exprs]
@@ -289,7 +287,7 @@ def _filter_params(params, expected_names, model) :
                 error("Param %s not required for model %s" % (key, model))
     return res
 
-def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **params):
+def multiLCAAlgebric(models, methods, **params):
     """
     Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
     Then, compute 'static' inventory of the referenced background activities.
@@ -322,9 +320,6 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
 
     for model, alpha in models.items():
 
-        if type(model) is tuple:
-            model, alpha = model
-
         dbname = model.key[0]
         with DbContext(dbname):
 
@@ -334,7 +329,7 @@ def multiLCAAlgebric(models, methods, extract_activities:List[Activity]=None, **
                     error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
             debug("computing : ", model)
-            lambdas = _preMultiLCAAlgebric(model, methods, extract_activities=extract_activities)
+            lambdas = _modelsToLambdas(model, methods)
 
             df = _postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
@@ -390,7 +385,7 @@ def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT)
     return expr.xreplace(sub)
 
 @with_db_context(arg="act")
-def actToExpression(act: Activity, extract_activities=None):
+def actToExpression(act: Activity):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
@@ -423,7 +418,7 @@ def actToExpression(act: Activity, extract_activities=None):
 
         return act_symbols[(db_name, code)]
 
-    def rec_func(act: Activity, in_extract_path, parents=[]):
+    def rec_func(act: Activity, parents=[]):
 
         res = 0
         outputAmount = act.getOutputAmount()
@@ -448,20 +443,11 @@ def actToExpression(act: Activity, extract_activities=None):
             sub_act = _getDb(input_db).get(input_code)
 
 
-            # If list of extract activites requested, we only integrate activites below a tracked one
-            exch_in_path = in_extract_path
-            if extract_activities is not None:
-                if sub_act in extract_activities :
-                    exch_in_path = in_extract_path or (sub_act in extract_activities)
-
             # Background DB => reference it as a symbol
             if not _isForeground(input_db) :
 
-                if exch_in_path :
-                    # Add to dict of background symbols
-                    act_expr = act_to_symbol(sub_act)
-                else:
-                    continue
+                # Add to dict of background symbols
+                act_expr = act_to_symbol(sub_act)
 
             # Our model : recursively it to a symbolic expression
             else:
@@ -470,7 +456,7 @@ def actToExpression(act: Activity, extract_activities=None):
                 if sub_act in parents :
                     raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
 
-                act_expr = rec_func(sub_act, exch_in_path, parents)
+                act_expr = rec_func(sub_act, parents)
 
             avoidedBurden = 1
 
@@ -484,7 +470,7 @@ def actToExpression(act: Activity, extract_activities=None):
 
         return res / outputAmount
 
-    expr = rec_func(act, extract_activities is None)
+    expr = rec_func(act)
 
     if isinstance(expr, float) :
         expr = simplify(expr)
@@ -517,7 +503,9 @@ def _ellipsis(value, max=40) :
 def _sci_repr(float_val) :
     if isinstance(float_val, float):
         return "%02.3g" % float_val
-    else:
+    elif isinstance(float_val, Basic):
+        return HTML(mathml(float_val))
+    else :
         return float_val
 
 
@@ -527,7 +515,7 @@ def _none_float(float_val) :
 _SMALL_DIFF_COLOR = "LemonChiffon"
 _HIGH_DIFF_COLOR = "Coral"
 _RIGHT_BORDER = {'border-right-width':'2px', 'border-right-color':'black'}
-_DB_COLORS = ["lightgreen", "lightyellow", "lightsteelblue", "lightpink", "NavajoWhite", "khaki"]
+_DB_COLORS = ["lightgreen", "lightyellow", "lightsteelblue", "lightpink", "NavajoWhite", "khaki", "LightCoral"]
 
 def _db_shortname(db_name) :
     """Return 'shortname' metadata if Db has one. Otherwize, return DB name"""
@@ -544,7 +532,7 @@ def _db_idx(db) :
 def _explore_impacts(
         activities : ActivityExtended,
         method,
-        withImpactPerUnit=False,
+        default_params=True,
         diff_impact=0.1,
         act_callback=None,
         **params):
@@ -554,6 +542,13 @@ def _explore_impacts(
     Displays all exchanges of one or several activities and their impacts.
     If parameter values are provided, formulas will be evaluated accordingly.
     If two activities are provided, they will be shown side by side and compared.
+
+    :param activities: One activity, or couple of activities
+    :param method: Impact method
+    :param default_params: If true, replace params with default values in formulas
+    :param diff_impact: Min minimum impact difference to highlight, as part of total impact
+    :param act_callback: Callback when clicking on an activity link
+    :param params: Extra parameter values to replace in formulas
     """
 
     if not isinstance(activities, (list, tuple)):
@@ -576,9 +571,9 @@ def _explore_impacts(
 
             amount = ex.amount
 
-            # Params provided ? Evaluate formulas
-            if len(params) > 0 and isinstance(ex.amount, Basic):
-                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
+            # Evaluate formulas
+            if isinstance(ex.amount, Basic) and (default_params or params):
+                new_params = [(name, value) for name, value in _completeParamValues(params, setDefaults=default_params).items()]
                 amount = ex.amount.subs(new_params)
 
             ex_name = _uniq_name(ex.name, data)
@@ -605,9 +600,6 @@ def _explore_impacts(
             amount = attrs.amount
             act = inputs_by_ex_name[key]
             impact = impact_by_act[act]
-
-            if withImpactPerUnit :
-                attrs.impact_per_unit = impact
             attrs.impact = amount * impact
 
     # All exch
@@ -760,14 +752,18 @@ def _explore_impacts(
 
 
 def _acts_by_name(db_name) :
-    return {_actName(act):act for act in bw.Database(db_name)}
+    # Filter out proxy /dummy activities
+    return {_actName(act):act for act in bw.Database(db_name) if not "isProxy" in act}
 
-def explore_impacts(main_db, base_db, method):
+def explore_impacts(
+        main_db,
+        base_db,
+        method):
     """
     Interactive interface to explore activities, compare them to other activities of other DB and compare impacts
 
     :param main_db: Name of main DB
-    :param base_db: Name of base DB
+    :param base_db: Name of base DB : to search reference activities to compare to
     :param method: Method for impact calculation
     :return: Interactive widget ready to be displayed
     """
@@ -777,6 +773,7 @@ def explore_impacts(main_db, base_db, method):
 
     home_button = Button(icon="home")
     back_button = Button(icon="arrow-left")
+    save_button = Button(icon="save")
 
     output = Output()
 
@@ -786,6 +783,7 @@ def explore_impacts(main_db, base_db, method):
     # List activities by name in other DB
     main_acts_by_name = _acts_by_name(main_db)
     base_acts_by_name = _acts_by_name(base_db)
+
 
     main_combo = Combobox(
         description=_db_shortname(main_db),
@@ -833,11 +831,17 @@ def explore_impacts(main_db, base_db, method):
 
             name = _actName(act)
 
-            if act.key[0] == main_db and name in base_acts_by_name:
-                base_act = base_acts_by_name[name]
-            else:
-                base_act = None
+            # Try to find reference activity in base
+            base_act = None
+            if act.key[0] == main_db :
 
+                # The activity already references where it comes from
+                if "inherited_from" in main_act :
+                    base_act = getActByCode(*main_act["inherited_from"])
+
+                # Otherwize, try to find another activity with same name
+                elif name in base_acts_by_name:
+                    base_act = base_acts_by_name[name]
 
             update_view()
 
@@ -873,8 +877,8 @@ def explore_impacts(main_db, base_db, method):
             base_combo.value = "" if base_act is None else _actName(base_act)
 
             # Update comments
-            main_comment.value = "" if main_act is None else main_act["comment"]
-            base_comment.value = "" if base_act is None else base_act["comment"]
+            main_comment.value = "" if main_act is None else (main_act["comment"] if "comment" in main_act else "")
+            base_comment.value = "" if base_act is None else (base_act["comment"] if "comment" in base_act else "")
 
             message.value = "<h4>Computing ...</h4>"
 
@@ -904,10 +908,18 @@ def explore_impacts(main_db, base_db, method):
             val = change.new
             container.layout.display = "block" if val else "none"
 
+        def save_click(event) :
+            table = table_container.children[0]
+            df = ipysheet.to_dataframe(table)
+            filename = "out.xls"
+            df.to_excel(filename)
+            print("Saved to %s" % filename)
+
 
     # Bind events
     home_button.on_click(reset)
     back_button.on_click(pop_and_update)
+    save_button.on_click(save_click)
 
     main_combo.observe(main_combo_change, "value")
     base_combo.observe(base_combo_change, "value")
@@ -916,7 +928,7 @@ def explore_impacts(main_db, base_db, method):
     base_button_switch.observe(partial(comment_visibility_switch, base_comment), "value")
 
     display(VBox([
-        HBox([home_button, back_button]),
+        HBox([home_button, back_button, save_button]),
         HBox([main_combo, main_button_switch]),
         main_comment,
         HBox([base_combo, base_button_switch]),

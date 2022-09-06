@@ -19,7 +19,7 @@ from sympy.core.operations import AssocOp
 
 from .base_utils import _method_unit
 from .lca import *
-from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
+from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _modelsToLambdas, _postMultiLCAAlgebric
 from .params import _variable_params, _param_registry, FixedParamMode, _param_name
 
 PARALLEL=False
@@ -55,7 +55,7 @@ def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)', nam
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
-    lambdas = _preMultiLCAAlgebric(model, impacts)
+    lambdas = _modelsToLambdas(model, impacts)
 
     # Sort params by category
     sorted_params = _extract_var_params(lambdas)
@@ -197,7 +197,7 @@ def oat_dashboard_interact(model, methods, **kwparams):
     sharex: Shared X axes ? True by default
     '''
 
-    lambdas = _preMultiLCAAlgebric(model, methods)
+    lambdas = _modelsToLambdas(model, methods)
 
     def process_func(param):
         with DbContext(model):
@@ -378,7 +378,7 @@ def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     By default use all the parameters with distribution not FIXED
     '''
 
-    lambdas = _preMultiLCAAlgebric(model, methods)
+    lambdas = _modelsToLambdas(model, methods)
     var_params = _extract_var_params(lambdas)
 
     problem, _, Y = _stochastics(lambdas, methods, n, var_params)
@@ -713,7 +713,7 @@ def sobol_simplify_model(
     res = []
 
     # Generate simplified model
-    exprs, _ = _modelToExpr(model, methods)
+    lambdas = _modelsToLambdas(model, methods)
 
     for imethod, method in enumerate(methods) :
 
@@ -751,7 +751,7 @@ def sobol_simplify_model(
                 break
         print("Selected params : ", selected_params, "explains: ", sum)
 
-        expr = exprs[imethod]
+        expr = lambdas[imethod].expr
 
         # Replace extra fixed params
         extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
@@ -1063,7 +1063,7 @@ def compare_simplified(
     '''
 
     # Raw model
-    lambdas = _preMultiLCAAlgebric(model, methods)
+    lambdas = _modelsToLambdas(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
     fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))

@@ -50,6 +50,7 @@ setup(
     long_description_content_type='text/markdown',
     classifiers=[],
     install_requires=[
+        'ipysheet',
         'tabulate',
         'ipywidgets',
         'ipyevents',
