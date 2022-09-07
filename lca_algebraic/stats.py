@@ -2,9 +2,8 @@ import math
 import random
 import warnings
 from time import time
-from typing import Type, Dict, Tuple, List
+from typing import Type, List
 
-import numpy as np
 import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
@@ -12,14 +11,12 @@ from ipywidgets import interact
 from jinja2.nodes import Add
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
-from numpy import piecewise
-from sympy import Float, Number, Add, AtomicExpr, Mul, Expr, Function, Abs, Sum, Eq, Piecewise
-from sympy.core import symbol
+from sympy import Float, Number, Add, AtomicExpr, Mul, Expr, Abs, Sum, Eq, Piecewise
 from sympy.core.operations import AssocOp
 
 from .base_utils import _method_unit
 from .lca import *
-from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _modelsToLambdas, _postMultiLCAAlgebric
+from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToLambdas, _postMultiLCAAlgebric
 from .params import _variable_params, _param_registry, FixedParamMode, _param_name
 
 PARALLEL=False
@@ -55,7 +52,7 @@ def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)', nam
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
-    lambdas = _modelsToLambdas(model, impacts)
+    lambdas = _modelToLambdas(model, impacts)
 
     # Sort params by category
     sorted_params = _extract_var_params(lambdas)
@@ -197,7 +194,7 @@ def oat_dashboard_interact(model, methods, **kwparams):
     sharex: Shared X axes ? True by default
     '''
 
-    lambdas = _modelsToLambdas(model, methods)
+    lambdas = _modelToLambdas(model, methods)
 
     def process_func(param):
         with DbContext(model):
@@ -378,7 +375,7 @@ def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     By default use all the parameters with distribution not FIXED
     '''
 
-    lambdas = _modelsToLambdas(model, methods)
+    lambdas = _modelToLambdas(model, methods)
     var_params = _extract_var_params(lambdas)
 
     problem, _, Y = _stochastics(lambdas, methods, n, var_params)
@@ -713,7 +710,7 @@ def sobol_simplify_model(
     res = []
 
     # Generate simplified model
-    lambdas = _modelsToLambdas(model, methods)
+    lambdas = _modelToLambdas(model, methods)
 
     for imethod, method in enumerate(methods) :
 
@@ -1063,7 +1060,7 @@ def compare_simplified(
     '''
 
     # Raw model
-    lambdas = _modelsToLambdas(model, methods)
+    lambdas = _modelToLambdas(model, methods)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
     fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))

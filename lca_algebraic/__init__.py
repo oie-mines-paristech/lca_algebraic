@@ -9,6 +9,7 @@ from .lca import *
 from .stats import *
 from .params import *
 from .io import *
+from .explore import *
 
 def deleteDb(db_name) :
     del bw.databases[db_name]
