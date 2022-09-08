@@ -29,7 +29,12 @@ def init_acts(db) :
 
 
 def init_methods(db, prefix) :
-    "Create impact methods for bio activities"
+    """
+    Create impact methods for bio activities.
+    Named
+        (<prefix>, bio<i>, total)  and
+        (<prefix>, all, <total>) : numeric mask
+    """
     res = []
 
     # One for each bio act

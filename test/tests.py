@@ -1,10 +1,9 @@
 import os
 import sys
-from os.path import basename, dirname
 from tempfile import mkstemp
 
 import pytest
-from bw2io import BW2Package
+from pandas import DataFrame
 
 from lca_algebraic.helpers import _isForeground
 from lca_algebraic.lca import _clearLCACache
@@ -96,6 +95,62 @@ def test_export():
 
     assert res.values[0] == 7.0
 
+def test_output_df_lca() :
+    """Tests the dataframe formatting of multiLCA"""
+    df = multiLCAAlgebric(
+        [bio1, bio2, bio3], # models
+        [ibio1, ibio2]) # methods
+
+    data = df.to_dict("index")
+
+    assert data == {
+        "bio1" : {"bio1 - total[MJ-Eq]": 1.0, "bio2 - total[MJ-Eq]": 0.0},
+        "bio2" : {"bio1 - total[MJ-Eq]": 0.0, "bio2 - total[MJ-Eq]": 1.0},
+        "bio3" : {"bio1 - total[MJ-Eq]": 0.0, "bio2 - total[MJ-Eq]": 0.0}}
+
+def test_output_df_lca_multi_params() :
+    """Tests the dataframe formatting of multiLCA"""
+
+    p1 = newFloatParam('p1', default=0, min=0.0, max=3.0)
+
+    act1 = newActivity(USER_DB, "act1", "unit", {
+        bio1: 2 * p1,
+    })
+
+    df = multiLCAAlgebric(
+        [act1], # models
+        [ibio1], # Methods
+        p1=[1, 2, 3]) # Param (list of values)
+
+    data = df.to_dict("index")
+
+    assert data == {
+        0: {'bio1 - total[MJ-Eq]': 2.0},
+        1: {'bio1 - total[MJ-Eq]': 4.0},
+        2: {'bio1 - total[MJ-Eq]': 6.0}}
+
+def test_output_df_lca_multi_params_several_acts() :
+    """Tests the dataframe formatting of multiLCA"""
+
+    p1 = newFloatParam('p1', default=0, min=0.0, max=3.0)
+
+    act1 = newActivity(USER_DB, "act1", "unit", {
+        bio1: 2 * p1,
+    })
+
+    df = multiLCAAlgebric(
+        [act1], # models
+        [ibio1, ibio2], # Methods
+        p1=[1, 2, 3]) # Param (list of values)
+
+    data = df.to_dict("index")
+
+    assert data == {
+        0: {'bio1 - total[MJ-Eq]': 2.0, 'bio2 - total[MJ-Eq]': 0.0},
+        1: {'bio1 - total[MJ-Eq]': 4.0, 'bio2 - total[MJ-Eq]': 0.0},
+        2: {'bio1 - total[MJ-Eq]': 6.0, 'bio2 - total[MJ-Eq]': 0.0}}
+
+
 
 def test_switch_activity_support_sevral_times_same_target() :
     """ Test that switch activity can target the same activity several times """
@@ -178,8 +233,6 @@ def test_freeze() :
             # p2=2 * 3
             assert amount == 6.0
 
-
-
 def test_enum_values_are_enforced():
 
     # Enum param
@@ -189,10 +242,8 @@ def test_enum_values_are_enforced():
 
     act = newActivity(USER_DB, "Foo", "unit")
 
-    climate = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)][1]
-
     with pytest.raises(Exception) as exc:
-        multiLCAAlgebric(act, climate, p1="bar")
+        multiLCAAlgebric(act, ibio1, p1="bar")
 
     assert 'Invalid value' in str(exc)
 

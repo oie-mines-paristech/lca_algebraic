@@ -32,8 +32,8 @@ UNCERTAINTY_TYPE = "uncertainty type"
 
 class DbContext :
     """
-        Context class specifying the current foreground DB in use. in internal
-        Used internally to distinguish database parameters with same names
+        Context class specifying the current foreground DB in use.
+        Used internally to distinguish database parameters with similar names
 
         usage :
         with DbContext("db") :
