@@ -1,3 +1,7 @@
+# 1.0.5 
+
+Fix bug in ActivityExtended#getExchanges introduced by merge #14
+
 # 1.0.4 
 
 Fix typo in helpers

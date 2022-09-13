@@ -117,6 +117,9 @@ def with_db_context(func=None, arg="self"):
     return wrapper
 
 
+def _exch_name(exch):
+    return exch['name'] if 'name' in exch else str(exch.input)
+
 class ActivityExtended(Activity):
     """Improved API for activity : adding a few useful methods.
     Those methods are backported to #Activity in order to be directly available on all existing instances
@@ -172,11 +175,11 @@ class ActivityExtended(Activity):
 
             if '*' in name:
                 name = name.replace('*', '')
-                if "name" in exch:
-                    return name in exch['name']
-                else:
-                    return name == exch.input
-           
+                return name in  _exch_name(exch)
+            else:
+                return name == _exch_name(exch)
+
+
         def match(exch):
             if name:
                 if isinstance(name, list):
@@ -656,11 +659,8 @@ def printAct(*args, impact=None, **params):
                 if len(params) > 0 and isinstance(amount, Basic):
                     new_params = [(name, value) for name, value in _completeParamValues(params).items()]
                     amount = amount.subs(new_params)
-                if "name" in exc :
-                    ex_name = exc['name']
-                else: 
-                    ex_name=str(exc.input)
-                    
+
+                ex_name = _exch_name(exc)
                 #if 'location' in input and input['location'] != "GLO":
                 #    name += "#%s" % input['location']
                 #if exc.input.key[0] not in [BIOSPHERE3_DB_NAME, ECOINVENT_DB_NAME()]:
