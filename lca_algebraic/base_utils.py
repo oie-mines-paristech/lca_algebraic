@@ -10,6 +10,7 @@ from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets
 from IPython.core.display import display
 import numpy as np
+import os
 
 DEBUG=False
 LANG="fr"
@@ -145,3 +146,8 @@ class  ExceptionContext(AbstractContextManager) :
 
 def _snake2camel(val):
     return ''.join(word.title() for word in val.split('_'))
+
+
+def eprint(msg) :
+    """Print directly to os, bypassing jupyter"""
+    os.write(2, (msg+"\n").encode())

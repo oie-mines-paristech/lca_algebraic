@@ -2,7 +2,6 @@ import os, sys
 from setuptools import setup
 import subprocess
 from datetime import datetime
-import time
 
 # Utility function to read the README file.
 # Used for the long_description.  It's nice, because now 1) we have a top level
@@ -50,9 +49,10 @@ setup(
     long_description_content_type='text/markdown',
     classifiers=[],
     install_requires=[
-        'ipysheet',
         'tabulate',
         'ipywidgets',
+        'ipytree',
+        'ipysheet',
         'ipyevents',
         'pandas',
         'seaborn',

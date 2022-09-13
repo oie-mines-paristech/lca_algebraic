@@ -251,7 +251,11 @@ def _applyParams(lambd, params) :
         return either a single value of numpy vector
     """
     completed_params = lambd.complete_params(params)
-    return lambd.compute(**completed_params)
+    res =  lambd.compute(**completed_params)
+    if isinstance(res, (list, np.ndarray)) and len(res) == 1:
+        return res[0]
+    return res
+
 
 def _postMultiLCAAlgebric(methods, lambdas, **params):
     '''
@@ -305,7 +309,11 @@ def _filter_params(params, expected_names, model) :
                 error("Param %s not required for model %s" % (key, model))
     return res
 
-def multiLCAAlgebric(models, methods, **params):
+def multiLCAAlgebric(
+        models,
+        methods,
+        raw=False, # If raw if true, returns dict of [(model, method)] -> value(s). Otherwize, returns Dataframe
+        **params):
     """
     Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
     Then, compute 'static' inventory of the referenced background activities.
@@ -381,15 +389,21 @@ def multiLCAAlgebric(models, methods, **params):
                 lambd = lambdas_per_model_method[(model, method)]
                 values = _applyParams(lambd, params) * alpha
 
-                col = method_n if col_axe == "methods" else model_n
-
-                if row_axe == "params" :
-                    res[col] = values
+                if raw :
+                    res[(model, method)] = values
                 else:
-                    row = method_n if row_axe == "methods" else model_n
-                    res[col][row] = values
+                    col = method_n if col_axe == "methods" else model_n
 
-    return DataFrame.from_dict(res)
+                    if row_axe == "params" :
+                        res[col] = values
+                    else:
+                        row = method_n if row_axe == "methods" else model_n
+                        res[col][row] = values
+
+    if raw :
+        return res
+    else:
+        DataFrame.from_dict(res)
 
 
 def _createTechProxyForBio(act_key, target_db):

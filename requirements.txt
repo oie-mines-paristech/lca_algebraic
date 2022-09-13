@@ -15,3 +15,5 @@ SALib
 ipysheet
 ipyevents
 ipysheet
+ipytree
+XlsxWriter

@@ -137,7 +137,11 @@ class ActivityExtended(Activity):
 
             input = bw.get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
-            res.append(SimpleNamespace(name=exc["name"], input=input, amount=amount, unit=exc["unit"]))
+            res.append(SimpleNamespace(
+                name=exc["name"],
+                input=input,
+                amount=amount,
+                unit=exc["unit"]))
         return res
 
     @with_db_context
