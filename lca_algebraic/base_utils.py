@@ -151,3 +151,15 @@ def _snake2camel(val):
 def eprint(msg) :
     """Print directly to os, bypassing jupyter"""
     os.write(2, (msg+"\n").encode())
+
+
+
+def with_output(out):
+    """Decorator for wrapping any output. Useful for callback function to print errors """
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            with out:
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator

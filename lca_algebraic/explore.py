@@ -16,17 +16,21 @@ from sympy import Basic
 from werkzeug.utils import secure_filename
 
 from lca_algebraic import ActivityExtended, multiLCAAlgebric, getActByCode, method_name
-from lca_algebraic.base_utils import _actName, eprint
+from lca_algebraic.base_utils import _actName, with_output
 from lca_algebraic.lca import _createTechProxyForBio
 from lca_algebraic.params import _completeParamValues
 from lca_algebraic.stats import _round_expr
 from ipytree import Tree, Node
 
-def _uniq_name(name, names) :
+def _uniq_ex_name(ex, names) :
     i = 1
-    res = name
+    res = ex.name
+
+    if res in names and "location" in ex.input:
+        res += "#" + ex.input["location"]
+
     while res in names:
-        res = "%s#%d" % (name, i)
+        res = "%s#%d" % (ex.name, i)
         i += 1
     return res
 
@@ -101,8 +105,8 @@ def act_tree(db_name) :
             if input.key[0] != db_name or "isProxy" in act :
                 continue
 
-            if input is nodes_dict :
-                continue
+            #if input is nodes_dict :
+            #    continue
 
             child_node = nodes_dict[input]
             child_node.parent = parent_node
@@ -207,7 +211,7 @@ def compare_impacts(
                 new_params = [(name, value) for name, value in _completeParamValues(params, setDefaults=default_params).items()]
                 amount = ex.amount.subs(new_params)
 
-            ex_name = _uniq_name(ex.name, data)
+            ex_name = _uniq_ex_name(ex, data)
             inputs_by_ex_name[ex_name] = _createTechProxyForBio(ex.input.key, main_act.key[0])
 
             # Save data for this exchange
@@ -374,6 +378,39 @@ def output_sheet(
         draw_col(0, "amount", iact, act.getOutputAmount(), _LIGHT_GREEN)
         draw_col(0, "input", iact, _actName(act), _LIGHT_GREEN)
 
+    def transform_input(attrs) :
+        """Return the raw value (for comparison) + cell value"""
+
+        if attrs.input == "_":
+            return ("-", "-")
+        else:
+
+            if out_format == SheetFormat.NOTEBOOK:
+
+                input_name = "<a href='#'>%s</a>" % attrs.input
+                loc_html = "<span class='loc'> %s </span>" % attrs.loc
+                db_html = "&nbsp;<span class='db%d'> %s </span>" % (_db_idx(attrs.db), _db_shortname(attrs.db))
+                html = input_name + "<br/>" + loc_html + db_html
+
+                cell_value = HTML(html)
+
+                # Link the callback to click on it
+                if act_callback is not None:
+                    sub_act = getActByCode(attrs.db, attrs.code)
+
+                    def cb(sub_act, event):
+                        act_callback(sub_act)
+
+                    event = Event(source=cell_value, watched_events=['click'])
+                    event.on_dom_event(partial(cb, sub_act))
+
+                return (html, cell_value)
+
+            else:  # to Excel : text only
+                sub_act = getActByCode(attrs.db, attrs.code)
+                name = _actName(sub_act) + " @" + _db_shortname(attrs.db)
+                return (name, name)
+
     # Loop on exchanges
     for i_ex, ex_name in enumerate(all_ex_names):
 
@@ -406,57 +443,26 @@ def output_sheet(
                     draw_unit(row, attrs.unit)
 
                 # Switch on column type
-                if column == "input":  # Input activity
+                if column == "input" :
 
-                    if attrs.input == "_":
-                        input = "-"
-                        values.append(input)
-                    else:
-
-                        if out_format == SheetFormat.NOTEBOOK :
-
-                            input_name = "<a href='#'>%s</a>" % attrs.input
-                            loc_html = "<span class='loc'> %s </span>" % attrs.loc
-                            db_html = "&nbsp;<span class='db%d'> %s </span>" % (_db_idx(attrs.db), _db_shortname(attrs.db))
-                            html = input_name + "<br/>" + loc_html + db_html
-
-                            values.append(html)
-
-                            input = HTML(html)
-
-                        else : # to Excel : text only
-                            sub_act = getActByCode(attrs.db, attrs.code)
-                            input = _actName(sub_act) + " #" + _db_shortname(attrs.db)
-                            values.append(input)
-                            cells.append(input)
-
-
-                        # Link the callback to click on it
-                        if act_callback is not None:
-                            sub_act = getActByCode(attrs.db, attrs.code)
-
-                            def cb(sub_act, event):
-                                act_callback(sub_act)
-
-                            event = Event(source=input, watched_events=['click'])
-                            event.on_dom_event(partial(cb, sub_act))
-
-                    cells.append(input)
+                    value, cell = transform_input(attrs)
 
                 elif column == "amount":  # Amount and formula
 
-                    values.append(attrs.amount)
+                    value = attrs.amount
+                    cell = attrs.amount
 
-                    amount_repr = attrs.amount
                     if attrs.formula and out_format == SheetFormat.NOTEBOOK :
-                        amount_repr = HTML("<abbr title='%s'><b>%s</b></abbr>" % (str(attrs.formula), _sci_repr(attrs.amount)))
-
-                    cells.append(amount_repr)
+                        cell = HTML("<abbr title='%s'><b>%s</b></abbr>" % (str(attrs.formula), _sci_repr(attrs.amount)))
 
                 else: # Impact
 
-                    values.append(attrs.impact)
-                    cells.append(attrs.impact)
+                    value = attrs.impact
+                    cell = attrs.impact
+
+                # Append both value and cell value for both activities
+                values.append(value)
+                cells.append(cell)
 
             # Colorize background according to Diff
             color = None
@@ -493,7 +499,7 @@ def output_sheet(
             }""" % (i, color) for i, color in enumerate(_DB_COLORS))
         style = HTML("""<style>%s</style>""" % style)
         display(style)
-        return sheet
+        return VBox([style, sheet])
 
     else :
         workbook.close()
@@ -533,23 +539,23 @@ def explore_impacts(
     main_act = None
     base_act = None
     current_data = None
+    tree = None
 
     # List activities by name in other DB
     main_acts_by_name = _acts_by_name(main_db)
     base_acts_by_name = _acts_by_name(base_db)
 
-
     main_combo = Combobox(
         description=_db_shortname(main_db),
         layout=widgets.Layout(width='700px'),
-        options=list(main_acts_by_name.keys()),
+        options=sorted(main_acts_by_name.keys()),
         placeholder="Select activity",
         ensure_option=True)
 
     base_combo = Combobox(
         description=_db_shortname(base_db),
         layout=widgets.Layout(width='700px'),
-        options=list(base_acts_by_name.keys()),
+        options=sorted(base_acts_by_name.keys()),
         placeholder="Select activity",
         ensure_options=True)
 
@@ -567,123 +573,141 @@ def explore_impacts(
         icon="chevron-down",
         description="Comment")
 
-    with output :
+    @with_output(output)
+    def update_main(act) :
+        """Update main activity. Try to update base activity with same name"""
 
-        def update_main(act) :
-            """Update main activity. Try to update base activity with same name"""
+        nonlocal main_act, base_act
 
-            nonlocal main_act, base_act
+        if main_act == act :
+            return
 
-            if main_act == act :
-                return
-
-            if main_act is not None or base_act is not None :
-                history.append((main_act, base_act))
-
-            main_act = act
-
-
-            name = _actName(act)
-
-            # Try to find reference activity in base
-            base_act = None
-            if act.key[0] == main_db :
-
-                # The activity already references where it comes from
-                if "inherited_from" in main_act :
-                    base_act = getActByCode(*main_act["inherited_from"])
-
-                # Otherwize, try to find another activity with same name
-                elif name in base_acts_by_name:
-                    base_act = base_acts_by_name[name]
-
-            update_view()
-
-        def update_base(act) :
-
-            nonlocal base_act
-
-            if base_act == act:
-                return
-
-            base_act = act
-
+        if main_act is not None or base_act is not None :
             history.append((main_act, base_act))
+
+        main_act = act
+
+
+        name = _actName(act)
+
+        # Try to find reference activity in base
+        base_act = None
+        if act.key[0] == main_db :
+
+            # The activity already references where it comes from
+            if "inherited_from" in main_act :
+                base_act = getActByCode(*main_act["inherited_from"])
+
+            # Otherwize, try to find another activity with same name
+            elif name in base_acts_by_name:
+                base_act = base_acts_by_name[name]
+
+        update_view()
+
+    @with_output(output)
+    def update_base(act) :
+
+        nonlocal base_act
+
+        if base_act == act:
+            return
+
+        base_act = act
+
+        history.append((main_act, base_act))
+        update_view()
+
+    @with_output(output)
+    def pop_and_update(event) :
+        nonlocal main_act, base_act
+        if len(history) > 0 :
+            main_act, base_act = history.pop()
             update_view()
 
-        def pop_and_update(event) :
-            nonlocal main_act, base_act
-            if len(history) > 0 :
-                main_act, base_act = history.pop()
-                update_view()
+    @with_output(output)
+    def reset(event) :
+        nonlocal main_act, base_act
+        if len(history) > 0 :
+            main_act, base_act = history[0]
+            history.clear()
+            update_view()
 
-        def reset(event) :
-            nonlocal main_act, base_act
-            if len(history) > 0 :
-                main_act, base_act = history[0]
-                history.clear()
-                update_view()
+    @with_output(output)
+    def update_view():
+        nonlocal current_data
 
-        def update_view():
-            nonlocal current_data
+        # Update names in combo
+        main_combo.value = "" if main_act is None else _actName(main_act)
+        base_combo.value = "" if base_act is None else _actName(base_act)
 
-            # Update names in combo
-            main_combo.value = "" if main_act is None else _actName(main_act)
-            base_combo.value = "" if base_act is None else _actName(base_act)
+        # Update comments
+        main_comment.value = "" if main_act is None else (main_act["comment"] if "comment" in main_act else "")
+        base_comment.value = "" if base_act is None else (base_act["comment"] if "comment" in base_act else "")
 
-            # Update comments
-            main_comment.value = "" if main_act is None else (main_act["comment"] if "comment" in main_act else "")
-            base_comment.value = "" if base_act is None else (base_act["comment"] if "comment" in base_act else "")
+        message.value = "<h4>Computing ...</h4>"
 
-            message.value = "<h4>Computing ...</h4>"
+        try:
+            acts = main_act if base_act is None else [main_act, base_act]
 
-            try:
-                acts = main_act if base_act is None else [main_act, base_act]
+            # Prepare data for both notebook and excel output
+            current_data = compare_impacts(acts, method, return_data=True)
+            table = output_sheet(acts, current_data, act_callback=update_main, out_format=SheetFormat.NOTEBOOK)
+            table_container.children = [table]
 
-                # Prepare data for both notebook and excel output
-                current_data = compare_impacts(acts, method, return_data=True)
-                table = output_sheet(acts, current_data, act_callback=update_main, out_format=SheetFormat.NOTEBOOK)
-                table_container.children = [table]
+        finally:
+            message.value = ""
 
-            finally:
-                message.value = ""
+    @with_output(output)
+    def main_combo_change(change):
+        val = change.new
+        if not val in main_acts_by_name :
+            return
+        act = main_acts_by_name[val]
+        update_main(act)
 
-        def main_combo_change(change):
-            val = change.new
-            if not val in main_acts_by_name :
-                return
-            act = main_acts_by_name[val]
-            update_main(act)
+    @with_output(output)
+    def base_combo_change(change):
+        val = change.new
+        if not val in base_acts_by_name :
+            return
+        act = base_acts_by_name[val]
+        update_base(act)
 
-        def base_combo_change(change):
-            val = change.new
-            if not val in base_acts_by_name :
-                return
-            act = base_acts_by_name[val]
-            update_base(act)
+    @with_output(output)
+    def comment_visibility_switch(container, change) :
+        val = change.new
+        container.layout.display = "block" if val else "none"
 
-        def comment_visibility_switch(container, change) :
-            val = change.new
-            container.layout.display = "block" if val else "none"
+    @with_output(output)
+    def save_click(event) :
+        acts = [main_act] if base_act is None else [main_act, base_act]
 
-        def save_click(event) :
-            acts = [main_act] if base_act is None else [main_act, base_act]
+        filename = "_".join(set(_actName(act) for act in acts))
+        filename += "-" + "_".join(_db_shortname(act.key[0]) for act in acts)
+        filename += "_" + method_name(method)
 
-            filename = "_".join(set(_actName(act) for act in acts))
-            filename += "-" + "_".join(_db_shortname(act.key[0]) for act in acts)
-            filename += "_" + method_name(method)
+        filename = secure_filename(filename) + ".xlsx"
 
-            filename = secure_filename(filename) + ".xlsx"
+        output_sheet(acts, current_data, out_format=SheetFormat.EXCEL, xls_filename=filename)
 
-            output_sheet(acts, current_data, out_format=SheetFormat.EXCEL, xls_filename=filename)
+        message.value = "Saved to %s" % filename
 
-            message.value = "Saved to %s" % filename
+    @with_output(output)
+    def tree_click(event):
 
-        def tree_click(event):
+        nonlocal tree
 
-            # Draw tree
-            tree = show_tree(main_db, update_main)
+        if len(tree_container.children) == 0 :
+
+            if tree is None:
+                # Draw tree
+                tree = show_tree(main_db, update_main)
             tree_container.children = [tree]
+
+        if tree.layout.display != "block" :
+            tree.layout.display = "block"
+        else:
+            tree.layout.display = "none"
 
 
     # Bind events
