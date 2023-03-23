@@ -403,7 +403,7 @@ def multiLCAAlgebric(
     if raw :
         return res
     else:
-        DataFrame.from_dict(res)
+        return DataFrame.from_dict(res)
 
 
 def _createTechProxyForBio(act_key, target_db):
