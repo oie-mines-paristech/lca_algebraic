@@ -23,9 +23,9 @@ curr_branch = curr_branch.replace(" ", "").replace("*", "")
 version = read("VERSION")
 name = "lca_algebraic"
 
-if curr_branch == "dev" :
+if curr_branch != "master" :
 
-    name += "_dev"
+    #name += "_" + curr_branch
 
     #commit = run(["git", "log"])[0].split()[1][0:8]
 
@@ -34,7 +34,7 @@ if curr_branch == "dev" :
 
     min_diff = int((now-start).total_seconds() // 60)
 
-    version += "." + str(min_diff) + "-dev"
+    version += "." + str(min_diff) + "_" + curr_branch
 
 setup(
     name = name,

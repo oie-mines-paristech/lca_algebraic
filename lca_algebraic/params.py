@@ -15,7 +15,7 @@ from bw2data.parameters import ActivityParameter, ProjectParameter, DatabasePara
 from bw2data.proxies import ActivityProxyBase
 from lca_algebraic.base_utils import ExceptionContext
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
-from sympy import Symbol, Basic
+from sympy import Symbol, Basic, Expr
 from tabulate import tabulate
 
 from .base_utils import _snake2camel
@@ -856,15 +856,15 @@ def freezeParams(db_name, **params) :
                 amount = _getAmountOrFormula(exc)
 
                 # Amount is a formula ?
-                if isinstance(amount, Basic):
+                if isinstance(amount, Expr):
 
-                    replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
-                    val = amount.subs(replace).evalf()
+                    replace = {name: value for name, value in _completeParamValues(params, setDefaults=True).items()}
+                    val = amount.evalf(subs=replace)
 
                     with ExceptionContext(val) :
                         val = float(val)
 
-                    print("Freezing %s // %s : %s => %d" % (act, exc['name'], amount, val))
+                    print("Freezing %s // %s : %s => %0.2f" % (act, exc['name'], amount, val))
 
                     # Update in DB
                     exc["amount"] = val

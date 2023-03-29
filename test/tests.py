@@ -1,19 +1,18 @@
 import os
 import sys
-from os.path import basename, dirname
 from tempfile import mkstemp
 
+import numpy as np
 import pytest
-from bw2io import BW2Package
+from numpy.testing import assert_array_equal
 
+from lca_algebraic.globs import _clearLCACache
 from lca_algebraic.helpers import _isForeground
-from lca_algebraic.lca import _clearLCACache
 from lca_algebraic.params import _param_registry
 
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
-from lca_algebraic import *
 from fixtures import *
 
 USER_DB = "fg"
@@ -21,7 +20,7 @@ BG_DB= "bg"
 METHOD_PREFIX='tests'
 
 # Reset func project, empty DB
-initDb('tests')
+initProject('tests')
 
 # Create 3 bio activities
 bio1, bio2, bio3 = init_acts(BG_DB)
@@ -315,6 +314,53 @@ def test_db_params_lca() :
     # Overriding p1 for m2
     res = multiLCAAlgebric(m2, [ibio1], p1=4)
     assert res.values[0] == 8.0
+
+
+def test_interpolation() :
+
+    # Common helper to check results
+    def check_impacts(model, p_values, expected_results):
+        # Compute impacts for several values of p
+        impacts = multiLCAAlgebric(model, [ibio1], p=p_values)
+
+        values = impacts[impacts.columns[0]]
+        assert_array_equal(values, expected_results)
+
+    # Define param
+    p = newFloatParam("p", 1.0, min=1, max=3)
+
+    # Create act1 act2 and act4 having respectively 1, 2 and 4 units of bio1
+    act1, act2, act4 = [
+        newActivity(
+            USER_DB, "act%d" % v, "unit",
+            {bio1:v})
+        for v in [1.0, 2.0, 4.0]]
+
+    # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
+    interp1 = interpolate_activities(
+        USER_DB, "interp1",
+        p,
+        {1.0 : act1,
+        3.0 : act2})
+
+    check_impacts(
+        interp1,
+        [0.0, 1.0, 2.0, 3.0, 5.0],
+        [0.5, 1.0, 1.5, 2.0, 3.0])
+
+    # Interpolate including zero
+    interp_with_zero = interpolate_activities(
+        USER_DB, "interp_w_zero",
+        p,
+        {1.0: act1,
+        3.0: act2},
+        add_zero=True)
+
+    check_impacts(
+        interp_with_zero,
+        [0.0, 0.5, 1.0, 3.0],
+        [0.0, 0.5, 1.0, 2.0])
+
 
 def test_should_list_params_with_mixed_groups() :
     """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13 """

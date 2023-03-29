@@ -145,3 +145,69 @@ class  ExceptionContext(AbstractContextManager) :
 
 def _snake2camel(val):
     return ''.join(word.title() for word in val.split('_'))
+
+
+class SymDict :
+    """ This class acts like a dict with arithmetic operations. It is useful to process 'axes' LCA computations """
+
+    def __init__(self, values) :
+        self.dict = values
+
+    def _apply_op(self, other, fop, null_val):
+
+        # None is the key for non flagged values
+        if not isinstance(other, SymDict) :
+            dic = dict()
+            dic[None] = other
+            other = SymDict(dic)
+
+        all_keys = set(other.dict.keys()) | set(self.dict.keys())
+        return SymDict({
+            key: fop(
+                self.dict.get(key, null_val),
+                other.dict.get(key, null_val)) for key in all_keys
+        })
+
+    def _apply_self(self, fop):
+        return SymDict({key: fop(val) for key, val in self.dict.items()})
+
+    def __add__(self, other):
+        return self._apply_op(other, lambda a, b: a + b, 0)
+
+    def __radd__(self, other):
+        return self._apply_op(other, lambda a, b: b + a, 0)
+
+    def __mul__(self, other):
+        return self._apply_self(lambda a : a*other)
+
+    def __rmul__(self, other):
+        return self._apply_self(lambda a : other*a)
+
+    def __truediv__(self, other):
+        return self._apply_self(lambda a: a / other)
+
+    def __rtruediv__(self, other):
+        return NotImplemented
+
+    def __repr__(self):
+        return "{" + \
+            "; ".join("%s: %s" % (key, str(val)) for key, val in self.dict.items()) + \
+        "}"
+
+    def _defer(self, funcname, args, kwargs):
+
+        return SymDict({
+            key: val if not hasattr(val, funcname) else getattr(val, funcname)(*args, **kwargs)
+            for key, val in self.dict.items()
+        })
+
+    def xreplace(self, *args, **kwargs):
+        return self._defer("xreplace", args, kwargs)
+
+    @property
+    def free_symbols(self):
+        res = set()
+        for key, val in self.dict.items() :
+            if hasattr(val, "free_symbols") :
+                res |= val.free_symbols
+        return list(res)
