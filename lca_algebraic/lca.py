@@ -407,6 +407,7 @@ def multiLCAAlgebric(
             if axis :
                 df[axis] = lambdas[0].axis_keys
                 df = df.set_index(axis)
+                df.index.set_names([axis])
 
             elif len(list_params) > 0:
                 for k, vals in list_params.items():

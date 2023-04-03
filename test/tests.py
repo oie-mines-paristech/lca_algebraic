@@ -363,6 +363,38 @@ def test_interpolation() :
         [0.0, 0.5, 1.0, 2.0])
 
 
+def test_axis() :
+
+    act1_phase_a = newActivity(
+        USER_DB, "act1", "unit",
+        {bio1: 1.0}, phase="a")
+    act2_phase_b = newActivity(
+        USER_DB, "act2", "unit",
+        {bio1: 2.0}, phase="b")
+    act3_no_phase = newActivity(
+        USER_DB, "act3", "unit",
+        {bio1: 3.0})
+
+    model  = newActivity(
+        USER_DB, "model", "unit",
+        {
+            act1_phase_a: 1,
+            act2_phase_b: 1,
+            act3_no_phase: 1,
+         })
+
+    res = multiLCAAlgebric(
+        model, [ibio1],
+        axis="phase")
+
+    res = {key:val for key, val in zip(res.index.values, res[res.columns[0]].values)}
+
+    expected = dict(a=1.0, b=2.0)
+    expected[None] = 3.0
+
+    assert res == expected
+
+
 def test_should_list_params_with_mixed_groups() :
     """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13 """
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
