@@ -329,16 +329,17 @@ def test_interpolation() :
     # Define param
     p = newFloatParam("p", 1.0, min=1, max=3)
 
-    # Create act1 act2 and act4 having respectively 1, 2 and 4 units of bio1
-    act1, act2, act4 = [
+    # Create act1 act2 and act4 having respectively 1.0, 2.0 units of bio1
+    act1, act2 = [
         newActivity(
             USER_DB, "act%d" % v, "unit",
             {bio1:v})
-        for v in [1.0, 2.0, 4.0]]
+        for v in [1.0, 2.0]]
 
     # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
     interp1 = interpolate_activities(
-        USER_DB, "interp1",
+        USER_DB,
+        "interp1",
         p,
         {1.0 : act1,
         3.0 : act2})

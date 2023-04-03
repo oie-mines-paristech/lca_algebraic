@@ -1,6 +1,8 @@
 # 1.0.5 
 
 Fix bug in ActivityExtended#getExchanges introduced by merge #14
+* Added linear interpolation between activities with function `interpolate_activities`
+* Added breakdown of impacts by arbitrary attribute with the parameter `axis` of `multiLCAAlgebraic` 
 
 # 1.0.4 
 
