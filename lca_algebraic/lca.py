@@ -222,9 +222,15 @@ class LambdaWithParamNames :
         return self.lambd(**params)
 
     def serialize(self) :
+
+        if isinstance(self.expr, SymDict) :
+            expr = {key: str(sym) for key, sym in self.expr.dict.items()}
+        else:
+            expr = str(self.expr)
+
         return dict(
             params=self.params,
-            expr=str(self.expr),
+            expr=expr,
             sobols=self.sobols)
 
     def __repr__(self):
@@ -417,9 +423,6 @@ def multiLCAAlgebric(
             else :
                 # Single output ? => give the single row the name of the model activity
                 df = df.rename(index={0: model_name})
-
-
-
 
             dfs[model_name] = df
 

@@ -602,8 +602,6 @@ def interpolate_activities(
     sorted_points = sorted(act_per_value.items(), key=lambda item : item[0])
     for i, (curr_val, curr_act) in enumerate(sorted_points) :
 
-
-
         if i >= len(sorted_points) -1:
             continue
 

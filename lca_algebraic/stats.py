@@ -9,7 +9,6 @@ import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
-from jinja2.nodes import Add
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from numpy import piecewise
@@ -546,6 +545,7 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwpara
 
 def _round_expr(expr, num_digits):
     ''' Round all number in sympy expression with n digits'''
+
     return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
 
 def _snake2camel(val) :

@@ -387,7 +387,9 @@ def test_axis() :
         model, [ibio1],
         axis="phase")
 
-    res = {key:val for key, val in zip(res.index.values, res[res.columns[0]].values)}
+    res = {key:val for key, val in zip(
+        res.index.values,
+        res[res.columns[0]].values)}
 
     expected = dict(a=1.0, b=2.0)
     expected[None] = 3.0

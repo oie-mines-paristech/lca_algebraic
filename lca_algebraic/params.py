@@ -742,7 +742,7 @@ ParamValue = Union[float, str]
 ParamValues = Union[List[ParamValue],  ParamValue]
 
 
-def _param_registry() -> Dict[str, ParamDef] :
+def _param_registry() -> ParamRegistry :
     # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:
         builtins.param_registry = ParamRegistry()
