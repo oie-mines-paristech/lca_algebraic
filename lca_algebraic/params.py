@@ -152,13 +152,13 @@ class ParamDef(Symbol):
     while keeping it as a symbolic expression (delayed evaluation).
     '''
 
-    def __new__(cls, name, *karg, **kargs):
+    def __new__(cls, name, *args, **kwargs):
         # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
-        assumptions = dict()
-        if 'dbname' in kargs and kargs['dbname'] :
-            assumptions[kargs['dbname']] = True
+        if 'dbname' in kwargs and kwargs['dbname'] :
+            kwargs[kwargs['dbname']] = True
+            del kwargs['dbname']
 
-        return Symbol.__new__(cls, name, **assumptions)
+        return Symbol.__new__(cls, name, **kwargs)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
                  group=None, distrib:DistributionType=None, dbname=None, **kwargs):
