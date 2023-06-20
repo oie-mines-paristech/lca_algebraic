@@ -98,7 +98,8 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """ Return either a fixed float value or an expression for the amount of this exchange"""
     if 'formula' in ex:
         try:
-            return parse_expr(ex['formula'])
+            local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+            return parse_expr(ex['formula'], local_dict=local_dict)
         except:
             error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
 
