@@ -4,6 +4,7 @@ from typing import Tuple, Dict
 
 from pandas import DataFrame
 from sympy import lambdify, simplify, Function
+from sympy.printing.numpy import NumPyPrinter
 
 from .base_utils import _actName, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
@@ -137,6 +138,15 @@ class LambdaWithParamNames :
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
 
+        printer = NumPyPrinter({
+            'fully_qualified_modules': False,
+            'inline': True,
+            'allow_unknown_functions': True,
+             'user_functions': { }
+        })
+
+        modules = [{x[0].name : x[1] for x in _user_functions.values()}, 'numpy']
+
         if isinstance(exprOrDict, dict) :
             # Come from JSON serialization
             obj = exprOrDict
@@ -145,8 +155,9 @@ class LambdaWithParamNames :
 
             # Full names
             self.expanded_params = _expand_param_names(self.params)
-            self.expr = parse_expr(obj["expr"])
-            self.lambd = lambdify(self.expanded_params, self.expr, 'numpy')
+            local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+            self.expr = parse_expr(obj["expr"], local_dict=local_dict)
+            self.lambd = lambdify(self.expanded_params, self.expr, modules, printer=printer)
             self.sobols = obj["sobols"]
 
         else :
@@ -158,7 +169,7 @@ class LambdaWithParamNames :
             if self.params is None :
                 self.params = _expanded_names_to_names(expanded_params)
 
-            self.lambd = lambdify(expanded_params, exprOrDict, 'numpy')
+            self.lambd = lambdify(expanded_params, self.expr, modules, printer=printer)
             self.expanded_params = expanded_params
             self.sobols = sobols
 
