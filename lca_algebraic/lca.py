@@ -3,15 +3,52 @@ from collections import OrderedDict
 from typing import Tuple, Dict
 
 from pandas import DataFrame
-from sympy import lambdify, simplify
+from sympy import lambdify, simplify, Function
+from sympy.printing.numpy import NumPyPrinter
 
 from .base_utils import _actName, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
+from .base_utils import _user_functions
 from .helpers import *
 from .helpers import _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
 from ipywidgets import Output
 
+def register_user_function(sym, func):
+    """Register a custom function with is python implementation
+    Parameters
+    ----------
+    sym : the sympy function expression
+    func : the implementation of the function
+
+    Usage
+    -----
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> func_add_sym = register_user_function(sympy.Function('func_add', real=True, imaginary=False), func_add)
+    >>> e = sympy.Symbol('a') * func_add_sym(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    global _user_functions
+    _user_functions[sym.name] = (sym, func)
+    return sym
+
+def user_function(sym):
+    """Function decorator to register user function
+
+    Usage
+    -----
+    >>> @user_function(sympy.Function('func_add', real=True, imaginary=False))
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> e = sympy.Symbol('a') * func_add(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    return lambda func: register_user_function(sym, func)
 
 def _impact_labels():
     """Dictionnary of custom impact names
@@ -101,6 +138,15 @@ class LambdaWithParamNames :
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
 
+        printer = NumPyPrinter({
+            'fully_qualified_modules': False,
+            'inline': True,
+            'allow_unknown_functions': True,
+             'user_functions': { }
+        })
+
+        modules = [{x[0].name : x[1] for x in _user_functions.values()}, 'numpy']
+
         if isinstance(exprOrDict, dict) :
             # Come from JSON serialization
             obj = exprOrDict
@@ -109,8 +155,9 @@ class LambdaWithParamNames :
 
             # Full names
             self.expanded_params = _expand_param_names(self.params)
-            self.expr = parse_expr(obj["expr"])
-            self.lambd = lambdify(self.expanded_params, self.expr, 'numpy')
+            local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+            self.expr = parse_expr(obj["expr"], local_dict=local_dict)
+            self.lambd = lambdify(self.expanded_params, self.expr, modules, printer=printer)
             self.sobols = obj["sobols"]
 
         else :
@@ -122,7 +169,7 @@ class LambdaWithParamNames :
             if self.params is None :
                 self.params = _expanded_names_to_names(expanded_params)
 
-            self.lambd = lambdify(expanded_params, exprOrDict, 'numpy')
+            self.lambd = lambdify(expanded_params, self.expr, modules, printer=printer)
             self.expanded_params = expanded_params
             self.sobols = sobols
 
