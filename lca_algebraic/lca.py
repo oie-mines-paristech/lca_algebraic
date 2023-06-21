@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 from peewee import DoesNotExist
 from sympy import Symbol, lambdify, parse_expr
+from sympy.printing.numpy import NumPyPrinter
 
 from . import TabbedDataframe
 from .axis_dict import AxisDict
-from .base_utils import _actName, _getDb, _method_unit
+from .base_utils import _actName, _getDb, _method_unit, _user_functions
 from .cache import ExprCache, LCIACache
 from .helpers import (
     BIOSPHERE_PREFIX,
@@ -48,6 +49,44 @@ from .params import (
     compute_expr_value,
     freezeParams,
 )
+
+
+def register_user_function(sym, func):
+    """Register a custom function with is python implementation
+    Parameters
+    ----------
+    sym : the sympy function expression
+    func : the implementation of the function
+
+    Usage
+    -----
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> func_add_sym = register_user_function(sympy.Function('func_add', real=True, imaginary=False), func_add)
+    >>> e = sympy.Symbol('a') * func_add_sym(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    global _user_functions
+    _user_functions[sym.name] = (sym, func)
+    return sym
+
+
+def user_function(sym):
+    """Function decorator to register user function
+
+    Usage
+    -----
+    >>> @user_function(sympy.Function('func_add', real=True, imaginary=False))
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> e = sympy.Symbol('a') * func_add(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    return lambda func: register_user_function(sym, func)
 
 
 def _impact_labels():
@@ -211,8 +250,18 @@ def _free_symbols(expr: Basic):
 
 def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
+
+    printer = NumPyPrinter({
+                           'fully_qualified_modules': False,
+                           'inline': True,
+                           'allow_unknown_functions': True,
+                           'user_functions': dict()
+                           })
+
+    modules = [{x[0].name: x[1] for x in _user_functions.values()}, 'numpy']
+
     if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, "numpy", cse=LambdaWithParamNames._use_sympy_cse)
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
 
         def func(*arg, **kwargs):
             res = lambd(*arg, **kwargs)
@@ -265,7 +314,8 @@ class LambdaWithParamNames:
 
             # Full names
             self.expanded_params = _expand_param_names(self.params)
-            self.expr = parse_expr(obj["expr"])
+            local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+            self.expr = parse_expr(obj["expr"], local_dict=local_dict)
             self.lambd = _lambdify(self.expr, self.expanded_params)
             self.sobols = obj["sobols"]
 
