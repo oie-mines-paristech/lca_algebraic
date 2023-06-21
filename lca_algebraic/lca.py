@@ -2,14 +2,50 @@ import concurrent.futures
 from collections import OrderedDict
 from typing import Dict, List
 
-from sympy import lambdify, simplify
+from sympy import lambdify, simplify, Function
 
 from .base_utils import _actName, error, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
+from .base_utils import _user_functions
 from .helpers import *
 from .helpers import _actDesc, _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
 
+def register_user_function(sym, func):
+    """Register a custom function with is python implementation
+    Parameters
+    ----------
+    sym : the sympy function expression
+    func : the implementation of the function
+
+    Usage
+    -----
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> func_add_sym = register_user_function(sympy.Function('func_add', real=True, imaginary=False), func_add)
+    >>> e = sympy.Symbol('a') * func_add_sym(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    global _user_functions
+    _user_functions[sym.name] = (sym, func)
+    return sym
+
+def user_function(sym):
+    """Function decorator to register user function
+
+    Usage
+    -----
+    >>> @user_function(sympy.Function('func_add', real=True, imaginary=False))
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> e = sympy.Symbol('a') * func_add(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    return lambda func: register_user_function(sym, func)
 
 def _impact_labels():
     """Dictionnary of custom impact names
