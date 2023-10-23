@@ -10,26 +10,7 @@ def compute_intermediate_value(formula):
 
 
 
-def intermediate_values_table(globals) :
-    """Display a table of all intermediate formula : their name, formula and default value."""
 
-    res = []
-    for name, formula in list(globals.items()) :
-        if isinstance(formula, Expr) and not isinstance(formula, ParamDef) :
-            has_params = any(symbol for symbol in formula.free_symbols if isinstance(symbol, ParamDef))
-            if not has_params :
-                continue
-            res.append(dict(
-                name=name,
-                formula=formula,
-                value=compute_intermediate_value(formula)))
-
-    res = DataFrame.from_dict(res)
-
-    if len(res) > 0 :
-        res = res.set_index("name")
-
-    return res
 
 
 

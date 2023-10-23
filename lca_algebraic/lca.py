@@ -348,10 +348,23 @@ def _filter_params(params, expected_names, model) :
     return res
 
 
+def compute_value(formula, **params):
+    """ Compute actual value for a given formula, with possible parameters (or default ones) """
+    if isinstance(formula, float) or isinstance(formula, int):
+        return formula
+
+    symbols = {str(free): free for free in formula.free_symbols}
+    replace_vals = {symbol: symbol.default for name, symbol in symbols.items()}
+    replace_vals.update({symbols[name]: value for name, value in params.items() if name in symbols})
+
+    return formula.evalf(subs=replace_vals)
+
+
 def multiLCAAlgebric(
         models, methods,
         extract_activities:List[Activity]=None,
         axis=None,
+        functionnal_unit=1,
         **params):
     """
     Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
@@ -400,6 +413,10 @@ def multiLCAAlgebric(
 
             lambdas = _preMultiLCAAlgebric(model, methods, extract_activities=extract_activities, axis=axis)
 
+            if functionnal_unit != 1 :
+                functionnal_unit = compute_value(functionnal_unit, **params)
+                alpha = alpha / functionnal_unit
+
             df = _postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 
             model_name = _actName(model)
@@ -414,6 +431,19 @@ def multiLCAAlgebric(
                 df[axis] = lambdas[0].axis_keys
                 df = df.set_index(axis)
                 df.index.set_names([axis])
+
+                # Filter out line with zero output
+                df = df.loc[
+                    df.apply(
+                        lambda row: not (row.name is None and row.values[0] == 0.0),
+                        axis=1)]
+
+                # Rename "None" to others
+                df = df.rename(index={None: "*other*"})
+
+                # Add "total" line
+                df.loc['Total'] = df.sum(numeric_only=True)
+
 
             elif len(list_params) > 0:
                 for k, vals in list_params.items():
