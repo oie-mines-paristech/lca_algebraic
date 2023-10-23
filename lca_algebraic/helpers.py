@@ -416,20 +416,45 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, unit=None) -> ActivityExtended :
+                 single=True, case_sensitive=False, unit=None) -> ActivityExtended :
+
     """
         Find single activity by name & location
         Uses index for fast fetching
+
+    :param name: Name of the activity. Can contain '*' for searching partial chain
+    :param loc: optional location
+    :param in_name: Same as using name="something*"
+    :param code: Unique code. If provided alone, returns the activity for this code
+    :param categories: Optional : exact list of catagories
+    :param category: Optional : single category that should be part of the list of categories of the selected activities
+    :param db_name: Name of the database
+    :param single: If False, returns a list of matching activities. If True (default) fails if more than one activity fits.
+    :param case_sensitive: If True (default) ignore the case
+    :param unit: If provided, only match activities with provided unit
+    :return:
     """
 
     if name and '*' in name:
         in_name = name.replace("*", "")
         name = None
 
+    if not case_sensitive:
+        if name :
+            name = name.lower()
+        if in_name:
+            in_name = in_name.lower()
+
     def act_filter(act):
-        if name and not name == act['name']:
+
+
+        act_name = act['name']
+        if not case_sensitive :
+            act_name = act_name.lower()
+
+        if name and not name == act_name:
             return False
-        if in_name and not in_name in act['name']:
+        if in_name and not in_name in act_name:
             return False
         if loc and not loc == act['location']:
             return False
@@ -437,7 +462,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
             return False
         if category and not category in act['categories']:
             return False
-        if categories and not tuple(categories) == act['categories']:
+        if categories and not tuple(categories) == tuple(act['categories']):
             return False
         return True
 
@@ -458,13 +483,12 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
             search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
             candidates = _getDb(db_name).search(search, limit=200)
 
-        # print(search, candidates)
-
         # Exact match
         acts = list(filter(act_filter, candidates))
 
     if single and len(acts) == 0:
-        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name, loc))
+        any_name = name if name else in_name
+        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, any_name, loc))
     if single and len(acts) > 1:
         raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (
             db_name, name, loc, str(acts)))
@@ -539,8 +563,11 @@ def newActivity(db_name, name, unit,
 
     Parameters
     ----------
-    name : Name ofthe new activity
+    name : Name of the new activity
     db_name : Destination DB : ACV DB by default
+    unit: Unit of the process
+
+    code: Unique code in the Db. Optional. If not provided, Name is used
     exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
     argv : extra params passed as properties of the new activity
     """

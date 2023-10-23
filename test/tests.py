@@ -176,6 +176,20 @@ def test_freeze() :
             # p2=2 * 3
             assert amount == 6.0
 
+def test_find_activities() :
+
+    act1 = newActivity(USER_DB, "Activity 1", "unit", categories=["cat1", "cat2"])
+
+    res = findActivity("Activity 1", db_name=USER_DB, case_sensitive=True)
+    assert res == act1
+
+    # Case insensitive
+    assert findActivity("activity*", db_name=USER_DB) == act1
+
+    # Test categories
+    assert findActivity("activity*", categories=["cat1", "cat2"], db_name=USER_DB) == act1
+    assert findActivity("activity*", categories=["cat1"], db_name=USER_DB, single=False) == []
+    assert findActivity("activity*", category="cat1", db_name=USER_DB) == act1
 
 
 def test_enum_values_are_enforced():
