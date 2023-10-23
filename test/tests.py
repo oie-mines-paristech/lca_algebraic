@@ -2,7 +2,6 @@ import os
 import sys
 from tempfile import mkstemp
 
-import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
@@ -91,7 +90,7 @@ def test_export():
 
     # Test multLCA
     act1 = findActivity("act1", db_name=USER_DB)
-    res = multiLCAAlgebric(act1, [imulti])
+    res = compute_impacts(act1, [imulti])
 
     assert res.values[0] == 7.0
 
@@ -115,7 +114,7 @@ def test_switch_activity_support_sevral_times_same_target() :
 
     impact = (METHOD_PREFIX, 'all', 'total')
 
-    res = multiLCAAlgebric(act, [impact], p1=["v1", "v2", "v3"])
+    res = compute_impacts(act, [impact], p1=["v1", "v2", "v3"])
     vals = res.values
 
     assert vals[0] == vals[1] and vals[1] == vals[2]
@@ -191,7 +190,7 @@ def test_enum_values_are_enforced():
     climate = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)][1]
 
     with pytest.raises(Exception) as exc:
-        multiLCAAlgebric(act, climate, p1="bar")
+        compute_impacts(act, climate, p1="bar")
 
     assert 'Invalid value' in str(exc)
 
@@ -300,19 +299,19 @@ def test_db_params_lca() :
                      {bio1: 2.0 * p1_user2})
 
     # p1 as default value of 1 for user db 1
-    res = multiLCAAlgebric(m1, [ibio1])
+    res = compute_impacts(m1, [ibio1])
     assert res.values[0] == 2.0
 
     # p1 as default value of 2 for user db 2
-    res = multiLCAAlgebric(m2, [ibio1])
+    res = compute_impacts(m2, [ibio1])
     assert res.values[0] == 4.0
 
     # Overriding p1 for m1
-    res = multiLCAAlgebric(m1, [ibio1], p1=3)
+    res = compute_impacts(m1, [ibio1], p1=3)
     assert res.values[0] == 6.0
 
     # Overriding p1 for m2
-    res = multiLCAAlgebric(m2, [ibio1], p1=4)
+    res = compute_impacts(m2, [ibio1], p1=4)
     assert res.values[0] == 8.0
 
 
@@ -321,7 +320,7 @@ def test_interpolation() :
     # Common helper to check results
     def check_impacts(model, p_values, expected_results):
         # Compute impacts for several values of p
-        impacts = multiLCAAlgebric(model, [ibio1], p=p_values)
+        impacts = compute_impacts(model, [ibio1], p=p_values)
 
         values = impacts[impacts.columns[0]]
         assert_array_equal(values, expected_results)
@@ -368,9 +367,11 @@ def test_axis() :
     act1_phase_a = newActivity(
         USER_DB, "act1", "unit",
         {bio1: 1.0}, phase="a")
+
     act2_phase_b = newActivity(
         USER_DB, "act2", "unit",
         {bio1: 2.0}, phase="b")
+
     act3_no_phase = newActivity(
         USER_DB, "act3", "unit",
         {bio1: 3.0})
@@ -383,7 +384,7 @@ def test_axis() :
             act3_no_phase: 1,
          })
 
-    res = multiLCAAlgebric(
+    res = compute_impacts(
         model, [ibio1],
         axis="phase")
 
@@ -392,7 +393,8 @@ def test_axis() :
         res[res.columns[0]].values)}
 
     expected = dict(a=1.0, b=2.0)
-    expected[None] = 3.0
+    expected["*other*"] = 3.0
+    expected["*sum*"] = 6.0
 
     assert res == expected
 
@@ -427,7 +429,7 @@ def test_multiLCAAlgebric_with_dict() :
     m2 = newActivity(USER_DB, "m2", "kg",
                      {bio2: 1})
 
-    res = multiLCAAlgebric({m1:1, m2:2}, [ibio1, ibio2])
+    res = compute_impacts({m1:1, m2:2}, [ibio1, ibio2])
 
     assert res.iloc[0, 0] == 1.0
     assert res.iloc[1, 1] == 2.0
@@ -443,7 +445,7 @@ def test_params_as_power() :
     m1 = newActivity(USER_DB, "m1", "kg",
                      {bio1 : 2.0 ** p1})
 
-    res = multiLCAAlgebric(m1, [ibio1], p1=2)
+    res = compute_impacts(m1, [ibio1], p1=2)
     assert res.values[0] == 4.0
 
 def test_named_parameters_for_with_db_context() :

@@ -10,6 +10,7 @@ from .helpers import *
 from .helpers import _actDesc, _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
 from .globs import _BG_IMPACTS_CACHE
+from warnings import warn
 
 def _impact_labels():
     """Dictionnary of custom impact names
@@ -83,7 +84,6 @@ def _multiLCAWithCache(acts, methods) :
 def _modelToExpr(
         model: ActivityExtended,
         methods,
-        extract_activities=None,
         axis=None):
     '''
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
@@ -96,7 +96,6 @@ def _modelToExpr(
     # print("computing model to expression for %s" % model)
     expr, actBySymbolName = actToExpression(
         model,
-        extract_activities=extract_activities,
         axis=axis)
 
     # Required params
@@ -240,8 +239,8 @@ class LambdaWithParamNames :
         return self.expr._repr_latex_()
 
 def _preMultiLCAAlgebric(
-        model: ActivityExtended, methods,
-        extract_activities:List[Activity]=None,
+        model: ActivityExtended,
+        methods,
         axis=None):
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -252,7 +251,6 @@ def _preMultiLCAAlgebric(
     with DbContext(model) :
         exprs, expected_names = _modelToExpr(
             model, methods,
-            extract_activities=extract_activities,
             axis=axis)
 
         # Lambdify (compile) expressions
@@ -360,9 +358,15 @@ def compute_value(formula, **params):
     return formula.evalf(subs=replace_vals)
 
 
-def multiLCAAlgebric(
-        models, methods,
-        extract_activities:List[Activity]=None,
+
+def multiLCAAlgebric(*args, **kwargs) :
+    """ deprecated. `compute_impacts()` instead """
+    warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
+    return compute_impacts(*args, **kwargs)
+
+def compute_impacts(
+        models,
+        methods,
         axis=None,
         functionnal_unit=1,
         **params):
@@ -383,7 +387,7 @@ def multiLCAAlgebric(
     extract_activities : Optionnal : list of foregound or background activities. If provided, the result only integrate their contribution
     params : You should provide named values of all the parameters declared in the model. \
              Values can be single value or list of samples, all of the same size
-    axis: Designates the name of an attribute of user activities to split impacts by their value. This is usefull to get impact by phase or sub modules
+    axis: Designates the name of an attribute of user activities to split impacts by their value. This is useful to get impact by phase or sub modules
     """
     dfs = dict()
 
@@ -411,7 +415,7 @@ def multiLCAAlgebric(
                     error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
 
-            lambdas = _preMultiLCAAlgebric(model, methods, extract_activities=extract_activities, axis=axis)
+            lambdas = _preMultiLCAAlgebric(model, methods, axis=axis)
 
             if functionnal_unit != 1 :
                 functionnal_unit = compute_value(functionnal_unit, **params)
@@ -442,7 +446,7 @@ def multiLCAAlgebric(
                 df = df.rename(index={None: "*other*"})
 
                 # Add "total" line
-                df.loc['Total'] = df.sum(numeric_only=True)
+                df.loc['*sum*'] = df.sum(numeric_only=True)
 
 
             elif len(list_params) > 0:
@@ -525,7 +529,6 @@ def _tag_expr(expr, act, axis) :
 @with_db_context(arg="act")
 def actToExpression(
         act: Activity,
-        extract_activities=None,
         axis=None):
 
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
@@ -559,7 +562,7 @@ def actToExpression(
 
         return act_symbols[(db_name, code)]
 
-    def rec_func(act: Activity, in_extract_path, parents=[]):
+    def rec_func(act: Activity, parents=[]):
 
         res = 0
         outputAmount = act.getOutputAmount()
@@ -583,21 +586,9 @@ def actToExpression(
             input_db, input_code = exch['input']
             sub_act = _getDb(input_db).get(input_code)
 
-
-            # If list of extract activites requested, we only integrate activites below a tracked one
-            exch_in_path = in_extract_path
-            if extract_activities is not None:
-                if sub_act in extract_activities :
-                    exch_in_path = in_extract_path or (sub_act in extract_activities)
-
             # Background DB => reference it as a symbol
             if not _isForeground(input_db) :
-
-                if exch_in_path :
-                    # Add to dict of background symbols
-                    act_expr = act_to_symbol(sub_act)
-                else:
-                    continue
+                act_expr = act_to_symbol(sub_act)
 
             # Our model : recursively it to a symbolic expression
             else:
@@ -606,15 +597,13 @@ def actToExpression(
                 if sub_act in parents :
                     raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
 
-                act_expr = rec_func(sub_act, exch_in_path, parents)
+                act_expr = rec_func(sub_act, parents)
 
             avoidedBurden = 1
 
             if exch.get('type') == 'production' and not exch.get('input') == exch.get('output') :
                 debug("Avoided burden", exch[name])
                 avoidedBurden = -1
-
-            #debug("adding sub act : ", sub_act, formula, act_expr)
 
             res += formula * act_expr * avoidedBurden
 
@@ -626,7 +615,7 @@ def actToExpression(
 
         return res
 
-    expr = rec_func(act, extract_activities is None)
+    expr = rec_func(act)
 
     if isinstance(expr, float) :
         expr = simplify(expr)

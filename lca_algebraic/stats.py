@@ -129,7 +129,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 
     if isinstance(modelOrLambdas, Activity):
         with DbContext(modelOrLambdas) :
-            df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+            df = compute_impacts(modelOrLambdas, impacts, **params)
     else:
         df = _postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
@@ -232,7 +232,7 @@ def _stochastics(
 
 def _compute_stochastics(modelOrLambdas, methods, params):
     if isinstance(modelOrLambdas, Activity):
-        Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
+        Y = compute_impacts(modelOrLambdas, methods, **params)
     else:
         Y = _postMultiLCAAlgebric(methods, modelOrLambdas, **params)
     return Y
