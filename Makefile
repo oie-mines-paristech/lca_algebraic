@@ -1,4 +1,6 @@
-TST_NOTEBOOK:=example-notebook.ipynb
+TST_NOTEBOOK:=example-notebook.Rmd
+TST_IPYNB:=example-notebook.ipynb
+
 VERSION:=$(shell cat VERSION)
 
 
@@ -38,7 +40,7 @@ pytest:
 	pytest test/tests.py
 
 notebook_test:
-	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPNB)
-	./test/notebook_runner.py $(TST_NOTEBOOK)
+	ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
+	./test/notebook_runner.py $(TST_IPYNB)
 
 test: pytest notebook_test

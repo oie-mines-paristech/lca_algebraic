@@ -419,7 +419,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
                  single=True, case_sensitive=False, unit=None) -> ActivityExtended :
 
     """
-        Find single activity by name & location
+        Find activity by name & location
         Uses index for fast fetching
 
     :param name: Name of the activity. Can contain '*' for searching partial chain
@@ -432,7 +432,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
     :param single: If False, returns a list of matching activities. If True (default) fails if more than one activity fits.
     :param case_sensitive: If True (default) ignore the case
     :param unit: If provided, only match activities with provided unit
-    :return:
+    :return: Either a single activity (if single is True) or a list of activities, possibly empty.
     """
 
     if name and '*' in name:

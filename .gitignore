@@ -17,3 +17,4 @@ dist
 *all_output.ipynb
 *.bw2
 *.bash
+example-notebook.ipynb

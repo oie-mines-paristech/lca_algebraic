@@ -1,9 +1,11 @@
-# 1.0.5 
+# 1.1 
 
 Fix bug in ActivityExtended#getExchanges introduced by merge #14
 * Added linear interpolation between activities with function `interpolate_activities`
-* Added breakdown of impacts by arbitrary attribute with the parameter `axis` of `multiLCAAlgebraic`
-* Added functional_unit in multiLCAAlgebraic : You are not obliged to define a custom activity anymore 
+* Rename multiLCaAlgebraic => compute_impacts
+* Added breakdown of impacts by arbitrary attribute with the parameter `axis` of `compute_impacts`
+* Added `functional_unit` in compute_impacts : You are not obliged to define a custom activity anymore 
+* findActivities() is now case insensitive by default
 
 # 1.0.4 
 

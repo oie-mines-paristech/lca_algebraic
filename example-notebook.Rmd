@@ -294,6 +294,8 @@ alu_scrap = findTechAct('aluminium scrap, new, Recycled Content cut-off')
 # Elec 
 eu_elec = findTechAct("market group for electricity, medium voltage", 'ENTSO-E')
 us_elec = findTechAct("market group for electricity, medium voltage", 'US')
+
+chromium = findTechAct("market for chromium oxide, flakes")
 ```
 
 # Define the model
@@ -348,7 +350,7 @@ alu2.updateExchanges({
     
     # Update both input activity and amount. 
     # Note that you can use '#' for specifying the location of exchange (useful for duplicate exchange names)
-    "chromium#GLO" : dict(amount=4.0, input=activity1)
+    "chromium#GLO" : dict(amount=4.0, input=chromium)
 }) 
 
 # Add exchanges 
@@ -428,27 +430,31 @@ We provide two methods  for computing LCA :
 * **multiLCAAlgebric** : It computes an algebric expression of the model and computes LCA once for all the background activities. Then it express each impact as a function of the parameters. This expression is then compiled into 'numpy' native code, for fast computation on vectors of samples. This version is 1 million time faster.
 
 ```{python}
+# %%time
+
 # Uses brightway2 parameters
 multiLCA(
     normalized_model, 
     impacts, 
                    
     # Parameters of the model
-    a=1, 
+    a=1.0,
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```
 
 ```{python}
-# Compute with algebric implementation 
+# %%time
+
+# Compute with algebric implementation
 # The values should be the same as above
 multiLCAAlgebric(
     normalized_model, # The model 
     impacts, # Impacts
     
     # Parameters of the model
-    a=1, 
-    elec_switch_param="us",
+    a=[1, 2, 3], 
+    elec_switch_param=["us", 'us', 'us'],
     share_recycled_aluminium=0.4)
 ```
 
@@ -462,25 +468,6 @@ multiLCAAlgebric(
     # Parameters of the model
     share_recycled_aluminium=0.3,
     elec_switch_param="us")
-```
-
-## Evaluate the contribution of a subset of activites to global impact
-
-You can extract the contribution of a subset of activites to the global impact of the model
-
-```{python}
-# Contribution of impact of aluminium
-multiLCAAlgebric(
-    normalized_model, # The model 
-    impacts, # Impacts
-    
-    # List of sub activites to consider
-    extract_activities = [alu2],
-    
-    # Parameters of the model
-    a=1, 
-    elec_switch_param="us",
-    share_recycled_aluminium=0.4)
 ```
 
 ## Fast computation of many parameter values
@@ -497,6 +484,29 @@ multiLCAAlgebric(
     elec_switch_param="eu")
 ```
 
+## Split impacts along axis
+
+It is possible to **tag** activities and then ventilate the impacts according to the value of this "tag".
+This is useful to split impact by *phase* or *sub module*.
+
+```{python}
+# Tag activities wigth a custom attribute : 'phase' in this case
+alu2["phase"] = "phase a"
+alu2.save()
+
+activity1["phase"] = "phase b"
+activity1.save()
+```
+
+```{python}
+# Provide the name of the custom attribute as 'axis'
+# The impacts are split between those
+multiLCAAlgebric(
+    model, # The model
+    impacts, # Impacts
+    axis="phase")
+```
+
  # Statistic functions
  
  ## One at a time 
@@ -506,8 +516,6 @@ multiLCAAlgebric(
  ### oat_matrix(model, impacts)
  
  Shows a **matrix of impacts x parameters** colored according to the variation of the impact in the bounds of the parameter.
-
- 
 
 
 ```{python}
@@ -638,4 +646,8 @@ Finally, we can compare the distribution of those simplified model against the f
 
 ```{python}
 compare_simplified(normalized_model, impacts, simplified)
+```
+
+```{python}
+
 ```
