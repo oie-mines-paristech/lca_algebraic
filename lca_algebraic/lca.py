@@ -445,6 +445,9 @@ def compute_impacts(
                 # Rename "None" to others
                 df = df.rename(index={None: "*other*"})
 
+                # Sort index
+                df.sort_index(inplace=True)
+
                 # Add "total" line
                 df.loc['*sum*'] = df.sum(numeric_only=True)
 

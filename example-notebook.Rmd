@@ -205,11 +205,6 @@ techno_param = newEnumParam(
     description="Choice of techonoly")
 ```
 
-```{python}
-# List of parameters
-list_parameters(as_dataframe=True)
-```
-
 ## Persistance of parameters
 
 By default, new parameters are kept in memory but also persisted in the project (unless save=False).
@@ -365,7 +360,7 @@ Usually, we normalize the final model as the whole LCI divided by the functional
 ```{python}
 functional_value = a + 5
 
-model = newActivity(USER_DB, "model", "kg", {
+total_inventory = newActivity(USER_DB, "total_inventory", "kg", {
     activity1 : b * 5 + a + 1, # Reference the activity we just created
     alu2: 3 * share_recycled_aluminium, 
     alu:0.4 * a})
@@ -381,7 +376,7 @@ We don't recommand it while developping the model as it may lead to unstable cod
 
 ```{python}
 activity1 = findActivity("first foreground activity", db_name=USER_DB)
-model = findActivity("model", db_name=USER_DB)
+total_inventory = findActivity("total_inventory", db_name=USER_DB)
 normalized_model = findActivity("normalized model", db_name=USER_DB)
 alu2 = findActivity("Aluminium 2", db_name=USER_DB)
 ```
@@ -395,8 +390,8 @@ Note that symbolic expressions have not been evaluated at this stage
 ```{python}
 # Print_act displays activities as tables
 printAct(activity1) 
-printAct(model)
-printAct(normalized_model)
+printAct(total_inventory)
+
 ```
 
 ```{python}
@@ -491,17 +486,14 @@ This is useful to split impact by *phase* or *sub module*.
 
 ```{python}
 # Tag activities wigth a custom attribute : 'phase' in this case
-alu2["phase"] = "phase a"
-alu2.save()
-
-activity1["phase"] = "phase b"
-activity1.save()
+alu2.update(phase= "phase a")
+activity1.update(phase= "phase b")
 ```
 
 ```{python}
 # Provide the name of the custom attribute as 'axis'
 # The impacts are split between those
-multiLCAAlgebric(
+compute_impacts(
     model, # The model
     impacts, # Impacts
     axis="phase")

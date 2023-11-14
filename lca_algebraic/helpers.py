@@ -365,6 +365,13 @@ class ActivityExtended(Activity):
             if exch['input'] != exch['output']:
                 yield exch
 
+    def update(self, **kwargs):
+        """Update any property. Useful to update axis"""
+        for key, val in kwargs.items() :
+            self._data[key] = val
+        self.save()
+
+
 
 # Backport new methods to vanilla Activity class in order to benefit from it for all existing instances
 for name, item in ActivityExtended.__dict__.items():
