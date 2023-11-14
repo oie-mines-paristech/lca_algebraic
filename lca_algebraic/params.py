@@ -7,6 +7,7 @@ from typing import Dict, List, Union, Tuple
 import brightway2 as bw
 import ipywidgets as widgets
 import numpy as np
+import pandas as pd
 from IPython.core.display import HTML
 from bw2data.backends import LCIBackend
 from bw2data.backends.peewee import Activity
@@ -813,7 +814,7 @@ def _param_name(param, name_type:NameType) :
     else :
         return _snake2camel(param.name)
 
-def list_parameters(name_type=NameType.NAME):
+def list_parameters(name_type=NameType.NAME, as_dataframe=False):
 
     """ Print a pretty list of all defined parameters """
     params = [dict(
@@ -837,7 +838,10 @@ def list_parameters(name_type=NameType.NAME):
 
     sorted_params = sorted(params, key=keyf)
 
-    return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
+    if as_dataframe :
+        return pd.DataFrame(sorted_params)
+    else:
+        return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
 
 
 def freezeParams(db_name, **params) :

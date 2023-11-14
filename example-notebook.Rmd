@@ -207,7 +207,7 @@ techno_param = newEnumParam(
 
 ```{python}
 # List of parameters
-list_parameters()
+list_parameters(as_dataframe=True)
 ```
 
 ## Persistance of parameters
