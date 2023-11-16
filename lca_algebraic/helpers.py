@@ -10,6 +10,7 @@ from itertools import chain
 import pandas as pd
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
+from bw2data.parameters import ParameterManager
 from sympy import symbols, Piecewise, simplify
 
 from .base_utils import *
@@ -23,6 +24,8 @@ import inspect
 BIOSPHERE3_DB_NAME="biosphere3"
 
 _metaCache = defaultdict(lambda : {})
+
+# param_manager = ParameterManager()
 
 def _setMeta(dbname, key, value) :
     """Set meta param on DB"""
@@ -258,6 +261,9 @@ class ActivityExtended(Activity):
                 if 'formula' in attrs:
                     parametrized = True
 
+        #if parametrized:
+        #    param_manager.add_exchanges_to_group("project", self)
+
 
     def deleteExchanges(self, name, single=True):
         ''' Remove matching exchanges '''
@@ -304,6 +310,7 @@ class ActivityExtended(Activity):
         exchanges : Dict of activity => amount or activity => attributes_dict. \
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         """
+        parametrized = False
 
         with DbContext(self.key[0]) :
 
@@ -328,6 +335,9 @@ class ActivityExtended(Activity):
 
                 exch.save()
             self.save()
+
+        #if parametrized:
+        #    param_manager.add_exchanges_to_group("project", self)
 
 
     @with_db_context
