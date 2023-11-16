@@ -520,7 +520,10 @@ compute_impacts(
 
 
 ```{python}
-oat_matrix(model, impacts)
+oat_matrix(
+    total_inventory, 
+    impacts, 
+    functional_unit=functional_value)
 ```
 
 ### oat_dashboard_matrix
@@ -533,7 +536,9 @@ This functions draws a dashboard showing :
 
 ```{python}
 oat_dashboard_interact(
-    model, impacts, 
+    total_inventory, 
+    impacts, 
+    functional_unit=functional_value,
     
     # Optionnal layout parameters
     figspace=(0.5,0.5),
@@ -564,7 +569,10 @@ $$RelativeDeviation = \frac{\sqrt{sobol(param) \times totalVariance(impact))}}{m
 
 ```{python}
 # Show sobol indices 
-incer_stochastic_matrix(model, impacts)
+incer_stochastic_matrix(
+    total_inventory, 
+    impacts, 
+    functional_unit=functional_value)
 ```
 
 ###  Graphs of impacts and their distribution
@@ -573,7 +581,8 @@ We provide a dashboard showing **violin graphs** : the exact probabilistic distr
 
 ```{python}
 incer_stochastic_violin(
-    model, impacts,
+    total_inventory, impacts,
+    functional_unit=functional_value,
     
     # Optionnal layout parameters
     figspace=(0.5,0.5),
@@ -585,7 +594,8 @@ incer_stochastic_violin(
 ```{python}
 ##### Alternatively, graphs can be shown horizontally, together with a box of statistical outcomes
 distrib(
-    model, impacts,
+    total_inventory, impacts,
+    functional_unit=functional_value,
     
     # Optionnal layout parameters
     height=7, width=15,
@@ -600,7 +610,10 @@ A dashboard groups all this information in a single interface with tabs.
 It also shows total variation of impacts. This last graph could be improved by showing stacked colored bars with the contribution of each parameter to this variation, according to Sobol indices. 
 
 ```{python}
-incer_stochastic_dashboard(model=model, methods=impacts)
+incer_stochastic_dashboard(
+    model=total_inventory, 
+    methods=impacts,
+    functional_unit=functional_value)
 ```
 
 # Producing simplified models 
@@ -613,7 +626,7 @@ We provide several functions for doing this.
 
 ```{python}
 # First, let's look at the full expression defining our model
-expr, _ = actToExpression(normalized_model)
+expr, _ = actToExpression(total_inventory)
 expr
 ```
 
@@ -625,8 +638,10 @@ We also round numerical expression to 3 digits, and we remove terms in sums that
 
 ```{python}
 simplified = sobol_simplify_model(
-    normalized_model, # The model
+    total_inventory, # The model
     impacts, # Impacts to consider
+    functional_unit=functional_value,
+    
     n=10000, # For large model, you may test other value and ensure ST and sum(S1) are close to 1.0 
     fixed_mode = FixedParamMode.MEDIAN, # We replace minor parameters by median by default,
     min_ratio=0.8, # Min ratio of variability to explain
