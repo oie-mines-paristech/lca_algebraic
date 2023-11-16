@@ -365,7 +365,7 @@ class ActivityExtended(Activity):
             if exch['input'] != exch['output']:
                 yield exch
 
-    def update(self, **kwargs):
+    def updateMeta(self, **kwargs):
         """Update any property. Useful to update axis"""
         for key, val in kwargs.items() :
             self._data[key] = val
