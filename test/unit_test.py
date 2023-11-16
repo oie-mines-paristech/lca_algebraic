@@ -2,44 +2,23 @@ import os
 import sys
 from tempfile import mkstemp
 
-import pytest
-from numpy.testing import assert_array_equal
-
-from lca_algebraic.globs import _clearLCACache
-from lca_algebraic.helpers import _isForeground
-from lca_algebraic.params import _param_registry
-
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
+import pytest
+from numpy.testing import assert_array_equal
+from lca_algebraic.helpers import _isForeground
+from lca_algebraic.params import _param_registry
+from conftest import USER_DB, BG_DB, METHOD_PREFIX
+
+
+
 from fixtures import *
 
-USER_DB = "fg"
-BG_DB= "bg"
-METHOD_PREFIX='tests'
 
-# Reset func project, empty DB
-initProject('tests')
-
-# Create 3 bio activities
-bio1, bio2, bio3 = init_acts(BG_DB)
-
-# Create one method per bio activity, plus 1 method with several
-ibio1, ibio2, ibio3, imulti = init_methods(BG_DB, METHOD_PREFIX)
-
-setForeground(USER_DB)
-
-
-def setup_function() :
-    """Before each test"""
-
-    print("resetting fg DB")
-
-    resetDb(USER_DB)
-    resetParams()
-    _clearLCACache()
 
 def test_load_params():
+
     _p1 = newEnumParam('p1',values={"v1":0.6, "v2":0.3}, default="v1")
     _p2 = newFloatParam('p2', min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
     _p3 = newBoolParam('p3',default=1)
@@ -59,13 +38,13 @@ def test_load_params():
     assert _p3_fg.__dict__ == loaded_params[("p3", USER_DB)].__dict__
 
 
-def test_export():
+def test_export(data):
     p1 = newFloatParam('p1', default=0.5)
     p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
 
     act1 = newActivity(USER_DB, "act1", "unit", {
-        bio1: 2 * p1,
-        bio2: 3 * p3_fg,
+        data.bio1: 2 * p1,
+        data.bio2: 3 * p3_fg,
     })
 
     f, filename = mkstemp()
@@ -90,7 +69,7 @@ def test_export():
 
     # Test multLCA
     act1 = findActivity("act1", db_name=USER_DB)
-    res = compute_impacts(act1, [imulti])
+    res = compute_impacts(act1, [data.imulti])
 
     assert res.values[0] == 7.0
 
@@ -141,14 +120,14 @@ def test_list_params_should_support_missing_groups() :
 
     list_parameters()
 
-def test_freeze() :
+def test_freeze(data) :
 
     p1 = newFloatParam('p1', default=1.0)
     p2 = newFloatParam('p2', default=1.0)
 
     newActivity(USER_DB, "act1", "unit", {
-        bio1 : 2 * p1,
-        bio2 : 3 * p2,
+        data.bio1 : 2 * p1,
+        data.bio2 : 3 * p2,
     })
 
     # p1 should be set as default value 1
@@ -261,7 +240,7 @@ def test_reset_params() :
     loadParams()
     assert len(_param_registry().all()) == 0
 
-def test_simplify_model() :
+def test_simplify_model(data) :
 
     # key param, varying from 1 to 2
     p1 = newFloatParam("p1", 1, min=1, max=2)
@@ -271,14 +250,14 @@ def test_simplify_model() :
 
     # Model p1 + 0.001*p1 + p2
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1: p1 * (p1 + 0.001 * p1 + p2)})
+                     {data.bio1: p1 * (p1 + 0.001 * p1 + p2)})
 
     # Simplified model, without removing minor sum term
-    res = sobol_simplify_model(m1, [ibio1], simple_sums=False, simple_products=False)[0]
+    res = sobol_simplify_model(m1, [data.ibio1], simple_sums=False, simple_products=False)[0]
     assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
 
     # Simplified model, removing minor sum terms (default)
-    res = sobol_simplify_model(m1, [ibio1], simple_products=False)[0]
+    res = sobol_simplify_model(m1, [data.ibio1], simple_products=False)[0]
     assert res.expr.__repr__() == "1.0*p1**2"
 
 
@@ -290,13 +269,13 @@ def test_simplify_model() :
     # Boolean should not be removed
     p5 = newBoolParam("p5", 1)
     m2 = newActivity(USER_DB, "m2", "kg",
-                     {bio1: 4.0 + 5*p3 + 3*p4 + 3*p5})
+                     {data.bio1: 4.0 + 5 * p3 + 3 * p4 + 3 * p5})
 
-    res = sobol_simplify_model(m2, [ibio1], simple_products=True)[0]
+    res = sobol_simplify_model(m2, [data.ibio1], simple_products=True)[0]
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
-def test_db_params_lca() :
+def test_db_params_lca(data) :
     """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
     USER_DB2 = "fg2"
     resetDb(USER_DB2)
@@ -308,33 +287,33 @@ def test_db_params_lca() :
 
     # Create 2 models : one for each user db, using different params with same name
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1 : 2.0 * p1_user})
+                     {data.bio1 : 2.0 * p1_user})
     m2 = newActivity(USER_DB2, "m2", "kg",
-                     {bio1: 2.0 * p1_user2})
+                     {data.bio1: 2.0 * p1_user2})
 
     # p1 as default value of 1 for user db 1
-    res = compute_impacts(m1, [ibio1])
+    res = compute_impacts(m1, [data.ibio1])
     assert res.values[0] == 2.0
 
     # p1 as default value of 2 for user db 2
-    res = compute_impacts(m2, [ibio1])
+    res = compute_impacts(m2, [data.ibio1])
     assert res.values[0] == 4.0
 
     # Overriding p1 for m1
-    res = compute_impacts(m1, [ibio1], p1=3)
+    res = compute_impacts(m1, [data.ibio1], p1=3)
     assert res.values[0] == 6.0
 
     # Overriding p1 for m2
-    res = compute_impacts(m2, [ibio1], p1=4)
+    res = compute_impacts(m2, [data.ibio1], p1=4)
     assert res.values[0] == 8.0
 
 
-def test_interpolation() :
+def test_interpolation(data) :
 
     # Common helper to check results
     def check_impacts(model, p_values, expected_results):
         # Compute impacts for several values of p
-        impacts = compute_impacts(model, [ibio1], p=p_values)
+        impacts = compute_impacts(model, [data.ibio1], p=p_values)
 
         values = impacts[impacts.columns[0]]
         assert_array_equal(values, expected_results)
@@ -346,7 +325,7 @@ def test_interpolation() :
     act1, act2 = [
         newActivity(
             USER_DB, "act%d" % v, "unit",
-            {bio1:v})
+            {data.bio1:v})
         for v in [1.0, 2.0]]
 
     # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
@@ -376,19 +355,19 @@ def test_interpolation() :
         [0.0, 0.5, 1.0, 2.0])
 
 
-def test_axis() :
+def test_axis(data) :
 
     act1_phase_a = newActivity(
         USER_DB, "act1", "unit",
-        {bio1: 1.0}, phase="a")
+        {data.bio1: 1.0}, phase="a")
 
     act2_phase_b = newActivity(
         USER_DB, "act2", "unit",
-        {bio1: 2.0}, phase="b")
+        {data.bio1: 2.0}, phase="b")
 
     act3_no_phase = newActivity(
         USER_DB, "act3", "unit",
-        {bio1: 3.0})
+        {data.bio1: 3.0})
 
     model  = newActivity(
         USER_DB, "model", "unit",
@@ -399,7 +378,7 @@ def test_axis() :
          })
 
     res = compute_impacts(
-        model, [ibio1],
+        model, [data.ibio1],
         axis="phase")
 
     res = {key:val for key, val in zip(
@@ -413,37 +392,37 @@ def test_axis() :
     assert res == expected
 
 
-def test_should_list_params_with_mixed_groups() :
+def test_should_list_params_with_mixed_groups(data) :
     """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13 """
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
     bar = newFloatParam("bar", 2, min=1, max=3)
 
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1: 2.0 * p1 + bar})
+                     {data.bio1: 2.0 * p1 + bar})
 
-    oat_matrix(m1, [ibio1, ibio2])
+    oat_matrix(m1, [data.ibio1, data.ibio2])
 
-def test_oat_should_work_with_named_params() :
+def test_oat_should_work_with_named_params(data) :
     """Test for bug #12 : https://github.com/oie-mines-paristech/lca_algebraic/issues/12 """
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
     bar = newFloatParam("bar", 2, min=1, max=3)
 
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1: 2.0 * p1 + bar})
+                     {data.bio1: 2.0 * p1 + bar})
 
-    oat_matrix(model=m1, impacts=[ibio1, ibio2])
+    oat_matrix(model=m1, impacts=[data.ibio1, data.ibio2])
 
 
-def test_multiLCAAlgebric_with_dict() :
+def test_multiLCAAlgebric_with_dict(data) :
     """Tests parameters can be used in 'power' """
 
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1 : 1})
+                     {data.bio1 : 1})
 
     m2 = newActivity(USER_DB, "m2", "kg",
-                     {bio2: 1})
+                     {data.bio2: 1})
 
-    res = compute_impacts({m1:1, m2:2}, [ibio1, ibio2])
+    res = compute_impacts({m1:1, m2:2}, [data.ibio1, data.ibio2])
 
     assert res.iloc[0, 0] == 1.0
     assert res.iloc[1, 1] == 2.0
@@ -451,22 +430,35 @@ def test_multiLCAAlgebric_with_dict() :
     assert res.iloc[1, 0] == 0.0
 
 
-def test_params_as_power() :
+def test_params_as_power(data) :
     """Tests parameters can be used in 'power' """
 
     p1 = newFloatParam("p1", 2, min=0, max=2)
 
     m1 = newActivity(USER_DB, "m1", "kg",
-                     {bio1 : 2.0 ** p1})
+                     {data.bio1 : 2.0 ** p1})
 
-    res = compute_impacts(m1, [ibio1], p1=2)
+    res = compute_impacts(m1, [data.ibio1], p1=2)
     assert res.values[0] == 4.0
 
-def test_named_parameters_for_with_db_context() :
+def test_brightway_lca(data) :
+    """Tests parameters can be used in 'power' """
+
+    p1 = newFloatParam("p1", 2, min=0, max=2)
+
+    act1 = newActivity(USER_DB, "act1", "kg",
+                       {data.bio1 : 2.0 * p1})
+    act2 = newActivity(USER_DB, "act2", "kg",
+                     {act1: 1})
+
+    res = multiLCA(act2, [data.ibio1], p1=2)
+    assert res.values[0] == 4.0
+
+def test_named_parameters_for_with_db_context(data) :
     """Tests functions annotated with with_context_db, still support named db .
      See: https://github.com/oie-mines-paristech/lca_algebraic/issues/12
     """
-    m1 = newActivity(USER_DB, "m1", "kg", {bio1 : 1})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1 : 1})
 
     actToExpression(act=m1)
 

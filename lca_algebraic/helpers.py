@@ -564,7 +564,9 @@ def _newAct(db_name, code):
 
 def newActivity(db_name, name, unit,
                 exchanges: Dict[Activity, Union[float, str]] = dict(),
+                amount=1,
                 code=None,
+                type='process',
                 **argv):
     """Creates a new activity
 
@@ -577,12 +579,30 @@ def newActivity(db_name, name, unit,
     code: Unique code in the Db. Optional. If not provided, Name is used
     exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
     argv : extra params passed as properties of the new activity
+    amount: Production amount. 1 by default
     """
-    act = _newAct(db_name, code if code else name)
+
+    code = code if code else name
+
+    act = _newAct(db_name, code)
     act['name'] = name
-    act['type'] = 'process'
+    act['type'] = type
     act['unit'] = unit
     act.update(argv)
+
+    # Add single production exchange
+    if type == "process" :
+
+        ex = act.new_exchange(
+            input=act.key,
+            name=act['name'],
+            unit=act['unit'],
+            type='production',
+            amount=1)
+        ex.save()
+
+        act["reference product"] = act["name"]
+        act.save()
 
     # Add exchanges
     act.addExchanges(exchanges)

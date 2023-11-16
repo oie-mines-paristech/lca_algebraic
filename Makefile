@@ -37,7 +37,7 @@ upload-conda:
 upload : upload-pip upload-conda
 
 pytest:
-	pytest test/tests.py
+	pytest test
 
 notebook_test:
 	ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
