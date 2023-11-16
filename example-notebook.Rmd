@@ -412,7 +412,7 @@ set_custom_impact_labels({
     impacts[1]: 'Climate change'})
 ```
 
-# Compute impacts
+# Impacts
 
 ## Define functional unit
 
@@ -423,8 +423,9 @@ The functional unit is a quantity that can be parametrized
 functional_value = a + 5
 ```
 
+## Compute impacts
+
 ```{python}
-# Uses brightway2 parameters
 compute_impacts(
     
     # Root activity of our inventory
@@ -461,10 +462,11 @@ compute_impacts(
 
 ```{python}
 # You can compute several LCAs at a time and compare them:
-multiLCAAlgebric(
+compute_impacts(
     [alu, alu2], # The models
     
     impacts, # Impacts
+    functional_unit = functional_value, 
     
     # Parameters of the model
     share_recycled_aluminium=0.3,
@@ -475,9 +477,10 @@ multiLCAAlgebric(
 
 ```{python}
 # Fast computation for millions of separate samples
-multiLCAAlgebric(
-    model, # The model 
+compute_impacts(
+    total_inventory, # The model 
     impacts, # Impacts
+    functional_unit = functional_value,
     
     # Parameters of the model
     a=list(range(1, 100000)), # All lists should have the same size
@@ -492,15 +495,15 @@ This is useful to split impact by *phase* or *sub module*.
 
 ```{python}
 # Tag activities wigth a custom attribute : 'phase' in this case
-alu2.update(phase= "phase a")
-activity1.update(phase= "phase b")
+alu2.updateMeta(phase= "phase a")
+activity1.updateMeta(phase= "phase b")
 ```
 
 ```{python}
 # Provide the name of the custom attribute as 'axis'
 # The impacts are split between those
 compute_impacts(
-    model, # The model
+    total_inventory, # The model
     impacts, # Impacts
     axis="phase")
 ```

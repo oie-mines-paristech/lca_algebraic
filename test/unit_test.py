@@ -11,11 +11,7 @@ from lca_algebraic.helpers import _isForeground
 from lca_algebraic.params import _param_registry
 from conftest import USER_DB, BG_DB, METHOD_PREFIX
 
-
-
 from fixtures import *
-
-
 
 def test_load_params():
 
@@ -357,6 +353,8 @@ def test_interpolation(data) :
 
 def test_axis(data) :
 
+    p1 = newFloatParam("p1", 2, min=1, max=3)
+
     act1_phase_a = newActivity(
         USER_DB, "act1", "unit",
         {data.bio1: 1.0}, phase="a")
@@ -369,7 +367,7 @@ def test_axis(data) :
         USER_DB, "act3", "unit",
         {data.bio1: 3.0})
 
-    model  = newActivity(
+    model = newActivity(
         USER_DB, "model", "unit",
         {
             act1_phase_a: 1,
@@ -379,15 +377,17 @@ def test_axis(data) :
 
     res = compute_impacts(
         model, [data.ibio1],
-        axis="phase")
+        functional_unit=p1,
+        axis="phase",
+        p1=0.5)
 
     res = {key:val for key, val in zip(
         res.index.values,
         res[res.columns[0]].values)}
 
-    expected = dict(a=1.0, b=2.0)
-    expected["*other*"] = 3.0
-    expected["*sum*"] = 6.0
+    expected = dict(a=2.0, b=4.0)
+    expected["*other*"] = 6.0
+    expected["*sum*"] = 12.0
 
     assert res == expected
 

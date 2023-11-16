@@ -177,8 +177,8 @@ class ParamDef(Symbol):
         self.distrib = distrib
         self.dbname = dbname
 
-        if (self.dbname == None) :
-            error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
+        #if (self.dbname == None) :
+        #    error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, "_distrib") :

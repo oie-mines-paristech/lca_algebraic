@@ -123,7 +123,18 @@ def _modelToExpr(
 def _filter_param_values(params, expanded_param_names) :
     return {key : val for key, val in params.items() if key in expanded_param_names}
 
-def _lambdify(expr, expanded_params) :
+def _free_symbols(expr:Union[SymDict, Expr]) :
+    if isinstance(expr, SymDict) :
+        # SymDict => sum of vars of members
+        return set.union(
+            *[_free_symbols(ex) for ex in expr.dict.values()])
+    elif isinstance(expr, Expr):
+        return set([str(symb) for symb in expr.free_symbols])
+    else:
+        # Static value
+        return set()
+
+def _lambdify(expr:Union[SymDict, Expr], expanded_params) :
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
     if isinstance(expr, SymDict) :
 
@@ -172,14 +183,10 @@ class LambdaWithParamNames :
             self.expr = exprOrDict
             self.params = params
 
-            if expanded_params is None :
-                if params is None :
-                    # Required params are guessed from free symbols
-                    if isinstance(self.expr, sympy.Basic) :
-                        expanded_params = set([str(symb) for symb in self.expr.free_symbols])
-                    else:
-                        expanded_params = set()
+            if expanded_params is None:
 
+                if params is None :
+                    expanded_params = _free_symbols(exprOrDict)
                     params = _expanded_names_to_names(expanded_params)
                     self.params = params
 
@@ -248,6 +255,7 @@ class LambdaWithParamNames :
 def _preMultiLCAAlgebric(
         model: ActivityExtended,
         methods,
+        alpha=1,
         axis=None):
     '''
         This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -261,7 +269,7 @@ def _preMultiLCAAlgebric(
             axis=axis)
 
         # Lambdify (compile) expressions
-        return [LambdaWithParamNames(expr) for expr in exprs]
+        return [LambdaWithParamNames(expr*alpha) for expr in exprs]
 
 
 def method_name(method):
@@ -287,7 +295,6 @@ def _compute_param_length(params) :
 def _postMultiLCAAlgebric(
         methods,
         lambdas:List[LambdaWithParamNames],
-        alpha=1,
         **params):
     '''
         Compute LCA for a given set of parameters and pre-compiled lambda functions.
@@ -318,9 +325,9 @@ def _postMultiLCAAlgebric(
 
         completed_params = lambd.complete_params(params)
 
-        value = alpha * lambd.compute(**completed_params)
+        value = lambd.compute(**completed_params)
 
-        # Exapdn axis values as a list, to fit into the result numpy array
+        # Expand axis values as a list, to fit into the result numpy array
         if lambd.has_axis :
             value = list(float(val) for val in value.dict.values())
 
@@ -418,14 +425,12 @@ def compute_impacts(
                 if key in _fixed_params() :
                     error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
-
-            lambdas = _preMultiLCAAlgebric(model, methods, axis=axis)
-
             if functional_unit != 1 :
-                functional_unit = compute_value(functional_unit, **params)
                 alpha = alpha / functional_unit
 
-            df = _postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
+            lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
+
+            df = _postMultiLCAAlgebric(methods, lambdas, **params)
 
             model_name = _actName(model)
             while model_name in dfs :
