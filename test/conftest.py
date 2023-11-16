@@ -28,10 +28,6 @@ def data() :
 
     resetDb(USER_DB, True)
 
-    # Pull local vars at global scale
-    #for key, val in locals().items():
-    #    globals()[key]=val
-
     return SimpleNamespace(**locals())
 
 
@@ -40,7 +36,7 @@ def reset_db() :
     """Before each test"""
 
     for db_name in list(bw.databases) :
-        if db_name != BG_DB :
+        if db_name != BG_DB and not db_name.startswith("bio"):
             del bw.databases[db_name]
 
     resetDb(USER_DB, foreground=True)
