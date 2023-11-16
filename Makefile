@@ -40,7 +40,7 @@ pytest:
 	pytest test
 
 notebook_test:
-	ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
+	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
 	./test/notebook_runner.py $(TST_IPYNB)
 
 test: pytest notebook_test

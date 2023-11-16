@@ -713,7 +713,7 @@ def sobol_simplify_model(
     res = []
 
     # Generate simplified model
-    exprs, _ = _modelToExpr(model, methods)
+    exprs = _modelToExpr(model, methods)
 
     for imethod, method in enumerate(methods) :
 

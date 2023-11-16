@@ -51,6 +51,8 @@ Thus, a model defined with **lca-algebraic** is stored as a regular **bw2** proj
 
 The followng notebook explores the main functions.
 Full documentation of the functions is [available here](https://oie-mines-paristech.github.io/lca_algebraic/doc/)
+
+
 <!-- #endregion -->
 
 ```{python}
@@ -354,19 +356,12 @@ alu2.addExchanges({alu_scrap :  12})
 
 ## Final model
 
-Usually, we normalize the final model as the whole LCI divided by the functional value (production of the system)
-
 
 ```{python}
-functional_value = a + 5
-
 total_inventory = newActivity(USER_DB, "total_inventory", "kg", {
     activity1 : b * 5 + a + 1, # Reference the activity we just created
     alu2: 3 * share_recycled_aluminium, 
     alu:0.4 * a})
-
-normalized_model = newActivity(USER_DB, "normalized model", "kg", {
-    model : 1 / functional_value})
 ```
 
 ## Or load existing model /activities from database
@@ -377,7 +372,6 @@ We don't recommand it while developping the model as it may lead to unstable cod
 ```{python}
 activity1 = findActivity("first foreground activity", db_name=USER_DB)
 total_inventory = findActivity("total_inventory", db_name=USER_DB)
-normalized_model = findActivity("normalized model", db_name=USER_DB)
 alu2 = findActivity("Aluminium 2", db_name=USER_DB)
 ```
 
@@ -418,20 +412,30 @@ set_custom_impact_labels({
     impacts[1]: 'Climate change'})
 ```
 
-# Compute LCA
+# Compute impacts
 
-We provide two methods  for computing LCA : 
-* **multiLCA** : It uses **brightway2** native parametric support. It is **much slower** and kept for **comparing results**.
-* **multiLCAAlgebric** : It computes an algebric expression of the model and computes LCA once for all the background activities. Then it express each impact as a function of the parameters. This expression is then compiled into 'numpy' native code, for fast computation on vectors of samples. This version is 1 million time faster.
+## Define functional unit
+
+The functional unit is a quantity that can be parametrized
+
 
 ```{python}
-# %%time
+functional_value = a + 5
+```
 
+```{python}
 # Uses brightway2 parameters
-multiLCA(
-    normalized_model, 
+compute_impacts(
+    
+    # Root activity of our inventory
+    total_inventory, 
+    
+    # list of impacts to consider
     impacts, 
-                   
+    
+    # The impaxts will be divided by the functional unit
+    functional_unit=functional_value,
+    
     # Parameters of the model
     a=1.0,
     elec_switch_param="us",
@@ -439,13 +443,15 @@ multiLCA(
 ```
 
 ```{python}
-# %%time
+# We can provide list of values as parameters
+
 
 # Compute with algebric implementation
 # The values should be the same as above
-multiLCAAlgebric(
-    normalized_model, # The model 
+compute_impacts(
+    total_inventory, # The model 
     impacts, # Impacts
+    functional_unit = functional_value, 
     
     # Parameters of the model
     a=[1, 2, 3], 

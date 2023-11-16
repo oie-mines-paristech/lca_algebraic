@@ -3,6 +3,7 @@ from collections import OrderedDict
 from typing import Dict, List
 
 from sympy import lambdify, simplify
+import sympy
 
 from .base_utils import _actName, error, _getDb, _method_unit
 from .base_utils import _getAmountOrFormula
@@ -11,6 +12,7 @@ from .helpers import _actDesc, _isForeground
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
 from .globs import _BG_IMPACTS_CACHE
 from warnings import warn
+
 
 def _impact_labels():
     """Dictionnary of custom impact names
@@ -98,14 +100,6 @@ def _modelToExpr(
         model,
         axis=axis)
 
-    # Required params
-    free_names = set([str(symb) for symb in expr.free_symbols])
-    act_names = set([str(symb) for symb in actBySymbolName.keys()])
-    expected_names = free_names - act_names
-
-    # If we expect an enum param name, we also expect the other ones : enumparam_val1 => enumparam_val1, enumparam_val2, ...
-    expected_names = _expand_param_names(_expanded_names_to_names(expected_names))
-
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
     # We create a technosphere activity mapping exactly to 1 biosphere item
@@ -123,7 +117,7 @@ def _modelToExpr(
         sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
         exprs.append(expr.xreplace(sub))
 
-    return exprs, expected_names
+    return exprs
 
 
 def _filter_param_values(params, expanded_param_names) :
@@ -179,8 +173,21 @@ class LambdaWithParamNames :
             self.params = params
 
             if expanded_params is None :
+                if params is None :
+                    # Required params are guessed from free symbols
+                    if isinstance(self.expr, sympy.Basic) :
+                        expanded_params = set([str(symb) for symb in self.expr.free_symbols])
+                    else:
+                        expanded_params = set()
+
+                    params = _expanded_names_to_names(expanded_params)
+                    self.params = params
+
+                # We expand again the parameters
+                # If we expect an enum param name, we also expect the other ones : enumparam_val1 => enumparam_val1, enumparam_val2, ...
                 expanded_params = _expand_param_names(params)
-            if self.params is None :
+
+            elif self.params is None :
                 self.params = _expanded_names_to_names(expanded_params)
 
             self.lambd = _lambdify(exprOrDict, expanded_params)
@@ -249,12 +256,12 @@ def _preMultiLCAAlgebric(
         This method is used by multiLCAAlgebric
     '''
     with DbContext(model) :
-        exprs, expected_names = _modelToExpr(
+        exprs = _modelToExpr(
             model, methods,
             axis=axis)
 
         # Lambdify (compile) expressions
-        return [LambdaWithParamNames(expr, expected_names) for expr in exprs]
+        return [LambdaWithParamNames(expr) for expr in exprs]
 
 
 def method_name(method):
@@ -351,12 +358,9 @@ def compute_value(formula, **params):
     if isinstance(formula, float) or isinstance(formula, int):
         return formula
 
-    symbols = {str(free): free for free in formula.free_symbols}
-    replace_vals = {symbol: symbol.default for name, symbol in symbols.items()}
-    replace_vals.update({symbols[name]: value for name, value in params.items() if name in symbols})
-
-    return formula.evalf(subs=replace_vals)
-
+    lambd = LambdaWithParamNames(formula)
+    params = lambd.complete_params(params)
+    return lambd.compute(**params)
 
 
 def multiLCAAlgebric(*args, **kwargs) :
@@ -368,7 +372,7 @@ def compute_impacts(
         models,
         methods,
         axis=None,
-        functionnal_unit=1,
+        functional_unit=1,
         **params):
     """
     Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
@@ -417,9 +421,9 @@ def compute_impacts(
 
             lambdas = _preMultiLCAAlgebric(model, methods, axis=axis)
 
-            if functionnal_unit != 1 :
-                functionnal_unit = compute_value(functionnal_unit, **params)
-                alpha = alpha / functionnal_unit
+            if functional_unit != 1 :
+                functional_unit = compute_value(functional_unit, **params)
+                alpha = alpha / functional_unit
 
             df = _postMultiLCAAlgebric(methods, lambdas, alpha=alpha, **params)
 

@@ -391,6 +391,38 @@ def test_axis(data) :
 
     assert res == expected
 
+def test_compute_impacts_with_parametrized_fu(data) :
+
+    p1 = newFloatParam("p1", 2, min=1, max=3)
+
+    m1 = newActivity(USER_DB, "m1", "kg",
+                     {data.bio1: 4 * p1})
+
+    # Functional unit is parametrized
+    fu_value = 2 * p1
+
+    # Compute single value
+    res = compute_impacts(
+        m1,
+        [data.ibio1],
+        functional_unit=fu_value,
+        p1=[1.0])
+
+    assert res.iloc[0, 0] == 2.0
+
+
+    # Compute list of values
+    res = compute_impacts(
+        m1,
+        [data.ibio1],
+        functional_unit=fu_value,
+        p1=[1.0, 2.0])
+
+    print(res)
+
+    assert res.iloc[0, 0] == 2.0
+    assert res.iloc[1, 0] == 2.0
+
 
 def test_should_list_params_with_mixed_groups(data) :
     """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13 """
