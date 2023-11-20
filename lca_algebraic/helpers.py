@@ -1,24 +1,23 @@
 import functools
-import inspect
 import re
 import types
 
 from copy import deepcopy
 from itertools import chain
 
-
-import pandas as pd
+from bw2data.backends.peewee import ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
-from bw2data.parameters import ParameterManager
-from sympy import symbols, Piecewise, simplify
+from sympy import symbols, Piecewise, simplify, Basic, Expr
 
 from .base_utils import *
-from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName, _isOutputExch
-from .params import *
-from .params import _param_registry, _completeParamValues
-from typing import Tuple, Dict
+from .base_utils import _getDb, _actDesc, _actName, _isOutputExch
+from .params import _getAmountOrFormula, DbContext
+from .params import _param_registry, _completeParamValues, EnumParam, ParamDef
+from typing import Tuple, Dict, Union
 import inspect
+from collections import defaultdict
+import pandas as pd
 
 
 BIOSPHERE3_DB_NAME="biosphere3"
@@ -935,3 +934,6 @@ def findMethods(search=None, mainCat=None) :
         if match :
             res.append(method)
     return res
+
+
+

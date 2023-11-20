@@ -1,12 +1,9 @@
 from contextlib import AbstractContextManager
 from sys import stderr
-from typing import Union
 
 import brightway2 as bw
-from bw2data.backends.peewee import Activity, ExchangeDataset
+from bw2data.backends.peewee import Activity
 from six import raise_from
-from sympy import Basic
-from sympy.parsing.sympy_parser import parse_expr
 import ipywidgets as widgets
 from IPython.core.display import display
 import numpy as np
@@ -91,17 +88,6 @@ def _actName(act: Activity):
     if 'location' in act and act['location'] != 'GLO':
         res += "[%s]" % act["location"]
     return res
-
-
-def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
-    """ Return either a fixed float value or an expression for the amount of this exchange"""
-    if 'formula' in ex:
-        try:
-            return parse_expr(ex['formula'])
-        except:
-            error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
-
-    return ex['amount']
 
 
 def displayWithExportButton(df):

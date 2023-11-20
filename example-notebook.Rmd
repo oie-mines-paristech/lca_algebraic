@@ -121,16 +121,16 @@ The result is then a **symbolic expression that can be manipulated**, instead of
 from sympy import symbols 
 
 # create sympy symbol
-a = symbols("a")
+x = symbols("x")
 
 # Expressions are not directly evaluated 
-f = a * 2 + 4 
+f = x * 2 + 4 
 f
 ```
 
 ```{python}
 # symbols can be replaced by values afterwards 
-f.subs(dict(a=3))
+f.subs(dict(x=3))
 ```
 
 In practice, you don't need to care about Sympy. Just remember that : 
@@ -155,7 +155,7 @@ a = newFloatParam(
     label="extended label for a")
 
 b = newFloatParam(
-    'b2',
+    'b',
     default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
@@ -163,7 +163,7 @@ b = newFloatParam(
 # We recommand this for team working / working with several DBs
 # lca_algebraic supports resolution of parameters with duplicate names attached to different scopes 
 b2 = newFloatParam(
-    'b',
+    'b2',
     default=0.5, # Fixed if no min /max provided
     description="foo bar",
     dbname=USER_DB)
@@ -228,11 +228,6 @@ Foreground databases are considered parametric and their activities are developp
 ## Set status of a database
 
 The functions **setForeground(...)** and **setBackground(...)** change the status of a database.
-
-```{python}
-setBackground(USER_DB)
-list_databases()
-```
 
 ```{python}
 setForeground(USER_DB)
@@ -390,7 +385,7 @@ printAct(total_inventory)
 
 ```{python}
 # You can also compute amounts by replacing parameters with a float value 
-printAct(activity1, b=1.5) 
+printAct(activity1, b=1.5)
 ```
 
 ```{python}
@@ -667,5 +662,13 @@ Finally, we can compare the distribution of those simplified model against the f
 
 
 ```{python}
-compare_simplified(normalized_model, impacts, simplified)
+compare_simplified(
+    total_inventory, 
+    impacts, 
+    simplified,
+    functional_unit=functional_value)
+```
+
+```{python}
+
 ```

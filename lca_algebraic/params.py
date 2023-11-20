@@ -2,7 +2,7 @@ import builtins
 import enum
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, Union, Tuple
+from typing import Dict, List, Union, Tuple, Any
 
 import brightway2 as bw
 import ipywidgets as widgets
@@ -10,20 +10,18 @@ import numpy as np
 import pandas as pd
 from IPython.core.display import HTML
 from bw2data.backends import LCIBackend
-from bw2data.backends.peewee import Activity
+from bw2data.backends.peewee import Activity, ExchangeDataset
 from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from bw2data.proxies import ActivityProxyBase
 from lca_algebraic.base_utils import ExceptionContext
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
-from sympy import Symbol, Basic, Expr
+from sympy import Symbol, Basic, Expr, parse_expr
 from tabulate import tabulate
 
 from .base_utils import _snake2camel
-from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
-
-import lca_algebraic.base_utils
-from .base_utils import as_np_array, _getAmountOrFormula, _actName
+from .base_utils import error, as_np_array, LANG
+from .base_utils import as_np_array, _actName
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -156,6 +154,8 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
         assumptions = dict()
+        assumptions["real"] = True
+
         if 'dbname' in kargs and kargs['dbname'] :
             assumptions[kargs['dbname']] = True
 
@@ -705,6 +705,10 @@ class ParamRegistry :
         else :
             return params_per_db[None]
 
+
+    def as_dict(self):
+        return dict(self.items())
+
     def __setitem__(self, key, param : ParamDef):
         if param.dbname in self.params[key]:
             error("[ParamRegistry] Param %s was already defined in '%s' : overriding." %
@@ -750,13 +754,20 @@ def _param_registry() -> ParamRegistry :
 
     return builtins.param_registry
 
-def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False) :
+def _toSymbolDict(params : Dict[str, Any]):
+    """ Replace names with actual params as key when possible """
+    all_params = _param_registry().as_dict()
+    return {all_params[name] if name in all_params else Symbol(name) : val for name, val in params.items()}
+
+def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False):
     """Check parameters and expand enum params.
 
     Returns
     -------
         Dict of param_name => float value
     """
+
+    params = params.copy()
 
     # Add default values for required params
     if required_params :
@@ -784,6 +795,10 @@ def _completeParamValues(params: Dict[str, ParamValues], required_params : List[
             res.update(_listOfDictToDictOflist(newvals))
         else:
             res.update(param.expandParams(val))
+
+    # Replace param name with full symbols
+
+    res = _toSymbolDict(res)
     return res
 
 
@@ -862,7 +877,7 @@ def freezeParams(db_name, **params) :
                 # Amount is a formula ?
                 if isinstance(amount, Expr):
 
-                    replace = {name: value for name, value in _completeParamValues(params, setDefaults=True).items()}
+                    replace = {param: value for param, value in _completeParamValues(params, setDefaults=True).items()}
                     val = amount.evalf(subs=replace)
 
                     with ExceptionContext(val) :
@@ -924,3 +939,14 @@ def _expanded_names_to_names(param_names):
         raise Exception("Unkown params : %s" % missing)
 
     return {param.name for param in res.values()}
+
+
+def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
+    """ Return either a fixed float value or an expression for the amount of this exchange"""
+    if 'formula' in ex:
+        try:
+            return parse_expr(ex['formula'], local_dict=_param_registry().as_dict())
+        except Exception as e:
+            error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
+
+    return ex['amount']

@@ -19,7 +19,7 @@ from sympy.core.operations import AssocOp
 from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
-from .params import _variable_params, _param_registry, FixedParamMode, _param_name
+from .params import _variable_params, _param_registry, FixedParamMode, _param_name, NameType
 
 PARALLEL=False
 
@@ -768,9 +768,9 @@ def sobol_simplify_model(
 
         expr = exprs[imethod]
 
-        # Replace extra fixed params
-        extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
-        expr = _replace_fixed_params(expr, extraFixedParams, fixed_mode=fixed_mode)
+        # Replace non selected params by their value
+        fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = _replace_fixed_params(expr, fixed_params, fixed_mode=fixed_mode)
 
         # Sympy simplification
         expr = simplify(expr)

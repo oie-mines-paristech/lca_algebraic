@@ -1,18 +1,18 @@
 import concurrent.futures
 from collections import OrderedDict
-from typing import Dict, List
+from typing import Dict, List, Any
 
-from sympy import lambdify, simplify
-import sympy
+from sympy import lambdify, simplify, Expr, Symbol, parse_expr
 
 from .base_utils import _actName, error, _getDb, _method_unit
-from .base_utils import _getAmountOrFormula
 from .helpers import *
-from .helpers import _actDesc, _isForeground
-from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names
+from .helpers import _actDesc, _isForeground, _getAmountOrFormula
+from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names, \
+    FixedParamMode, freezeParams, _toSymbolDict
 from .globs import _BG_IMPACTS_CACHE
 from warnings import warn
-
+import pandas as pd
+import builtins
 
 def _impact_labels():
     """Dictionnary of custom impact names
@@ -222,6 +222,8 @@ class LambdaWithParamNames :
 
         # Check and expand enum params, add default values
         res = _completeParamValues(params, self.params)
+
+        res = {str(symbol):val for symbol, val in res.items()}
 
         # Expand single params and transform them to np.array
         for key in res.keys():
@@ -512,9 +514,12 @@ def _createTechProxyForBio(act_key, target_db):
         return act
 
 
+
 def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT) :
     """Replace fixed params with their value."""
-    sub = {symbols(key): val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
+
+    sub = {key: val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
+    sub = _toSymbolDict(sub)
     return expr.xreplace(sub)
 
 
@@ -578,7 +583,7 @@ def actToExpression(
 
         return act_symbols[(db_name, code)]
 
-    def rec_func(act: Activity, parents=[]):
+    def rec_func(act: ActivityExtended, parents=[]):
 
         res = 0
         outputAmount = act.getOutputAmount()
