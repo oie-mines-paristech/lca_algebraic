@@ -86,6 +86,7 @@ def _multiLCAWithCache(acts, methods) :
 def _modelToExpr(
         model: ActivityExtended,
         methods,
+        alpha=1,
         axis=None):
     '''
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
@@ -99,6 +100,8 @@ def _modelToExpr(
     expr, actBySymbolName = actToExpression(
         model,
         axis=axis)
+
+    expr = expr * alpha
 
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
@@ -266,10 +269,11 @@ def _preMultiLCAAlgebric(
     with DbContext(model) :
         exprs = _modelToExpr(
             model, methods,
+            alpha=alpha,
             axis=axis)
 
         # Lambdify (compile) expressions
-        return [LambdaWithParamNames(expr*alpha) for expr in exprs]
+        return [LambdaWithParamNames(expr) for expr in exprs]
 
 
 def method_name(method):

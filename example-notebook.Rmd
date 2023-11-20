@@ -155,7 +155,7 @@ a = newFloatParam(
     label="extended label for a")
 
 b = newFloatParam(
-    'b',
+    'b2',
     default=0.5, # Fixed if no min /max provided
     description="foo bar")
 
@@ -402,14 +402,13 @@ printAct(alu, alu2)
 
 ```{python}
 # List of impacts to consider
-impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
-```
-
-```{python}
-# You can provide alternate names for some methods
-set_custom_impact_labels({
-    impacts[0] : 'Resource usage',
-    impacts[1]: 'Climate change'})
+SELECTION = [
+    "mineral, fossils and renewables", 
+    "carcinogenic effects",
+    "GWP 100a",
+    "land use"]
+impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m) and m[2] in SELECTION]
+impacts
 ```
 
 # Impacts
@@ -466,7 +465,6 @@ compute_impacts(
     [alu, alu2], # The models
     
     impacts, # Impacts
-    functional_unit = functional_value, 
     
     # Parameters of the model
     share_recycled_aluminium=0.3,
@@ -505,10 +503,18 @@ activity1.updateMeta(phase= "phase b")
 compute_impacts(
     total_inventory, # The model
     impacts, # Impacts
-    axis="phase")
+    
+    functional_unit = functional_value,
+    axis="phase",
+
+    
+    # Parameters
+    a=1.0,
+    elec_switch_param="us",
+    share_recycled_aluminium=0.4)
 ```
 
- # Statistic functions
+ # Sensitivity analysis 
  
  ## One at a time 
  
@@ -662,8 +668,4 @@ Finally, we can compare the distribution of those simplified model against the f
 
 ```{python}
 compare_simplified(normalized_model, impacts, simplified)
-```
-
-```{python}
-
 ```

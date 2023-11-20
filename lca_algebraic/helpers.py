@@ -79,7 +79,9 @@ def list_databases() :
         dict(
             name=name,
             backend=_getMeta(name, "backend"),
+            nb_activities=len(bw.Database(name)),
             type="foreground" if _isForeground(name) else "background") for name in bw.databases)
+
     res = pd.DataFrame(data)
     return res.set_index("name")
 

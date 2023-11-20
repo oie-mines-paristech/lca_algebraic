@@ -726,7 +726,9 @@ def sobol_simplify_model(
     res = []
 
     # Generate simplified model
-    exprs = _modelToExpr(model, methods)
+    exprs = _modelToExpr(
+        model, methods,
+        alpha=1/functional_unit)
 
     for imethod, method in enumerate(methods) :
 
@@ -765,9 +767,6 @@ def sobol_simplify_model(
         print("Selected params : ", selected_params, "explains: ", sum)
 
         expr = exprs[imethod]
-
-        # Functional unit
-        expr = expr / functional_unit
 
         # Replace extra fixed params
         extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
