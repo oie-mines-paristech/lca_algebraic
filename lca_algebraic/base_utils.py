@@ -33,7 +33,7 @@ def error(*args, **kwargs):
 
 
 def _isOutputExch(exc) :
-    return exc.get('input') == exc.get('output') or exc.get("type") == "production"
+    return exc.get("type") == "production"
 
 
 def _isnumber(value):
@@ -67,10 +67,7 @@ def Min(a, b) :
 def _actDesc(act: Activity):
     """Generate pretty name for activity + basic information """
     name = _actName(act)
-    amount = 1
-    for ex in act.exchanges() :
-        if _isOutputExch(ex):
-            amount = ex['amount']
+    amount = act.getOutputAmount()
 
     return "%s (%f %s)" % (name, amount, act['unit'])
 

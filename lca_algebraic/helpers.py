@@ -360,12 +360,11 @@ class ActivityExtended(Activity):
     def getOutputAmount(self):
 
         """ Return the amount of the production : 1 if none is found """
-        res = 1
+        res = 1.0
+
         for exch in self.exchanges() :
-            if exch['input'] == exch['output']:
-                # Not 1 ?
-                if exch['amount'] != 1:
-                    res = exch['amount']
+            if (exch['input'] == exch['output']) and (exch["type"] == "production"):
+                res = exch['amount']
                 break
         return res
 
@@ -782,7 +781,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def printAct(*args, impact=None, **params):
+def printAct(*args, **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
@@ -792,7 +791,6 @@ def printAct(*args, impact=None, **params):
     names = []
 
     activities = args
-
 
     for act in activities:
         with DbContext(act.key[0]) :

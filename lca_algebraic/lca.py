@@ -583,7 +583,9 @@ def actToExpression(
 
         return act_symbols[(db_name, code)]
 
-    def rec_func(act: ActivityExtended, parents=[]):
+    # Local cache of expressions
+
+    def actToExpressionRec(act: ActivityExtended, parents=[]):
 
         res = 0
         outputAmount = act.getOutputAmount()
@@ -618,7 +620,7 @@ def actToExpression(
                 if sub_act in parents :
                     raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
 
-                act_expr = rec_func(sub_act, parents)
+                act_expr = actToExpressionRec(sub_act, parents)
 
             avoidedBurden = 1
 
@@ -636,7 +638,7 @@ def actToExpression(
 
         return res
 
-    expr = rec_func(act)
+    expr = actToExpressionRec(act)
 
     if isinstance(expr, float) :
         expr = simplify(expr)
