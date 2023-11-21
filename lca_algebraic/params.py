@@ -288,11 +288,11 @@ class ParamDef(Symbol):
             return self._distrib.ppf(alpha)
 
     def __hash__(self):
-        return hash((self.dbname, self.name))
+        return hash((getattr(self, "dbname", ""), self.name))
 
     def __eq__(self, other):
         if isinstance(other, ParamDef) :
-            return self.name == other.name and self.dbname == other.dbname
+            return self.name == other.name and getattr(self, 'dbname', None) == getattr(other, 'dbname', None)
         else :
             return Symbol.__eq__(self, other)
 
@@ -594,7 +594,7 @@ def loadParams(global_variable=True, dbname=None):
                 continue
         else :
             # Float parameter
-            if type is None:
+            if type is None or type == _UncertaintyType.UNDEFINED:
                 error("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
                 type = _UncertaintyType.UNIFORM
 

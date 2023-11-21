@@ -8,6 +8,8 @@ Fix bug in ActivityExtended#getExchanges introduced by merge #14
 * findActivities() is now case insensitive by default
 * Fixed bug #38 : getOutputAmount was wrong with activities having circular input exchanges with themselves
 * Fixed bug #37 : Increased number of results in findActivities
+* Added disk cache of LCIA results and act Expressions
+* Fixed bug when loading params with undefined uncertainty  
 
 # 1.0.4 
 

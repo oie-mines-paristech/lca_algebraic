@@ -4,12 +4,13 @@ from typing import Dict, List, Any
 
 from sympy import lambdify, simplify, Expr, Symbol, parse_expr
 
+from .log import logger
 from .base_utils import _actName, error, _getDb, _method_unit
+from .cache import LCIACache, ExprCache
 from .helpers import *
 from .helpers import _actDesc, _isForeground, _getAmountOrFormula
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names, \
     FixedParamMode, freezeParams, _toSymbolDict
-from .globs import _BG_IMPACTS_CACHE
 from warnings import warn
 import pandas as pd
 import builtins
@@ -66,20 +67,23 @@ def multiLCA(models, methods, **params):
 """ Compute LCA and return (act, method) => value """
 def _multiLCAWithCache(acts, methods) :
 
-    # List activities with at least one missing value
-    remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in _BG_IMPACTS_CACHE))
+    with LCIACache() as cache :
 
-    if (len(remaining_acts) > 0) :
-        lca = _multiLCA(
-            [{act: 1} for act in remaining_acts],
-            methods)
+        # List activities with at least one missing value
+        remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in cache.data))
 
-        # Set output from dataframe
-        for imethod, method in enumerate(methods) :
-            for iact, act in enumerate(remaining_acts) :
-                _BG_IMPACTS_CACHE[(act, method)] = lca.iloc[imethod, iact]
+        if (len(remaining_acts) > 0) :
+            lca = _multiLCA(
+                [{act: 1} for act in remaining_acts],
+                methods)
 
-    return _BG_IMPACTS_CACHE
+            # Set output from dataframe
+            for imethod, method in enumerate(methods) :
+                for iact, act in enumerate(remaining_acts) :
+                    cache.data[(act, method)] = lca.iloc[imethod, iact]
+
+        # Return a copy of the cache for selected impacts and activities
+        return {(act, method):  cache.data[(act, method)] for act in acts for method in methods}
 
 
 
@@ -96,12 +100,21 @@ def _modelToExpr(
     <list of expressions (one per impact)>, <list of required param names>
 
     '''
-    # print("computing model to expression for %s" % model)
-    expr, actBySymbolName = actToExpression(
-        model,
-        axis=axis)
+
+    # Try to load from cache
+    with ExprCache() as cache :
+        if not model in cache.data :
+            expr, actBySymbolName = actToExpression(
+                model,
+                axis=axis)
+            cache.data[model] = (expr, actBySymbolName)
+
+        expr, actBySymbolName = cache.data[model]
 
     expr = expr * alpha
+
+    #if logger.isEnabledFor("DEBUG") :
+    logger.debug(f"Length of expression : {len(str(expr))}")
 
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
@@ -119,6 +132,9 @@ def _modelToExpr(
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
         exprs.append(expr.xreplace(sub))
+
+
+
 
     return exprs
 

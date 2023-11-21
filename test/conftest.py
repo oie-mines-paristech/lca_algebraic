@@ -4,7 +4,7 @@ import brightway2
 import pytest
 
 from lca_algebraic import initProject, resetDb, resetParams
-from lca_algebraic.globs import _clearLCACache
+from lca_algebraic.cache import clear_caches
 from test.fixtures import init_acts, init_methods
 import brightway2 as bw
 
@@ -41,4 +41,4 @@ def reset_db() :
 
     resetDb(USER_DB, foreground=True)
     resetParams()
-    _clearLCACache()
+    clear_caches()
