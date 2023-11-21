@@ -433,7 +433,7 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, case_sensitive=False, unit=None) -> ActivityExtended :
+                 single=True, case_sensitive=False, unit=None, limit=1500) -> ActivityExtended :
 
     """
         Find activity by name & location
@@ -493,12 +493,12 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
         # Find candidates via index
         # candidates = _find_candidates(db_name, name_key)
-        candidates = _getDb(db_name).search(search, limit=200)
+        candidates = _getDb(db_name).search(search, limit=limit)
 
         if len(candidates) == 0 :
             # Try again removing strange caracters
             search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
-            candidates = _getDb(db_name).search(search, limit=200)
+            candidates = _getDb(db_name).search(search, limit=limit)
 
         # Exact match
         acts = list(filter(act_filter, candidates))
@@ -508,7 +508,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
         raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, any_name, loc))
     if single and len(acts) > 1:
         raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (
-            db_name, name, loc, str(acts)))
+            db_name, name, loc, "\n".join(str(act) for act in acts)))
     if len(acts) == 1:
         return acts[0]
     else:
