@@ -29,7 +29,7 @@ tst-upload-pip:
 	twine upload --repository-url https://test.pypi.org/legacy/ dist/lca_algebraic*
 
 upload-pip:
-	twine upload -u oie-minesparistech dist/lca_algebraic*
+	twine upload dist/lca_algebraic*
 
 upload-conda:
 	anaconda upload --force ~/mambaforge/conda-bld/noarch/lca_algebraic-$(VERSION)-py_0.tar.bz2
