@@ -664,9 +664,9 @@ def newBoolParam(name, default, dbname=None, **kwargs):
     """ Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.BOOL, dbname=dbname, default=default, **kwargs)
 
-def newEnumParam(name, default, dbname=None, **kwargs):
+def newEnumParam(name, default, values: Union[List[str], Dict[str, float]], dbname=None, **kwargs):
     """ Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, **kwargs)
+    return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, values=values, **kwargs)
 
 def _variable_params(param_names=None):
     if param_names is None :
@@ -700,24 +700,29 @@ class ParamRegistry :
         return len(self.params)
 
     def __getitem__(self, key):
-        params_per_db = self.params[key]
-        if len(params_per_db) == 1 :
-            return list(params_per_db.values())[0]
 
-        if DbContext.current_db() == None :
-            dbs = [key or '<project>' for key in params_per_db.keys()]
-            raise DuplicateParamsAndNoContextException(
+        try:
+            params_per_db = self.params[key]
+            if len(params_per_db) == 1 :
+                return list(params_per_db.values())[0]
 
-                """
-                Found several params with name '%s', linked to databases (%s) . Yet no context is provided. 
-                Please embed you code in a DbContext :
-                    with DbContext(currentdb) :
-                        <code>
-                """ % (key, ", ".join(dbs)))
-        if DbContext.current_db() in params_per_db :
-            return params_per_db[DbContext.current_db()]
-        else :
-            return params_per_db[None]
+            if DbContext.current_db() == None :
+                dbs = [key or '<project>' for key in params_per_db.keys()]
+                raise DuplicateParamsAndNoContextException(
+
+                    """
+                    Found several params with name '%s', linked to databases (%s) . Yet no context is provided. 
+                    Please embed you code in a DbContext :
+                        with DbContext(currentdb) :
+                            <code>
+                    """ % (key, ", ".join(dbs)))
+            if DbContext.current_db() in params_per_db :
+                return params_per_db[DbContext.current_db()]
+            else :
+                return params_per_db[None]
+
+        except KeyError :
+            raise Exception(f"Parameter {key} not found :. Valid parameters : {self.keys()}")
 
 
     def as_dict(self):
@@ -779,7 +784,7 @@ def _compute_param_length(params) :
     # Check length of parameter values
     param_length = 1
     for key, val in params.items():
-        if isinstance(val, list):
+        if isinstance(val, (list, np.ndarray)):
             if param_length == 1:
                 param_length = len(val)
             elif param_length != len(val):
@@ -787,71 +792,62 @@ def _compute_param_length(params) :
     return param_length
 
 
-
-def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, asSymbols=True):
-    """
-    Check parameters and expand enum params.
-    Also transform single values to list of param values of same size
-
-    Returns
-    -------
-        Dict of param_name => float value
-    """
-    initial_params = params.copy()
-    params = params.copy()
-
-    param_length = _compute_param_length(params)
-
-    # Add default values for required params
-    if required_params :
-        for param_name in required_params :
-            param = _param_registry()[param_name]
-            if not param_name in params :
-                params[param_name] = param.default
-                logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
-
-    # Expand single values to lists of values of same size
+def _expand_params(param_values:Dict[str, ParamValues]):
     res = dict()
-    for key, val in params.items():
-        if key in _param_registry():
-            param = _param_registry()[key]
-        else:
-            raise Exception("Parameter not found : %s. Valid parameters : %s" % (key, list(_param_registry().keys())))
 
-        if isinstance(val, list):
+    # Expand enum values
+    for key, val in list(param_values.items()):
+
+        param = _param_registry()[key]
+
+        if isinstance(val, (list, np.ndarray)):
             newvals = [param.expandParams(val) for val in val]
             res.update(_listOfDictToDictOflist(newvals))
         else:
             res.update(param.expandParams(val))
 
+    # Expand single values to lists of values of same size
+    param_length = _compute_param_length(res)
     if param_length > 1 :
-        for key in list(res.keys()):
-            val = res[key]
-            if not isinstance(val, list):
+        for key, val in list(res.items()):
+            if not isinstance(val, (list, np.ndarray)):
                 val = list([val] * param_length)
             res[key] = np.array(val, float)
 
-    # Compute values from formula for required params
+    return res
+
+def _complete_and_expand_params(params: Dict[str, ParamValues], required_params : List[str]=None, asSymbols=True):
+    """
+    Check parameters and expand enum params.
+    Also transform single values to list of param values of same size and compute formulas of missing params.
+
+    Returns
+    -------
+        Dict of param_name => float value or np.arary of float values
+    """
+    params = params.copy()
+
+    # Add default values for required params
     if required_params:
         for param_name in required_params :
             param = _param_registry()[param_name]
 
-            # Required param has formula and was not set a value ?
-            if param.formula is None or param.name in initial_params:
-                continue
+            if not param_name in params :
+                if param.formula :
+                    params[param_name] = compute_expr_value(param.formula, params)
+                    logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
+                else:
+                    params[param_name] = param.default
+                    logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
 
-            # Override the value
-            res[param_name] = compute_expr_value(param.formula, res)
-
-            logger.info(f"Param {param_name} was not set. Computing its value from formula :  {res[param_name]}")
-
-
+    # Expand enum values and list of values
+    params = _expand_params(params)
 
     # Replace param name with full symbols
     if asSymbols:
-        res = _toSymbolDict(res)
+        params = _toSymbolDict(params)
 
-    return res
+    return params
 
 
 def resetParams(db_name=None):
@@ -915,7 +911,9 @@ def compute_expr_value(expr:Expr, param_values:Dict) :
     free_symbols = [str(symbol) for symbol in expr.free_symbols]
     lambd = lambdify(free_symbols, expr)
 
-    values = _completeParamValues(param_values, required_params=free_symbols, asSymbols=False)
+    required_params = _expanded_names_to_names(free_symbols)
+
+    values = _complete_and_expand_params(param_values, required_params=required_params, asSymbols=False)
 
     # Filter only required params
     values = {name: val for name, val in values.items() if name in free_symbols}

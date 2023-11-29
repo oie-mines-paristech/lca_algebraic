@@ -13,7 +13,7 @@ from sympy import symbols, Piecewise, simplify, Basic, Expr
 from .base_utils import *
 from .base_utils import _getDb, _actDesc, _actName, _isOutputExch
 from .params import _getAmountOrFormula, DbContext
-from .params import _param_registry, _completeParamValues, EnumParam, ParamDef
+from .params import _param_registry, _complete_and_expand_params, EnumParam, ParamDef
 from typing import Tuple, Dict, Union
 import inspect
 from collections import defaultdict
@@ -734,7 +734,10 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
 
     return res
 
+ValueOrExpression = Union[int, float, Expr]
+
 ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
+
 def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
     """Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
@@ -781,6 +784,14 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
+def switchValue(param:EnumParam, **values:Dict[str, ValueOrExpression]):
+    """Defines different formulas for each value of an eum """
+    
+    res = 0
+    for key, val in values.items():
+        res += param.symbol(key) * val
+    return res
+
 def printAct(*args, **params):
     """
     Print activities and their exchanges.
@@ -808,7 +819,7 @@ def printAct(*args, **params):
 
                 # Params provided ? Evaluate formulas
                 if len(params) > 0 and isinstance(amount, Basic):
-                    new_params = [(name, value) for name, value in _completeParamValues(params).items()]
+                    new_params = [(name, value) for name, value in _complete_and_expand_params(params).items()]
                     amount = amount.subs(new_params)
 
                 ex_name = _exch_name(exc)

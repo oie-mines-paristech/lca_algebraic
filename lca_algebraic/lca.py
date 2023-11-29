@@ -9,7 +9,7 @@ from .base_utils import _actName, error, _getDb, _method_unit
 from .cache import LCIACache, ExprCache
 from .helpers import *
 from .helpers import _actDesc, _isForeground, _getAmountOrFormula
-from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names, \
+from .params import _param_registry, _complete_and_expand_params, _fixed_params, _expanded_names_to_names, _expand_param_names, \
     FixedParamMode, freezeParams, _toSymbolDict, compute_expr_value, _compute_param_length
 from warnings import warn
 import pandas as pd
@@ -237,13 +237,14 @@ class LambdaWithParamNames :
         else:
             return None
 
-    def complete_params(self, params):
-        return _completeParamValues(params, self.params, asSymbols=False)
-
     def compute(self, **params):
         """Compute result value based of input parameters """
-        # Filter on required parameters
+
+        params = _complete_and_expand_params(params, self.params, asSymbols=False)
+
+        # Remove parameters that are not required
         params = _filter_param_values(params, self.expanded_params)
+
         return self.lambd(**params)
 
     def serialize(self) :
@@ -323,12 +324,11 @@ def _postMultiLCAAlgebric(
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
+
         imethod = args[0]
         lambd : LambdaWithParamNames = args[1]
 
-        completed_params = lambd.complete_params(params)
-
-        value = lambd.compute(**completed_params)
+        value = lambd.compute(**params)
 
         # Expand axis values as a list, to fit into the result numpy array
         if lambd.has_axis :
@@ -369,7 +369,7 @@ def compute_value(formula, **params):
         return formula
 
     lambd = LambdaWithParamNames(formula)
-    params = lambd.complete_params(params)
+
     return lambd.compute(**params)
 
 

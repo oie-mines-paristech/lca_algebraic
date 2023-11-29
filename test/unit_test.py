@@ -304,12 +304,19 @@ def test_db_params_lca(data) :
     assert res.values[0] == 8.0
 
 
-def test_params_with_formulas(data) :
+def test_params_with_formulas(data):
+
     p1 = newFloatParam("p1", default=1, min=0, max=2)
     p2 = newFloatParam("p2", default=0, min=0, max=2, formula=2*p1)
+    p3 = newFloatParam("p3", default=0, min=0, max=3, formula=2*p2)
 
+    # act1 = bio1 : p2
     act1 = newActivity(USER_DB, "act1", "kg",
                      {data.bio1: p2})
+
+    # act2 = bio1 : p2
+    act2 = newActivity(USER_DB, "act2", "kg",
+                       {data.bio1: p3})
 
     # By default, p2 should be (p1=1)*2
     res = compute_impacts(act1, [data.ibio1])
@@ -329,13 +336,49 @@ def test_params_with_formulas(data) :
 
     assert res.values[0] == 1.0
 
+    # p1 > p2 > p3
+    res = compute_impacts(
+        act2, [data.ibio1],
+        p1=4)
+
+    assert res.values[0] == 16.0
+
     # Should also work with lists of values
     res = compute_impacts(
         act1, [data.ibio1],
         p1=[1.0, 2.0])
-    print(res)
 
     res.iloc[:, 0] == [2.0, 4.0]
+
+
+def test_switch_value(data):
+
+    p1 = newFloatParam("p1", default=0, min=0, max=2)
+    p2 = newFloatParam("p2", default=0, min=0, max=2)
+    switch_param = newEnumParam("switch_param", default="p1", values=["from_p1", "from_p2"])
+    computed = newFloatParam(
+        "computed",
+        default=0, min=0, max=3)
+
+    computed.formula = switchValue(
+            switch_param,
+            from_p1=p1*2,
+            from_p2=p2*3)
+
+    act1 = newActivity(USER_DB, "act1", "kg",{data.bio1: computed})
+
+    res = compute_impacts(act1, [data.ibio1],
+        switch_param="from_p1",
+        p1=1)
+
+    assert res.values[0] == 2.0
+
+
+    res = compute_impacts(act1, [data.ibio1],
+                      switch_param="from_p2",
+                      p2=1)
+
+    assert res.values[0] == 3.0
 
 
 def test_interpolation(data) :
