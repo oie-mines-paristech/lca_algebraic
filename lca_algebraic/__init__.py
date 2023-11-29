@@ -9,7 +9,7 @@ from .lca import *
 from .stats import *
 from .params import *
 from .io import *
-from .oie import *
+import pandas as pd
 
 def deleteDb(db_name) :
     del bw.databases[db_name]
@@ -47,6 +47,12 @@ def importDb(dbname, path, parallel=False):
         ei34.apply_strategies()
         ei34.statistics()
         ei34.write_database()
+
+
+# Global print options
+np.set_printoptions(threshold=30)
+pd.options.display.float_format = "{:,g}".format
+
 
 
 

@@ -1,6 +1,6 @@
 import builtins
 import enum
-from collections import defaultdict
+from collections import defaultdict, UserDict
 from enum import Enum
 from typing import Dict, List, Union, Tuple, Any
 
@@ -11,12 +11,13 @@ import pandas as pd
 from IPython.core.display import HTML
 from bw2data.backends import LCIBackend
 from bw2data.backends.peewee import Activity, ExchangeDataset
-from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from bw2data.proxies import ActivityProxyBase
+
 from lca_algebraic.base_utils import ExceptionContext
+from lca_algebraic.log import logger
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
-from sympy import Symbol, Basic, Expr, parse_expr
+from sympy import Symbol, Basic, Expr, parse_expr, lambdify
 from tabulate import tabulate
 
 from .base_utils import _snake2camel
@@ -49,7 +50,9 @@ class DbContext :
 
 
     def __init__(self, db : Union[str, ActivityProxyBase, LCIBackend]) :
-        if isinstance(db, ActivityProxyBase) :
+        if db is None:
+            self.db = None
+        elif isinstance(db, ActivityProxyBase) :
             self.db = db.key[0]
         elif isinstance(db, str) :
             self.db = db
@@ -57,10 +60,12 @@ class DbContext :
             self.db = db.name
 
     def __enter__(self):
-        DbContext.stack.append(self.db)
+        if self.db is not None:
+            DbContext.stack.append(self.db)
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        DbContext.stack.pop()
+        if self.db is not None:
+            DbContext.stack.pop()
 
 
 
@@ -162,7 +167,7 @@ class ParamDef(Symbol):
         return Symbol.__new__(cls, name, **assumptions)
 
     def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
-                 group=None, distrib:DistributionType=None, dbname=None, **kwargs):
+                 group=None, distrib:DistributionType=None, dbname=None, formula=None, **kwargs):
 
         self.name = name
         self.type = type
@@ -176,6 +181,7 @@ class ParamDef(Symbol):
         self.group = group
         self.distrib = distrib
         self.dbname = dbname
+        self.formula = formula
 
         #if (self.dbname == None) :
         #    error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
@@ -186,8 +192,7 @@ class ParamDef(Symbol):
 
         if not distrib and type == ParamType.FLOAT  :
             if self.min is None:
-                error("No 'min/max' provided, param %s marked as FIXED" % self.name)
-                self.distrib = DistributionType.FIXED
+                raise Exception(f"No 'min/max' provided, distrib should explicitely set to FIXED" % self.name)
             else:
                 self.distrib = DistributionType.LINEAR
 
@@ -298,7 +303,7 @@ class ParamDef(Symbol):
 
     # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
-        if value == None:
+        if value is None:
             value = self.default
         return {self.name: value}
 
@@ -471,6 +476,7 @@ def _persistParam(param):
         group=param.group,
         label=param.label,
         unit=param.unit,
+        formula=str(param.formula) if param.formula else None,
         description=param.description)
 
     if (param.dbname) :
@@ -531,7 +537,8 @@ def _loadArgs(data) :
         "description": data.get("description"),
         "min": data.get("minimum"),
         "max": data.get("maximum"),
-        "unit" : data.get("unit")
+        "unit" : data.get("unit"),
+        "formula" : data.get("formula", None)
     }
 
 def loadParams(global_variable=True, dbname=None):
@@ -619,7 +626,6 @@ def loadParams(global_variable=True, dbname=None):
         # Save it in shared dictionnary
         register(param)
 
-
     # Loop on EnumParams
     for param_name, param_values in enumParams.items() :
         first_enum_param = list(param_values.values())[0]
@@ -641,6 +647,13 @@ def loadParams(global_variable=True, dbname=None):
 
         # Save it in shared dict
         register(param)
+
+    # Parse formulas
+    for param in _param_registry().all() :
+        with DbContext(param.dbname):
+            if isinstance(param.formula, str):
+                param.formula = _parse_formula(param.formula)
+
 
 
 def newFloatParam(name, default, dbname=None, **kwargs):
@@ -676,6 +689,7 @@ class DuplicateParamsAndNoContextException(Exception) :
     pass
 
 class ParamRegistry :
+
     """ In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs"""
     def __init__(self) :
         # We store a dict of dict
@@ -740,6 +754,8 @@ class ParamRegistry :
         """Return list of all parameters, including params with same names and different DB"""
         return list(param for params in self.params.values() for param in params.values())
 
+
+
 # Possible param values : either floator string (enum value)
 ParamValue = Union[float, str]
 
@@ -759,15 +775,32 @@ def _toSymbolDict(params : Dict[str, Any]):
     all_params = _param_registry().as_dict()
     return {all_params[name] if name in all_params else Symbol(name) : val for name, val in params.items()}
 
-def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False):
-    """Check parameters and expand enum params.
+def _compute_param_length(params) :
+    # Check length of parameter values
+    param_length = 1
+    for key, val in params.items():
+        if isinstance(val, list):
+            if param_length == 1:
+                param_length = len(val)
+            elif param_length != len(val):
+                raise Exception("Parameters should be a single value or a list of same number of values")
+    return param_length
+
+
+
+def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, asSymbols=True):
+    """
+    Check parameters and expand enum params.
+    Also transform single values to list of param values of same size
 
     Returns
     -------
         Dict of param_name => float value
     """
-
+    initial_params = params.copy()
     params = params.copy()
+
+    param_length = _compute_param_length(params)
 
     # Add default values for required params
     if required_params :
@@ -775,14 +808,9 @@ def _completeParamValues(params: Dict[str, ParamValues], required_params : List[
             param = _param_registry()[param_name]
             if not param_name in params :
                 params[param_name] = param.default
-                error("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
+                logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
 
-    # Set default variables for missing values
-    if setDefaults :
-        for name, param in _param_registry().items() :
-            if not name in params :
-                params[name] = param.default
-
+    # Expand single values to lists of values of same size
     res = dict()
     for key, val in params.items():
         if key in _param_registry():
@@ -796,9 +824,33 @@ def _completeParamValues(params: Dict[str, ParamValues], required_params : List[
         else:
             res.update(param.expandParams(val))
 
-    # Replace param name with full symbols
+    if param_length > 1 :
+        for key in list(res.keys()):
+            val = res[key]
+            if not isinstance(val, list):
+                val = list([val] * param_length)
+            res[key] = np.array(val, float)
 
-    res = _toSymbolDict(res)
+    # Compute values from formula for required params
+    if required_params:
+        for param_name in required_params :
+            param = _param_registry()[param_name]
+
+            # Required param has formula and was not set a value ?
+            if param.formula is None or param.name in initial_params:
+                continue
+
+            # Override the value
+            res[param_name] = compute_expr_value(param.formula, res)
+
+            logger.info(f"Param {param_name} was not set. Computing its value from formula :  {res[param_name]}")
+
+
+
+    # Replace param name with full symbols
+    if asSymbols:
+        res = _toSymbolDict(res)
+
     return res
 
 
@@ -858,6 +910,18 @@ def list_parameters(name_type=NameType.NAME, as_dataframe=False):
     else:
         return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
 
+def compute_expr_value(expr:Expr, param_values:Dict) :
+    """Compute value of an expression for given set of parameter values """
+    free_symbols = [str(symbol) for symbol in expr.free_symbols]
+    lambd = lambdify(free_symbols, expr)
+
+    values = _completeParamValues(param_values, required_params=free_symbols, asSymbols=False)
+
+    # Filter only required params
+    values = {name: val for name, val in values.items() if name in free_symbols}
+
+    return lambd(**values)
+    #return expr.evalf(subs=_completeParamValues(param_values, required_params=required_params))
 
 def freezeParams(db_name, **params) :
     """
@@ -877,8 +941,7 @@ def freezeParams(db_name, **params) :
                 # Amount is a formula ?
                 if isinstance(amount, Expr):
 
-                    replace = {param: value for param, value in _completeParamValues(params, setDefaults=True).items()}
-                    val = amount.evalf(subs=replace)
+                    val = compute_expr_value(amount, params)
 
                     with ExceptionContext(val) :
                         val = float(val)
@@ -913,7 +976,7 @@ def _listParams(db_name) -> List[ParamDef]:
     return res
 
 
-def _expand_param_names(param_names):
+def _expand_param_names(param_names:List[str]) -> List[str]:
     '''Expand parameters names (with enum params) '''
     return [name for key in param_names for name in _param_registry()[key].names()]
 
@@ -941,11 +1004,14 @@ def _expanded_names_to_names(param_names):
     return {param.name for param in res.values()}
 
 
+def _parse_formula(formula):
+    return parse_expr(formula, local_dict=_param_registry().as_dict())
+
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """ Return either a fixed float value or an expression for the amount of this exchange"""
     if 'formula' in ex:
         try:
-            return parse_expr(ex['formula'], local_dict=_param_registry().as_dict())
+            return _parse_formula(ex['formula'])
         except Exception as e:
             error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
 

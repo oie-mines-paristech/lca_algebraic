@@ -1,6 +1,6 @@
 # 1.1 
 
-Fix bug in ActivityExtended#getExchanges introduced by merge #14
+* Fixed bug in ActivityExtended#getExchanges introduced by merge #14
 * Added linear interpolation between activities with function `interpolate_activities`
 * Rename multiLCaAlgebraic => compute_impacts
 * Added breakdown of impacts by arbitrary attribute with the parameter `axis` of `compute_impacts`
@@ -9,7 +9,8 @@ Fix bug in ActivityExtended#getExchanges introduced by merge #14
 * Fixed bug #38 : getOutputAmount was wrong with activities having circular input exchanges with themselves
 * Fixed bug #37 : Increased number of results in findActivities
 * Added disk cache of LCIA results and act Expressions
-* Fixed bug when loading params with undefined uncertainty  
+* Fixed bug when loading params with undefined uncertainty
+* Added "formula" in params, to have parameters automatically computed from others
 
 # 1.0.4 
 

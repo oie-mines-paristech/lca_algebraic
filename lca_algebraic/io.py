@@ -1,6 +1,3 @@
-from os.path import basename, dirname
-
-import bw2data
 from bw2data.parameters import DatabaseParameter, ProjectParameter
 from bw2io import BW2Package
 import brightway2 as bw

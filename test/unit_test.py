@@ -17,8 +17,8 @@ def test_load_params():
 
     _p1 = newEnumParam('p1',values={"v1":0.6, "v2":0.3}, default="v1")
     _p2 = newFloatParam('p2', min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
-    _p3 = newBoolParam('p3',default=1)
-    _p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
+    _p3 = newBoolParam('p3',default=1, min=1, max=2, formula=_p2+4)
+    _p3_fg = newBoolParam('p3', default=1, distrib=DistributionType.FIXED, dbname=USER_DB) # Param with same name linked to a user DB
 
     _param_registry().clear()
 
@@ -35,7 +35,7 @@ def test_load_params():
 
 
 def test_export(data):
-    p1 = newFloatParam('p1', default=0.5)
+    p1 = newFloatParam('p1', default=0.5, distrib=DistributionType.FIXED)
     p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
 
     act1 = newActivity(USER_DB, "act1", "unit", {
@@ -111,15 +111,15 @@ def test_new_switch_act_with_tuples() :
 
 def test_list_params_should_support_missing_groups() :
 
-    p1 = newFloatParam('p1', default=1.0)
-    p2 = newFloatParam('p2', default=2.0, group="mygroup")
+    p1 = newFloatParam('p1', default=1.0, distrib=DistributionType.FIXED)
+    p2 = newFloatParam('p2', default=2.0, distrib=DistributionType.FIXED, group="mygroup")
 
     list_parameters()
 
 def test_freeze(data) :
 
-    p1 = newFloatParam('p1', default=1.0)
-    p2 = newFloatParam('p2', default=1.0)
+    p1 = newFloatParam('p1', default=1.0, distrib=DistributionType.FIXED)
+    p2 = newFloatParam('p2', default=1.0, distrib=DistributionType.FIXED)
 
     newActivity(USER_DB, "act1", "unit", {
         data.bio1 : 2 * p1,
@@ -302,6 +302,40 @@ def test_db_params_lca(data) :
     # Overriding p1 for m2
     res = compute_impacts(m2, [data.ibio1], p1=4)
     assert res.values[0] == 8.0
+
+
+def test_params_with_formulas(data) :
+    p1 = newFloatParam("p1", default=1, min=0, max=2)
+    p2 = newFloatParam("p2", default=0, min=0, max=2, formula=2*p1)
+
+    act1 = newActivity(USER_DB, "act1", "kg",
+                     {data.bio1: p2})
+
+    # By default, p2 should be (p1=1)*2
+    res = compute_impacts(act1, [data.ibio1])
+    assert res.values[0] == 2.0
+
+    # p2 is computed automatically from p1
+    res = compute_impacts(
+        act1, [data.ibio1],
+        p1=2)
+    assert res.values[0] == 4.0
+
+    # Overriding p2 should disable computing of formula
+    res = compute_impacts(
+        act1, [data.ibio1],
+        p1=2,
+        p2=1)
+
+    assert res.values[0] == 1.0
+
+    # Should also work with lists of values
+    res = compute_impacts(
+        act1, [data.ibio1],
+        p1=[1.0, 2.0])
+    print(res)
+
+    res.iloc[:, 0] == [2.0, 4.0]
 
 
 def test_interpolation(data) :

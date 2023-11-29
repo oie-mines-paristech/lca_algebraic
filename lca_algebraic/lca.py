@@ -10,7 +10,7 @@ from .cache import LCIACache, ExprCache
 from .helpers import *
 from .helpers import _actDesc, _isForeground, _getAmountOrFormula
 from .params import _param_registry, _completeParamValues, _fixed_params, _expanded_names_to_names, _expand_param_names, \
-    FixedParamMode, freezeParams, _toSymbolDict
+    FixedParamMode, freezeParams, _toSymbolDict, compute_expr_value, _compute_param_length
 from warnings import warn
 import pandas as pd
 import builtins
@@ -177,6 +177,11 @@ def _lambdify(expr:Union[SymDict, Expr], expanded_params) :
             return expr
         return static_func
 
+def compute_param_formulas(param_values:Dict, required_params:List[str]):
+
+    # Compute the values params computed from formulas (and not specified in input)
+    pass
+
 class LambdaWithParamNames :
     """
     This class represents a compiled (lambdified) expression together with the list of requirement parameters and the source expression
@@ -189,8 +194,8 @@ class LambdaWithParamNames :
         if isinstance(exprOrDict, dict) :
             # Come from JSON serialization
             obj = exprOrDict
-            # Parse
-            self.params = obj["params"]
+            # LIst of required params for this lambda
+            self.params:List[str] = obj["params"]
 
             # Full names
             self.expanded_params = _expand_param_names(self.params)
@@ -233,21 +238,7 @@ class LambdaWithParamNames :
             return None
 
     def complete_params(self, params):
-
-        param_length = _compute_param_length(params)
-
-        # Check and expand enum params, add default values
-        res = _completeParamValues(params, self.params)
-
-        res = {str(symbol):val for symbol, val in res.items()}
-
-        # Expand single params and transform them to np.array
-        for key in res.keys():
-            val = res[key]
-            if not isinstance(val, list):
-                val = list([val] * param_length)
-            res[key] = np.array(val, float)
-        return res
+        return _completeParamValues(params, self.params, asSymbols=False)
 
     def compute(self, **params):
         """Compute result value based of input parameters """
@@ -303,16 +294,6 @@ def method_name(method):
 def _slugify(str) :
     return re.sub('[^0-9a-zA-Z]+', '_', str)
 
-def _compute_param_length(params) :
-    # Check length of parameter values
-    param_length = 1
-    for key, val in params.items():
-        if isinstance(val, list):
-            if param_length == 1:
-                param_length = len(val)
-            elif param_length != len(val):
-                raise Exception("Parameters should be a single value or a list of same number of values")
-    return param_length
 
 def _postMultiLCAAlgebric(
         methods,
@@ -692,8 +673,7 @@ def exploreImpacts(impact, *activities : ActivityExtended, **params):
 
             # Params provided ? Evaluate formulas
             if len(params) > 0 and isinstance(amount, Basic):
-                new_params = [(name, value) for name, value in _completeParamValues(params).items()]
-                amount = amount.subs(new_params)
+                amount = compute_expr_value(amount, params)
 
             i = 1
             ex_name = name
