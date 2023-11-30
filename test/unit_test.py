@@ -458,6 +458,14 @@ def test_axis(data) :
         axis="phase",
         p1=0.5)
 
+    # Compute twice to warm the cache :
+    # Creating dummy activities clears it and we cannot check it works properly otherwize
+    res = compute_impacts(
+        model, [data.ibio1],
+        functional_unit=p1,
+        axis="phase",
+        p1=0.5)
+
     res = {key:val for key, val in zip(
         res.index.values,
         res[res.columns[0]].values)}
@@ -467,6 +475,17 @@ def test_axis(data) :
     expected["*sum*"] = 12.0
 
     assert res == expected
+
+    res = compute_impacts(
+        model, [data.ibio1],
+        functional_unit=p1,
+        p1=0.5)
+
+    print(res)
+
+    assert res.values[0] == 12.0
+
+
 
 def test_compute_impacts_with_parametrized_fu(data) :
 

@@ -103,13 +103,22 @@ def _modelToExpr(
 
     # Try to load from cache
     with ExprCache() as cache :
-        if not model in cache.data :
+
+        key = (model, axis)
+
+        if not key in cache.data:
+
+            logger.debug(f"{model} was not in exrepssion cache, computing...")
+
             expr, actBySymbolName = actToExpression(
                 model,
                 axis=axis)
-            cache.data[model] = (expr, actBySymbolName)
 
-        expr, actBySymbolName = cache.data[model]
+            cache.data[key] = (expr, actBySymbolName)
+        else:
+            logger.debug(f"{model} found in exrepssion cache")
+
+        expr, actBySymbolName = cache.data[key]
 
     expr = expr * alpha
 
