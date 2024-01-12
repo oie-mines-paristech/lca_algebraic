@@ -261,7 +261,7 @@ class ParamDef(Symbol):
                         # Truncated normal
                         self._distrib = truncnorm(
                             (self.min - self.default) / self.std,
-                            (self.max - self.min) / self.std,
+                            (self.max - self.default) / self.std,
                             loc=self.default,
                             scale=self.std)
                     else :
