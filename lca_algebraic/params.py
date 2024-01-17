@@ -257,7 +257,7 @@ class ParamDef(Symbol):
 
                 elif self.distrib == DistributionType.NORMAL:
 
-                    if self.min :
+                    if hasattr(self, "min") :
                         # Truncated normal
                         self._distrib = truncnorm(
                             (self.min - self.default) / self.std,
