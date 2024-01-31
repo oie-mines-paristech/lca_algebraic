@@ -2,27 +2,26 @@ import builtins
 import enum
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, Union, Tuple
+from typing import Dict, List, Union, Tuple, Any
 
 import brightway2 as bw
 import ipywidgets as widgets
 import numpy as np
+import pandas as pd
 from IPython.core.display import HTML
 from bw2data.backends import LCIBackend
-from bw2data.backends.peewee import Activity
+from bw2data.backends.peewee import Activity, ExchangeDataset
 from bw2data.database import Database
 from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
 from bw2data.proxies import ActivityProxyBase
 from lca_algebraic.base_utils import ExceptionContext
 from scipy.stats import triang, truncnorm, norm, beta, lognorm
-from sympy import Symbol, Basic
+from sympy import Symbol, Basic, Expr, parse_expr
 from tabulate import tabulate
 
 from .base_utils import _snake2camel
-from .base_utils import error, as_np_array, _getAmountOrFormula, LANG
-
-import lca_algebraic.base_utils
-from .base_utils import as_np_array, _getAmountOrFormula, _actName
+from .base_utils import error, as_np_array, LANG
+from .base_utils import as_np_array, _actName
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -155,6 +154,8 @@ class ParamDef(Symbol):
     def __new__(cls, name, *karg, **kargs):
         # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
         assumptions = dict()
+        assumptions["real"] = True
+
         if 'dbname' in kargs and kargs['dbname'] :
             assumptions[kargs['dbname']] = True
 
@@ -176,8 +177,8 @@ class ParamDef(Symbol):
         self.distrib = distrib
         self.dbname = dbname
 
-        if (self.dbname == None) :
-            error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
+        #if (self.dbname == None) :
+        #    error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, "_distrib") :
@@ -256,11 +257,11 @@ class ParamDef(Symbol):
 
                 elif self.distrib == DistributionType.NORMAL:
 
-                    if self.min :
+                    if hasattr(self, "min") :
                         # Truncated normal
                         self._distrib = truncnorm(
                             (self.min - self.default) / self.std,
-                            (self.max - self.min) / self.std,
+                            (self.max - self.default) / self.std,
                             loc=self.default,
                             scale=self.std)
                     else :
@@ -704,6 +705,10 @@ class ParamRegistry :
         else :
             return params_per_db[None]
 
+
+    def as_dict(self):
+        return dict(self.items())
+
     def __setitem__(self, key, param : ParamDef):
         if param.dbname in self.params[key]:
             error("[ParamRegistry] Param %s was already defined in '%s' : overriding." %
@@ -742,20 +747,27 @@ ParamValue = Union[float, str]
 ParamValues = Union[List[ParamValue],  ParamValue]
 
 
-def _param_registry() -> Dict[str, ParamDef] :
+def _param_registry() -> ParamRegistry :
     # Prevent reset upon auto reload in jupyter notebook
     if not 'param_registry' in builtins.__dict__:
         builtins.param_registry = ParamRegistry()
 
     return builtins.param_registry
 
-def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False) :
+def _toSymbolDict(params : Dict[str, Any]):
+    """ Replace names with actual params as key when possible """
+    all_params = _param_registry().as_dict()
+    return {all_params[name] if name in all_params else Symbol(name) : val for name, val in params.items()}
+
+def _completeParamValues(params: Dict[str, ParamValues], required_params : List[str]=None, setDefaults=False):
     """Check parameters and expand enum params.
 
     Returns
     -------
         Dict of param_name => float value
     """
+
+    params = params.copy()
 
     # Add default values for required params
     if required_params :
@@ -783,6 +795,10 @@ def _completeParamValues(params: Dict[str, ParamValues], required_params : List[
             res.update(_listOfDictToDictOflist(newvals))
         else:
             res.update(param.expandParams(val))
+
+    # Replace param name with full symbols
+
+    res = _toSymbolDict(res)
     return res
 
 
@@ -813,7 +829,7 @@ def _param_name(param, name_type:NameType) :
     else :
         return _snake2camel(param.name)
 
-def list_parameters(name_type=NameType.NAME):
+def list_parameters(name_type=NameType.NAME, as_dataframe=False):
 
     """ Print a pretty list of all defined parameters """
     params = [dict(
@@ -837,7 +853,10 @@ def list_parameters(name_type=NameType.NAME):
 
     sorted_params = sorted(params, key=keyf)
 
-    return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
+    if as_dataframe :
+        return pd.DataFrame(sorted_params)
+    else:
+        return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
 
 
 def freezeParams(db_name, **params) :
@@ -856,15 +875,15 @@ def freezeParams(db_name, **params) :
                 amount = _getAmountOrFormula(exc)
 
                 # Amount is a formula ?
-                if isinstance(amount, Basic):
+                if isinstance(amount, Expr):
 
-                    replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
-                    val = amount.subs(replace).evalf()
+                    replace = {param: value for param, value in _completeParamValues(params, setDefaults=True).items()}
+                    val = amount.evalf(subs=replace)
 
                     with ExceptionContext(val) :
                         val = float(val)
 
-                    print("Freezing %s // %s : %s => %d" % (act, exc['name'], amount, val))
+                    print("Freezing %s // %s : %s => %0.2f" % (act, exc['name'], amount, val))
 
                     # Update in DB
                     exc["amount"] = val
@@ -920,3 +939,14 @@ def _expanded_names_to_names(param_names):
         raise Exception("Unkown params : %s" % missing)
 
     return {param.name for param in res.values()}
+
+
+def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
+    """ Return either a fixed float value or an expression for the amount of this exchange"""
+    if 'formula' in ex:
+        try:
+            return parse_expr(ex['formula'], local_dict=_param_registry().as_dict())
+        except Exception as e:
+            error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
+
+    return ex['amount']

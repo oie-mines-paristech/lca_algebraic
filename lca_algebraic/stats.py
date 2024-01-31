@@ -9,7 +9,6 @@ import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
-from jinja2.nodes import Add
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from numpy import piecewise
@@ -20,7 +19,7 @@ from sympy.core.operations import AssocOp
 from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
-from .params import _variable_params, _param_registry, FixedParamMode, _param_name
+from .params import _variable_params, _param_registry, FixedParamMode, _param_name, NameType
 
 PARALLEL=False
 
@@ -51,11 +50,11 @@ def _extract_var_params(lambdas):
 
 
 @with_db_context(arg="model")
-def oat_matrix(model, impacts, n=10, title='Impact variability (% of mean)', name_type=NameType.LABEL):
+def oat_matrix(model, impacts, functional_unit=1, n=10, title='Impact variability (% of mean)', name_type=NameType.LABEL):
     '''Generates a heatmap of the incertitude of the model, varying input parameters one a a time.'''
 
     # Compile model into lambda functions for fast LCA
-    lambdas = _preMultiLCAAlgebric(model, impacts)
+    lambdas = _preMultiLCAAlgebric(model, impacts, alpha=1/functional_unit)
 
     # Sort params by category
     sorted_params = _extract_var_params(lambdas)
@@ -130,7 +129,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
 
     if isinstance(modelOrLambdas, Activity):
         with DbContext(modelOrLambdas) :
-            df = multiLCAAlgebric(modelOrLambdas, impacts, **params)
+            df = compute_impacts(modelOrLambdas, impacts, **params)
     else:
         df = _postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
 
@@ -187,7 +186,7 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
     ])
 
 @with_db_context(arg="model")
-def oat_dashboard_interact(model, methods, **kwparams):
+def oat_dashboard_interact(model, methods, functional_unit=1, **kwparams):
     '''Interactive dashboard, with a dropdown for selecting parameter
 
     Parameters
@@ -197,7 +196,7 @@ def oat_dashboard_interact(model, methods, **kwparams):
     sharex: Shared X axes ? True by default
     '''
 
-    lambdas = _preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods, alpha=1/functional_unit)
 
     def process_func(param):
         with DbContext(model):
@@ -217,7 +216,9 @@ class StochasticMethod :
 
 def _stochastics(
         modelOrLambdas, methods, n=1000,
-        var_params=None, sample_method=StochasticMethod.SALTELLI,
+        var_params=None,
+        sample_method=StochasticMethod.SALTELLI,
+        functional_unit=1,
         **extra_fixed_params):
 
     params, problem = _generate_random_params(n, sample_method, var_params)
@@ -226,14 +227,14 @@ def _stochastics(
     if extra_fixed_params :
         params.update(extra_fixed_params)
 
-    Y = _compute_stochastics(modelOrLambdas, methods , params)
+    Y = _compute_stochastics(modelOrLambdas, methods, params=params, functional_unit=functional_unit)
 
     return problem, params, Y
 
 
-def _compute_stochastics(modelOrLambdas, methods, params):
+def _compute_stochastics(modelOrLambdas, methods, functional_unit=1, params=dict()):
     if isinstance(modelOrLambdas, Activity):
-        Y = multiLCAAlgebric(modelOrLambdas, methods, **params)
+        Y = compute_impacts(modelOrLambdas, methods, functional_unit=functional_unit, **params)
     else:
         Y = _postMultiLCAAlgebric(methods, modelOrLambdas, **params)
     return Y
@@ -368,7 +369,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
              )
 
 @with_db_context(arg="model")
-def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
+def incer_stochastic_matrix(model, methods, functional_unit=1, n=1000, name_type=NameType.LABEL):
     '''
     Method computing matrix of parameter importance
 
@@ -378,7 +379,7 @@ def incer_stochastic_matrix(model, methods, n=1000, name_type=NameType.LABEL):
     By default use all the parameters with distribution not FIXED
     '''
 
-    lambdas = _preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(model, methods, alpha=1/functional_unit)
     var_params = _extract_var_params(lambdas)
 
     problem, _, Y = _stochastics(lambdas, methods, n, var_params)
@@ -434,7 +435,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
 
 
 @with_db_context(arg="modelOrLambdas")
-def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **kwparams):
+def incer_stochastic_violin(modelOrLambdas, methods, functional_unit=1, n=1000, var_params=None, **kwparams):
     '''
     Method for computing violin graph of impacts
 
@@ -443,7 +444,10 @@ def incer_stochastic_violin(modelOrLambdas, methods, n=1000, var_params=None, **
     var_params: Optional list of parameters to vary.
     By default use all the parameters with distribution not FIXED
     '''
-    _, _, Y = _stochastics(modelOrLambdas, methods, n, var_params)
+    _, _, Y = _stochastics(
+        modelOrLambdas, methods, n=n,
+        var_params=var_params,
+        functional_unit=functional_unit)
 
     _incer_stochastic_violin(methods, Y, **kwparams)
 
@@ -506,7 +510,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
     displayWithExportButton(df)
 
 @with_db_context(arg="model")
-def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwparams):
+def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, functional_unit=1, **kwparams):
     ''' Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
     parameters
@@ -518,7 +522,10 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwpara
     sharex: Share X axe for violin graph : True by default
     '''
 
-    problem, _, Y = _stochastics(model, methods, n, var_params)
+    problem, _, Y = _stochastics(
+        model, methods, n,
+        var_params=var_params, functional_unit=functional_unit)
+
     param_names = problem['names']
 
     print("Processing Sobol indices ...")
@@ -546,6 +553,7 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, **kwpara
 
 def _round_expr(expr, num_digits):
     ''' Round all number in sympy expression with n digits'''
+
     return expr.xreplace({n : Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
 
 def _snake2camel(val) :
@@ -678,6 +686,7 @@ def sobol_simplify_model(
     fixed_mode = FixedParamMode.MEDIAN,
     num_digits=3,
     simple_sums=True,
+    functional_unit=1,
     simple_products=True) -> List[LambdaWithParamNames]:
 
     '''
@@ -705,7 +714,11 @@ def sobol_simplify_model(
 
     var_param_names = list([param.name for param in var_params])
 
-    problem, params, Y = _stochastics(model, methods, n, var_params)
+    problem, params, Y = _stochastics(
+        model, methods, n,
+        var_params=var_params,
+        functional_unit=functional_unit)
+
     sob = _sobols(methods, problem, Y)
 
     s1, s2 = sob.s1, sob.s2
@@ -713,7 +726,9 @@ def sobol_simplify_model(
     res = []
 
     # Generate simplified model
-    exprs, _ = _modelToExpr(model, methods)
+    exprs = _modelToExpr(
+        model, methods,
+        alpha=1/functional_unit)
 
     for imethod, method in enumerate(methods) :
 
@@ -753,9 +768,9 @@ def sobol_simplify_model(
 
         expr = exprs[imethod]
 
-        # Replace extra fixed params
-        extraFixedParams = [param for param in _param_registry().values() if param.name not in selected_params]
-        expr = _replace_fixed_params(expr, extraFixedParams, fixed_mode=fixed_mode)
+        # Replace non selected params by their value
+        fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
+        expr = _replace_fixed_params(expr, fixed_params, fixed_mode=fixed_mode)
 
         # Sympy simplification
         expr = simplify(expr)
@@ -967,6 +982,7 @@ def distrib(*args, **kwargs) :
 @with_db_context(arg="model")
 def graphs(
         model, methods,
+        functional_unit=1,
         Y=None, nb_cols=1, axes=None, title=None,
         invert=None,
         scales=None, # Dict of method => scale
@@ -992,7 +1008,7 @@ def graphs(
 
 
     if Y is None:
-        _, _, Y = _stochastics(model, methods, n=10000)
+        _, _, Y = _stochastics(model, methods, n=10000, functional_unit=functional_unit)
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)
@@ -1044,6 +1060,7 @@ def graphs(
 @with_db_context(arg="model")
 def compare_simplified(
         model, methods, simpl_lambdas,
+        functional_unit=1,
         scales=None,  # Dict of method => scale
         unit_overrides=None,
         nb_cols=2, height=10, width=15, textboxright=0.6, r2_height=0.65, func_unit="kWh",
@@ -1063,7 +1080,10 @@ def compare_simplified(
     '''
 
     # Raw model
-    lambdas = _preMultiLCAAlgebric(model, methods)
+    lambdas = _preMultiLCAAlgebric(
+        model,
+        methods,
+        alpha=1/functional_unit)
 
     nb_rows = math.ceil(len(methods) / nb_cols)
     fig, axes = plt.subplots(nb_rows, nb_cols, figsize=(width, height * nb_rows))

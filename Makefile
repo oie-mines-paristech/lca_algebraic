@@ -1,4 +1,6 @@
-TST_NOTEBOOK:=example-notebook.ipynb
+TST_NOTEBOOK:=example-notebook.Rmd
+TST_IPYNB:=example-notebook.ipynb
+
 VERSION:=$(shell cat VERSION)
 
 
@@ -19,7 +21,7 @@ package-pip:
 	python setup.py sdist bdist_wheel --universal
 
 package-conda :
-	conda build conda-recipe/meta.yaml
+	conda build --py 3.9 conda-recipe
 
 package : package-pip package-conda
 
@@ -30,15 +32,15 @@ upload-pip:
 	twine upload -u oie-minesparistech dist/lca_algebraic*
 
 upload-conda:
-	anaconda upload --force ~/anaconda3/conda-bld/noarch/lca_algebraic-$(VERSION)-py_0.tar.bz2
+	anaconda upload --force ~/mambaforge/conda-bld/noarch/lca_algebraic-$(VERSION)-py_0.tar.bz2
 
 upload : upload-pip upload-conda
 
 pytest:
-	pytest test/tests.py
+	pytest test
 
 notebook_test:
-	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPNB)
-	./test/notebook_runner.py $(TST_NOTEBOOK)
+	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
+	./test/notebook_runner.py $(TST_IPYNB)
 
 test: pytest notebook_test

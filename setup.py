@@ -23,7 +23,7 @@ curr_branch = curr_branch.replace(" ", "").replace("*", "")
 version = read("VERSION")
 name = "lca_algebraic"
 
-if curr_branch == "dev" :
+if curr_branch != "master" :
 
     name += "_dev"
 

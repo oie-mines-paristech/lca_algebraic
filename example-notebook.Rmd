@@ -51,6 +51,8 @@ Thus, a model defined with **lca-algebraic** is stored as a regular **bw2** proj
 
 The followng notebook explores the main functions.
 Full documentation of the functions is [available here](https://oie-mines-paristech.github.io/lca_algebraic/doc/)
+
+
 <!-- #endregion -->
 
 ```{python}
@@ -119,16 +121,16 @@ The result is then a **symbolic expression that can be manipulated**, instead of
 from sympy import symbols 
 
 # create sympy symbol
-a = symbols("a")
+x = symbols("x")
 
 # Expressions are not directly evaluated 
-f = a * 2 + 4 
+f = x * 2 + 4 
 f
 ```
 
 ```{python}
 # symbols can be replaced by values afterwards 
-f.subs(dict(a=3))
+f.subs(dict(x=3))
 ```
 
 In practice, you don't need to care about Sympy. Just remember that : 
@@ -161,7 +163,7 @@ b = newFloatParam(
 # We recommand this for team working / working with several DBs
 # lca_algebraic supports resolution of parameters with duplicate names attached to different scopes 
 b2 = newFloatParam(
-    'b',
+    'b2',
     default=0.5, # Fixed if no min /max provided
     description="foo bar",
     dbname=USER_DB)
@@ -205,11 +207,6 @@ techno_param = newEnumParam(
     description="Choice of techonoly")
 ```
 
-```{python}
-# List of parameters
-list_parameters()
-```
-
 ## Persistance of parameters
 
 By default, new parameters are kept in memory but also persisted in the project (unless save=False).
@@ -231,11 +228,6 @@ Foreground databases are considered parametric and their activities are developp
 ## Set status of a database
 
 The functions **setForeground(...)** and **setBackground(...)** change the status of a database.
-
-```{python}
-setBackground(USER_DB)
-list_databases()
-```
 
 ```{python}
 setForeground(USER_DB)
@@ -294,6 +286,8 @@ alu_scrap = findTechAct('aluminium scrap, new, Recycled Content cut-off')
 # Elec 
 eu_elec = findTechAct("market group for electricity, medium voltage", 'ENTSO-E')
 us_elec = findTechAct("market group for electricity, medium voltage", 'US')
+
+chromium = findTechAct("market for chromium oxide, flakes")
 ```
 
 # Define the model
@@ -348,7 +342,7 @@ alu2.updateExchanges({
     
     # Update both input activity and amount. 
     # Note that you can use '#' for specifying the location of exchange (useful for duplicate exchange names)
-    "chromium#GLO" : dict(amount=4.0, input=activity1)
+    "chromium#GLO" : dict(amount=4.0, input=chromium)
 }) 
 
 # Add exchanges 
@@ -357,19 +351,12 @@ alu2.addExchanges({alu_scrap :  12})
 
 ## Final model
 
-Usually, we normalize the final model as the whole LCI divided by the functional value (production of the system)
-
 
 ```{python}
-functional_value = a + 5
-
-model = newActivity(USER_DB, "model", "kg", {
+total_inventory = newActivity(USER_DB, "total_inventory", "kg", {
     activity1 : b * 5 + a + 1, # Reference the activity we just created
     alu2: 3 * share_recycled_aluminium, 
     alu:0.4 * a})
-
-normalized_model = newActivity(USER_DB, "normalized model", "kg", {
-    model : 1 / functional_value})
 ```
 
 ## Or load existing model /activities from database
@@ -379,8 +366,7 @@ We don't recommand it while developping the model as it may lead to unstable cod
 
 ```{python}
 activity1 = findActivity("first foreground activity", db_name=USER_DB)
-model = findActivity("model", db_name=USER_DB)
-normalized_model = findActivity("normalized model", db_name=USER_DB)
+total_inventory = findActivity("total_inventory", db_name=USER_DB)
 alu2 = findActivity("Aluminium 2", db_name=USER_DB)
 ```
 
@@ -393,13 +379,13 @@ Note that symbolic expressions have not been evaluated at this stage
 ```{python}
 # Print_act displays activities as tables
 printAct(activity1) 
-printAct(model)
-printAct(normalized_model)
+printAct(total_inventory)
+
 ```
 
 ```{python}
 # You can also compute amounts by replacing parameters with a float value 
-printAct(activity1, b=1.5) 
+printAct(activity1, b=1.5)
 ```
 
 ```{python}
@@ -411,50 +397,66 @@ printAct(alu, alu2)
 
 ```{python}
 # List of impacts to consider
-impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)]
+SELECTION = [
+    "mineral, fossils and renewables", 
+    "carcinogenic effects",
+    "GWP 100a",
+    "land use"]
+impacts = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m) and m[2] in SELECTION]
+impacts
 ```
 
+# Impacts
+
+## Define functional unit
+
+The functional unit is a quantity that can be parametrized
+
+
 ```{python}
-# You can provide alternate names for some methods
-set_custom_impact_labels({
-    impacts[0] : 'Resource usage',
-    impacts[1]: 'Climate change'})
+functional_value = a + 5
 ```
 
-# Compute LCA
-
-We provide two methods  for computing LCA : 
-* **multiLCA** : It uses **brightway2** native parametric support. It is **much slower** and kept for **comparing results**.
-* **multiLCAAlgebric** : It computes an algebric expression of the model and computes LCA once for all the background activities. Then it express each impact as a function of the parameters. This expression is then compiled into 'numpy' native code, for fast computation on vectors of samples. This version is 1 million time faster.
+## Compute impacts
 
 ```{python}
-# Uses brightway2 parameters
-multiLCA(
-    normalized_model, 
+compute_impacts(
+    
+    # Root activity of our inventory
+    total_inventory, 
+    
+    # list of impacts to consider
     impacts, 
-                   
+    
+    # The impaxts will be divided by the functional unit
+    functional_unit=functional_value,
+    
     # Parameters of the model
-    a=1, 
+    a=1.0,
     elec_switch_param="us",
     share_recycled_aluminium=0.4)
 ```
 
 ```{python}
-# Compute with algebric implementation 
+# We can provide list of values as parameters
+
+
+# Compute with algebric implementation
 # The values should be the same as above
-multiLCAAlgebric(
-    normalized_model, # The model 
+compute_impacts(
+    total_inventory, # The model 
     impacts, # Impacts
+    functional_unit = functional_value, 
     
     # Parameters of the model
-    a=1, 
-    elec_switch_param="us",
+    a=[1, 2, 3], 
+    elec_switch_param=["us", 'us', 'us'],
     share_recycled_aluminium=0.4)
 ```
 
 ```{python}
 # You can compute several LCAs at a time and compare them:
-multiLCAAlgebric(
+compute_impacts(
     [alu, alu2], # The models
     
     impacts, # Impacts
@@ -464,32 +466,14 @@ multiLCAAlgebric(
     elec_switch_param="us")
 ```
 
-## Evaluate the contribution of a subset of activites to global impact
-
-You can extract the contribution of a subset of activites to the global impact of the model
-
-```{python}
-# Contribution of impact of aluminium
-multiLCAAlgebric(
-    normalized_model, # The model 
-    impacts, # Impacts
-    
-    # List of sub activites to consider
-    extract_activities = [alu2],
-    
-    # Parameters of the model
-    a=1, 
-    elec_switch_param="us",
-    share_recycled_aluminium=0.4)
-```
-
 ## Fast computation of many parameter values
 
 ```{python}
 # Fast computation for millions of separate samples
-multiLCAAlgebric(
-    model, # The model 
+compute_impacts(
+    total_inventory, # The model 
     impacts, # Impacts
+    functional_unit = functional_value,
     
     # Parameters of the model
     a=list(range(1, 100000)), # All lists should have the same size
@@ -497,7 +481,35 @@ multiLCAAlgebric(
     elec_switch_param="eu")
 ```
 
- # Statistic functions
+## Split impacts along axis
+
+It is possible to **tag** activities and then ventilate the impacts according to the value of this "tag".
+This is useful to split impact by *phase* or *sub module*.
+
+```{python}
+# Tag activities wigth a custom attribute : 'phase' in this case
+alu2.updateMeta(phase= "phase a")
+activity1.updateMeta(phase= "phase b")
+```
+
+```{python}
+# Provide the name of the custom attribute as 'axis'
+# The impacts are split between those
+compute_impacts(
+    total_inventory, # The model
+    impacts, # Impacts
+    
+    functional_unit = functional_value,
+    axis="phase",
+
+    
+    # Parameters
+    a=1.0,
+    elec_switch_param="us",
+    share_recycled_aluminium=0.4)
+```
+
+ # Sensitivity analysis 
  
  ## One at a time 
  
@@ -507,11 +519,12 @@ multiLCAAlgebric(
  
  Shows a **matrix of impacts x parameters** colored according to the variation of the impact in the bounds of the parameter.
 
- 
-
 
 ```{python}
-oat_matrix(model, impacts)
+oat_matrix(
+    total_inventory, 
+    impacts, 
+    functional_unit=functional_value)
 ```
 
 ### oat_dashboard_matrix
@@ -524,7 +537,9 @@ This functions draws a dashboard showing :
 
 ```{python}
 oat_dashboard_interact(
-    model, impacts, 
+    total_inventory, 
+    impacts, 
+    functional_unit=functional_value,
     
     # Optionnal layout parameters
     figspace=(0.5,0.5),
@@ -555,7 +570,10 @@ $$RelativeDeviation = \frac{\sqrt{sobol(param) \times totalVariance(impact))}}{m
 
 ```{python}
 # Show sobol indices 
-incer_stochastic_matrix(model, impacts)
+incer_stochastic_matrix(
+    total_inventory, 
+    impacts, 
+    functional_unit=functional_value)
 ```
 
 ###  Graphs of impacts and their distribution
@@ -564,7 +582,8 @@ We provide a dashboard showing **violin graphs** : the exact probabilistic distr
 
 ```{python}
 incer_stochastic_violin(
-    model, impacts,
+    total_inventory, impacts,
+    functional_unit=functional_value,
     
     # Optionnal layout parameters
     figspace=(0.5,0.5),
@@ -576,7 +595,8 @@ incer_stochastic_violin(
 ```{python}
 ##### Alternatively, graphs can be shown horizontally, together with a box of statistical outcomes
 distrib(
-    model, impacts,
+    total_inventory, impacts,
+    functional_unit=functional_value,
     
     # Optionnal layout parameters
     height=7, width=15,
@@ -591,7 +611,10 @@ A dashboard groups all this information in a single interface with tabs.
 It also shows total variation of impacts. This last graph could be improved by showing stacked colored bars with the contribution of each parameter to this variation, according to Sobol indices. 
 
 ```{python}
-incer_stochastic_dashboard(model=model, methods=impacts)
+incer_stochastic_dashboard(
+    model=total_inventory, 
+    methods=impacts,
+    functional_unit=functional_value)
 ```
 
 # Producing simplified models 
@@ -604,7 +627,7 @@ We provide several functions for doing this.
 
 ```{python}
 # First, let's look at the full expression defining our model
-expr, _ = actToExpression(normalized_model)
+expr, _ = actToExpression(total_inventory)
 expr
 ```
 
@@ -616,8 +639,10 @@ We also round numerical expression to 3 digits, and we remove terms in sums that
 
 ```{python}
 simplified = sobol_simplify_model(
-    normalized_model, # The model
+    total_inventory, # The model
     impacts, # Impacts to consider
+    functional_unit=functional_value,
+    
     n=10000, # For large model, you may test other value and ensure ST and sum(S1) are close to 1.0 
     fixed_mode = FixedParamMode.MEDIAN, # We replace minor parameters by median by default,
     min_ratio=0.8, # Min ratio of variability to explain
@@ -637,5 +662,13 @@ Finally, we can compare the distribution of those simplified model against the f
 
 
 ```{python}
-compare_simplified(normalized_model, impacts, simplified)
+compare_simplified(
+    total_inventory, 
+    impacts, 
+    simplified,
+    functional_unit=functional_value)
+```
+
+```{python}
+
 ```

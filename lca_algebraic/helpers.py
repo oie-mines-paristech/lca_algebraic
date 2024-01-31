@@ -1,27 +1,30 @@
 import functools
-import inspect
 import re
 import types
 
 from copy import deepcopy
 from itertools import chain
 
-import pandas as pd
+from bw2data.backends.peewee import ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
-from sympy import symbols
+from sympy import symbols, Piecewise, simplify, Basic, Expr
 
 from .base_utils import *
-from .base_utils import _getDb, _actDesc, _getAmountOrFormula, _actName, _isOutputExch
-from .params import *
-from .params import _param_registry, _completeParamValues
-from typing import Tuple, Dict
+from .base_utils import _getDb, _actDesc, _actName, _isOutputExch
+from .params import _getAmountOrFormula, DbContext
+from .params import _param_registry, _completeParamValues, EnumParam, ParamDef
+from typing import Tuple, Dict, Union
 import inspect
+from collections import defaultdict
+import pandas as pd
 
 
 BIOSPHERE3_DB_NAME="biosphere3"
 
 _metaCache = defaultdict(lambda : {})
+
+# param_manager = ParameterManager()
 
 def _setMeta(dbname, key, value) :
     """Set meta param on DB"""
@@ -75,7 +78,9 @@ def list_databases() :
         dict(
             name=name,
             backend=_getMeta(name, "backend"),
+            nb_activities=len(bw.Database(name)),
             type="foreground" if _isForeground(name) else "background") for name in bw.databases)
+
     res = pd.DataFrame(data)
     return res.set_index("name")
 
@@ -257,6 +262,9 @@ class ActivityExtended(Activity):
                 if 'formula' in attrs:
                     parametrized = True
 
+        #if parametrized:
+        #    param_manager.add_exchanges_to_group("project", self)
+
 
     def deleteExchanges(self, name, single=True):
         ''' Remove matching exchanges '''
@@ -303,6 +311,7 @@ class ActivityExtended(Activity):
         exchanges : Dict of activity => amount or activity => attributes_dict. \
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         """
+        parametrized = False
 
         with DbContext(self.key[0]) :
 
@@ -328,6 +337,9 @@ class ActivityExtended(Activity):
                 exch.save()
             self.save()
 
+        #if parametrized:
+        #    param_manager.add_exchanges_to_group("project", self)
+
 
     @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
@@ -348,12 +360,11 @@ class ActivityExtended(Activity):
     def getOutputAmount(self):
 
         """ Return the amount of the production : 1 if none is found """
-        res = 1
+        res = 1.0
+
         for exch in self.exchanges() :
-            if exch['input'] == exch['output']:
-                # Not 1 ?
-                if exch['amount'] != 1:
-                    res = exch['amount']
+            if (exch['input'] == exch['output']) and (exch["type"] == "production"):
+                res = exch['amount']
                 break
         return res
 
@@ -363,6 +374,13 @@ class ActivityExtended(Activity):
         for exch in self.exchanges():
             if exch['input'] != exch['output']:
                 yield exch
+
+    def updateMeta(self, **kwargs):
+        """Update any property. Useful to update axis"""
+        for key, val in kwargs.items() :
+            self._data[key] = val
+        self.save()
+
 
 
 # Backport new methods to vanilla Activity class in order to benefit from it for all existing instances
@@ -415,20 +433,45 @@ def getActByCode(db_name, code):
 
 
 def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, category=None, db_name=None,
-                 single=True, unit=None) -> ActivityExtended :
+                 single=True, case_sensitive=False, unit=None, limit=1500) -> ActivityExtended :
+
     """
-        Find single activity by name & location
+        Find activity by name & location
         Uses index for fast fetching
+
+    :param name: Name of the activity. Can contain '*' for searching partial chain
+    :param loc: optional location
+    :param in_name: Same as using name="something*"
+    :param code: Unique code. If provided alone, returns the activity for this code
+    :param categories: Optional : exact list of catagories
+    :param category: Optional : single category that should be part of the list of categories of the selected activities
+    :param db_name: Name of the database
+    :param single: If False, returns a list of matching activities. If True (default) fails if more than one activity fits.
+    :param case_sensitive: If True (default) ignore the case
+    :param unit: If provided, only match activities with provided unit
+    :return: Either a single activity (if single is True) or a list of activities, possibly empty.
     """
 
     if name and '*' in name:
         in_name = name.replace("*", "")
         name = None
 
+    if not case_sensitive:
+        if name :
+            name = name.lower()
+        if in_name:
+            in_name = in_name.lower()
+
     def act_filter(act):
-        if name and not name == act['name']:
+
+
+        act_name = act['name']
+        if not case_sensitive :
+            act_name = act_name.lower()
+
+        if name and not name == act_name:
             return False
-        if in_name and not in_name in act['name']:
+        if in_name and not in_name in act_name:
             return False
         if loc and not loc == act['location']:
             return False
@@ -436,7 +479,7 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
             return False
         if category and not category in act['categories']:
             return False
-        if categories and not tuple(categories) == act['categories']:
+        if categories and not tuple(categories) == tuple(act['categories']):
             return False
         return True
 
@@ -450,23 +493,22 @@ def findActivity(name=None, loc=None, in_name=None, code=None, categories=None, 
 
         # Find candidates via index
         # candidates = _find_candidates(db_name, name_key)
-        candidates = _getDb(db_name).search(search, limit=200)
+        candidates = _getDb(db_name).search(search, limit=limit)
 
         if len(candidates) == 0 :
             # Try again removing strange caracters
             search = re.sub(r'\w*[^a-zA-Z ]+\w*', ' ', search)
-            candidates = _getDb(db_name).search(search, limit=200)
-
-        # print(search, candidates)
+            candidates = _getDb(db_name).search(search, limit=limit)
 
         # Exact match
         acts = list(filter(act_filter, candidates))
 
     if single and len(acts) == 0:
-        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, name, loc))
+        any_name = name if name else in_name
+        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, any_name, loc))
     if single and len(acts) > 1:
         raise Exception("Several activity found in '%s' with name '%s' and location '%s':\n%s" % (
-            db_name, name, loc, str(acts)))
+            db_name, name, loc, "\n".join(str(act) for act in acts)))
     if len(acts) == 1:
         return acts[0]
     else:
@@ -532,27 +574,137 @@ def _newAct(db_name, code):
 
 def newActivity(db_name, name, unit,
                 exchanges: Dict[Activity, Union[float, str]] = dict(),
+                amount=1,
                 code=None,
+                type='process',
                 **argv):
     """Creates a new activity
 
     Parameters
     ----------
-    name : Name ofthe new activity
+    name : Name of the new activity
     db_name : Destination DB : ACV DB by default
+    unit: Unit of the process
+
+    code: Unique code in the Db. Optional. If not provided, Name is used
     exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
     argv : extra params passed as properties of the new activity
+    amount: Production amount. 1 by default
     """
-    act = _newAct(db_name, code if code else name)
+
+    code = code if code else name
+
+    act = _newAct(db_name, code)
     act['name'] = name
-    act['type'] = 'process'
+    act['type'] = type
     act['unit'] = unit
     act.update(argv)
+
+    # Add single production exchange
+    if type == "process" :
+
+        ex = act.new_exchange(
+            input=act.key,
+            name=act['name'],
+            unit=act['unit'],
+            type='production',
+            amount=1)
+        ex.save()
+
+        act["reference product"] = act["name"]
+        act.save()
 
     # Add exchanges
     act.addExchanges(exchanges)
 
     return act
+
+
+def _segments_to_piecewise(param, segments) :
+
+    conds = []
+    for start, end, val in segments :
+        cond = True
+        if start is not None :
+            cond = cond & (param >= start)
+        if end is not None :
+            cond = cond & (param < end)
+        conds.append((val, simplify(cond)))
+
+    return Piecewise(*conds, (0, True))
+
+def interpolate_activities(
+        db_name,
+        act_name,
+        param: ParamDef,
+        act_per_value : Dict,
+        add_zero=False,
+) :
+    """
+     Creates a linear virtual activity being a linear interpolation between several activities, based on the values of a given parameter.
+     This is useful to produce a continuous parametrized activity based on the scale of the system, given that you have dicrete activities coresponding to
+     discrete values of the parameter.
+
+    :param db_name: Name of user DB (string)
+    :param act_name: Name of the new activity
+    :param param: Parameter to use [ParamDef]
+    :param act_per_value : Dictionnary of value => activitiy [Dict]
+    :param add_zero: If True add the "Zero" point to the data. Usefull for linear interoplation of a single activity / point
+    :return: the new activity
+    """
+
+    # Add "Zero" to the list
+    act_per_value = act_per_value.copy()
+
+    if add_zero :
+        act_per_value[0.0] = None
+
+    # List of segments : triplet of (start, end, expression)
+    segments = defaultdict(list)
+
+    # Transform to sorted list of value => activity
+    sorted_points = sorted(act_per_value.items(), key=lambda item : item[0])
+    for i, (curr_val, curr_act) in enumerate(sorted_points) :
+
+        if i >= len(sorted_points) -1:
+            continue
+
+        # Next val and act
+        next_val, next_act = sorted_points[i + 1]
+
+        # Boundaries of segment : none if first / last point
+        start = curr_val if i > 0 else None
+        end = next_val if i < (len(sorted_points) -2) else None
+
+        # Add segment for current activity
+        segments[curr_act].append([
+            start, end,
+            (param - next_val) / (curr_val - next_val)])  # Will equal 1 at current point and 0 at next point
+
+        # Add segment for next activity
+        segments[next_act].append([
+            start, end,
+            (param - curr_val) / (next_val - curr_val)])  # Will equal 0 at current point and 1 at next point
+
+    # Transform segments into piecewize expressions
+    exchanges = {act:  _segments_to_piecewise(param, segs) for act, segs in segments.items() if act is not None}
+
+    # Find unit
+    units = list(act["unit"] for act in exchanges.keys())
+    same_unit = all(x == units[0] for x in units)
+
+    if not same_unit :
+        error("Warning : units of activities should be the same : %s" % str(units))
+
+    # Create act
+    new_act = newActivity(
+        db_name=db_name,
+        name=act_name,
+        unit=units[0],
+        exchanges=exchanges)
+
+    return new_act
+
 
 
 def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
@@ -629,7 +781,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def printAct(*args, impact=None, **params):
+def printAct(*args, **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
@@ -639,7 +791,6 @@ def printAct(*args, impact=None, **params):
     names = []
 
     activities = args
-
 
     for act in activities:
         with DbContext(act.key[0]) :
@@ -781,3 +932,6 @@ def findMethods(search=None, mainCat=None) :
         if match :
             res.append(method)
     return res
+
+
+
