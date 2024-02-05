@@ -490,8 +490,8 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
     '''Show full stochastic output with sobol indices'''
     data = np.zeros((len(param_names) * 2 + len(_percentiles) +2, len(methods)))
-    data[0, :] = np.mean(Y)
-    data[1, :] = np.std(Y)
+    data[0, :] = np.mean(Y, 0)
+    data[1, :] = np.std(Y, 0)
 
     for i, percentile in enumerate(_percentiles) :
         data[2 + i, :] = np.percentile(Y, percentile, axis=0)
