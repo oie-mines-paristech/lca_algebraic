@@ -775,6 +775,10 @@ def _param_registry() -> ParamRegistry :
 
     return builtins.param_registry
 
+def all_params() -> Dict[str, ParamDef]:
+    """Return the dict of all parameters defined in ParamRegistry"""
+    return {param.name: param for param in _param_registry().all()}
+
 def _toSymbolDict(params : Dict[str, Any]):
     """ Replace names with actual params as key when possible """
     all_params = _param_registry().as_dict()
@@ -816,6 +820,26 @@ def _expand_params(param_values:Dict[str, ParamValues]):
 
     return res
 
+def _complete_params(params: Dict[str, ParamValues], required_params):
+    params = params.copy()
+
+    # Add default values for required params
+    for param_name in required_params:
+        param = _param_registry()[param_name]
+
+        if not param_name in params:
+            if param.formula:
+                params[param_name] = compute_expr_value(param.formula, params)
+                logger.info(
+                    f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
+            else:
+                params[param_name] = param.default
+                logger.info("Required param '%s' was missing, replacing by default value : %s" % (
+                param_name, str(param.default)))
+
+    return params
+
+
 def _complete_and_expand_params(params: Dict[str, ParamValues], required_params : List[str]=None, asSymbols=True):
     """
     Check parameters and expand enum params.
@@ -825,20 +849,8 @@ def _complete_and_expand_params(params: Dict[str, ParamValues], required_params 
     -------
         Dict of param_name => float value or np.arary of float values
     """
-    params = params.copy()
-
-    # Add default values for required params
     if required_params:
-        for param_name in required_params :
-            param = _param_registry()[param_name]
-
-            if not param_name in params :
-                if param.formula :
-                    params[param_name] = compute_expr_value(param.formula, params)
-                    logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
-                else:
-                    params[param_name] = param.default
-                    logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
+        params = _complete_params(params, required_params)
 
     # Expand enum values and list of values
     params = _expand_params(params)

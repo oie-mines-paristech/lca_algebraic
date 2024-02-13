@@ -1,16 +1,19 @@
 import concurrent.futures
 from collections import OrderedDict
-from typing import Dict, List, Any
+from typing import List
 
-from sympy import lambdify, simplify, Expr, Symbol, parse_expr
+from sympy import lambdify, Symbol, parse_expr
 
+from .params import all_params
 from .log import logger
-from .base_utils import _actName, error, _getDb, _method_unit
+from .base_utils import _actName, _getDb, _method_unit
 from .cache import LCIACache, ExprCache
 from .helpers import *
 from .helpers import _actDesc, _isForeground, _getAmountOrFormula
-from .params import _param_registry, _complete_and_expand_params, _fixed_params, _expanded_names_to_names, _expand_param_names, \
-    FixedParamMode, freezeParams, _toSymbolDict, compute_expr_value, _compute_param_length
+from .params import _param_registry, _fixed_params, _expanded_names_to_names, \
+    _expand_param_names, \
+    FixedParamMode, freezeParams, _toSymbolDict, compute_expr_value, _compute_param_length, _complete_params, \
+    _expand_params
 from warnings import warn
 import pandas as pd
 import builtins
@@ -191,6 +194,12 @@ def compute_param_formulas(param_values:Dict, required_params:List[str]):
     # Compute the values params computed from formulas (and not specified in input)
     pass
 
+@dataclass
+class ValueContext:
+    """Represents a result value, with all parameters values used in context"""
+    value: float
+    context: Dict[str, float]
+
 class LambdaWithParamNames :
     """
     This class represents a compiled (lambdified) expression together with the list of requirement parameters and the source expression
@@ -246,15 +255,23 @@ class LambdaWithParamNames :
         else:
             return None
 
-    def compute(self, **params):
+    def compute(self, **params) -> ValueContext:
         """Compute result value based of input parameters """
 
-        params = _complete_and_expand_params(params, self.params, asSymbols=False)
+        # Add default or computed values
+        completed_params = _complete_params(params, self.params)
+
+        # Expand enums
+        expanded_params = _expand_params(completed_params)
 
         # Remove parameters that are not required
-        params = _filter_param_values(params, self.expanded_params)
+        expanded_params = _filter_param_values(expanded_params, self.expanded_params)
 
-        return self.lambd(**params)
+        value = self.lambd(**expanded_params)
+
+        return ValueContext(
+            value=value,
+            context=completed_params)
 
     def serialize(self) :
 
@@ -305,9 +322,16 @@ def _slugify(str) :
     return re.sub('[^0-9a-zA-Z]+', '_', str)
 
 
+@dataclass
+class ResultsWithParams:
+    """Holds bith the result with context parameters"""
+    dataframe: DataFrame
+    params: Dict
+
 def _postMultiLCAAlgebric(
         methods,
         lambdas:List[LambdaWithParamNames],
+        with_params=False,
         **params):
     '''
         Compute LCA for a given set of parameters and pre-compiled lambda functions.
@@ -331,13 +355,24 @@ def _postMultiLCAAlgebric(
     # Init output
     res = np.zeros((len(methods), param_length), float)
 
+    # All params
+    context_params = dict()
+
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
     def process(args) :
+
+        nonlocal context_params
+
 
         imethod = args[0]
         lambd : LambdaWithParamNames = args[1]
 
-        value = lambd.compute(**params)
+        value_context = lambd.compute(**params)
+
+        # Update the param values used
+        context_params.update(value_context.context)
+
+        value = value_context.value
 
         # Expand axis values as a list, to fit into the result numpy array
         if lambd.has_axis :
@@ -350,7 +385,12 @@ def _postMultiLCAAlgebric(
         for imethod, value in exec.map(process, enumerate(lambdas)):
             res[imethod, :] = value
 
-    return pd.DataFrame(res, index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods]).transpose()
+    result = pd.DataFrame(res, index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods]).transpose()
+
+    if with_params:
+        return ResultsWithParams(dataframe=result, params=context_params)
+    else:
+        return result
 
 
 # Add default values for issing parameters or warn about extra params
@@ -379,7 +419,9 @@ def compute_value(formula, **params):
 
     lambd = LambdaWithParamNames(formula)
 
-    return lambd.compute(**params)
+    value_context = lambd.compute(**params)
+
+    return value_context.value
 
 
 def multiLCAAlgebric(*args, **kwargs) :
@@ -387,11 +429,44 @@ def multiLCAAlgebric(*args, **kwargs) :
     warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
     return compute_impacts(*args, **kwargs)
 
+
+def _params_dataframe(param_values: Dict[str, float]):
+    """Create a DataFrame, ordered by group, showing param values"""
+    params_by_name = all_params()
+
+    records = []
+    for param_name, value in param_values.items():
+        param = params_by_name[param_name]
+        record = {
+            "group": param.group if param.group is not None else "",
+            "name" : param.name,
+            "min": param.min,
+            "max": param.max,
+            "default": param.default}
+        if isinstance(value, (list, np.ndarray)) :
+            record.update({f"value_{i}":value for i, value in enumerate(value)})
+        else:
+            record["value"] = value
+        records.append(record)
+
+    df = DataFrame\
+            .from_records(records)\
+            .set_index(["group", "name"])\
+            .sort_index()
+
+    return df
+
+def _metadata_dataframe(metadata:Dict) :
+    records = [dict(Name=name, Value=value) for name, value in metadata.items()]
+    return DataFrame.from_records(records)
+
 def compute_impacts(
         models,
         methods,
         axis=None,
         functional_unit=1,
+        return_params=False,
+        description=None,
         **params):
     """
     Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
@@ -411,6 +486,9 @@ def compute_impacts(
     params : You should provide named values of all the parameters declared in the model. \
              Values can be single value or list of samples, all of the same size
     axis: Designates the name of an attribute of user activities to split impacts by their value. This is useful to get impact by phase or sub modules
+    functional_unit: quantity (static or Sypy formula) by which to divide impacts
+    return_params: If true, also returns the value of all parameters in as tabbed DataFrame
+    description: Optional description/metadata to be added in Dataframe
     """
     dfs = dict()
 
@@ -423,6 +501,9 @@ def compute_impacts(
         models = dict(to_tuple(item) for item in models)
     elif not isinstance(models, dict):
         models = {models:1}
+
+    # Gather all param values (even default and computed)
+    params_all = dict()
 
     for model, alpha in models.items():
 
@@ -442,7 +523,12 @@ def compute_impacts(
 
             lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
 
-            df = _postMultiLCAAlgebric(methods, lambdas, **params)
+            res = _postMultiLCAAlgebric(methods, lambdas, with_params=return_params, **params)
+            if return_params :
+                df = res.dataframe
+                params_all.update(res.params)
+            else:
+                df = res
 
             model_name = _actName(model)
             while model_name in dfs :
@@ -486,10 +572,26 @@ def compute_impacts(
 
     if len(dfs) == 1:
         df = list(dfs.values())[0]
-        return df
     else:
         # Concat several dataframes for several models
-        return pd.concat(list(dfs.values()))
+        df =  pd.concat(list(dfs.values()))
+
+    if return_params :
+
+        metadata = {
+            "Functional unit" : functional_unit
+        }
+        if description :
+            metadata["Description"] = description
+
+        return TabbedDataframe(
+            Results=df,
+            Parameters=_params_dataframe(params_all),
+            Metadata=_metadata_dataframe(metadata))
+    else:
+        return
+
+
 
 
 def _createTechProxyForBio(act_key, target_db):

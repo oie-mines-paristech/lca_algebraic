@@ -1,8 +1,13 @@
 from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from sys import stderr
+from typing import Dict
 
 import brightway2 as bw
+import ipywidgets
+from IPython.core.display_functions import display
 from bw2data.backends.peewee import Activity
+from pandas import DataFrame
 from six import raise_from
 import ipywidgets as widgets
 from IPython.core.display import display
@@ -194,3 +199,43 @@ class SymDict :
             if hasattr(val, "free_symbols") :
                 res |= val.free_symbols
         return list(res)
+
+
+
+class TabbedDataframe :
+    """This class holds a dictionnary of dataframes and can display and saved them awith 'tabs'/'sheets' """
+
+
+    def __init__(self, **dataframes):
+        self.dataframes = dataframes
+
+    def __str__(self):
+        res = ""
+        for name, df in self.dataframes.items() :
+            res += f"\n{name} : \n"
+            res += df.__str__() + "\n"
+        return res
+
+    def _repr_html_(self):
+        return _mk_tabs(self.dataframes)
+
+
+def _mk_tabs(titlesAndContent:Dict) :
+    """Generate iPywidget tabs"""
+    tabs = []
+    titles = []
+    for title, content_f in titlesAndContent:
+        titles.append(title)
+
+        tab = widgets.Output()
+        with tab:
+            content_f()
+        tabs.append(tab)
+
+    res = widgets.Tab(children=tabs)
+    for i, title in enumerate(titles):
+        res.set_title(i, title)
+
+
+def _display_tabs(titlesAndContent:Dict):
+    display(_mk_tabs(titlesAndContent))

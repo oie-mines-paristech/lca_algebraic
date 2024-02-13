@@ -2,24 +2,22 @@ import math
 import random
 import warnings
 from time import time
-from typing import Type, Dict, Tuple, List
+from typing import Type, List
 
-import numpy as np
 import seaborn as sns
 from SALib.analyze import sobol
 from SALib.sample import saltelli, sobol_sequence
 from ipywidgets import interact
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
-from numpy import piecewise
-from sympy import Float, Number, Add, AtomicExpr, Mul, Expr, Function, Abs, Sum, Eq, Piecewise
-from sympy.core import symbol
+from sympy import Float, Number, Add, AtomicExpr, Mul, Abs, Sum, Eq
 from sympy.core.operations import AssocOp
 
-from .base_utils import _method_unit
+from .base_utils import _method_unit, _display_tabs
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
 from .params import _variable_params, _param_registry, FixedParamMode, _param_name, NameType
+from IPython.display import display
 
 PARALLEL=False
 
@@ -80,24 +78,6 @@ def oat_matrix(model, impacts, functional_unit=1, n=10, title='Impact variabilit
                 index=[_param_name(param, name_type) for param in sorted_params],
                 columns=[method_name(imp) for imp in impacts])
     _heatmap(change.transpose(), title, 100, ints=True)
-
-
-def _display_tabs(titlesAndContentF):
-    """Generate tabs"""
-    tabs = []
-    titles = []
-    for title, content_f in titlesAndContentF:
-        titles.append(title)
-
-        tab = widgets.Output()
-        with tab:
-            content_f()
-        tabs.append(tab)
-
-    res = widgets.Tab(children=tabs)
-    for i, title in enumerate(titles):
-        res.set_title(i, title)
-    display(res)
 
 
 def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_param_names=None,
@@ -179,11 +159,10 @@ def oat_dasboard(modelOrLambdas, impacts, varying_param: ParamDef, n=10, all_par
         plt.tight_layout()
         plt.show(fig)
 
-    _display_tabs([
-        ("Graphs", graph),
-        ("Data", table),
-        ("Variation", change)
-    ])
+    _display_tabs({
+        "Graphs": graph,
+        "Data": table,
+        "Variation": change})
 
 @with_db_context(arg="model")
 def oat_dashboard_interact(model, methods, functional_unit=1, **kwparams):
@@ -543,12 +522,11 @@ def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, function
     def data():
         _incer_stochastic_data(methods, problem['names'], Y, sob.s1, sob.st)
 
-    _display_tabs([
-        ("Violin graphs", violin),
-        ("Impact variations", variation),
-        ("Sobol matrix", matrix),
-        ("Data", data)
-    ])
+    _display_tabs({
+        "Violin graphs": violin,
+        "Impact variations": variation,
+        "Sobol matrix": matrix,
+        "Data": data})
 
 
 def _round_expr(expr, num_digits):
@@ -698,8 +676,7 @@ def sobol_simplify_model(
     min_ratio: [0, 1] minimum amount of first order variation (sum of S1) to explain
     var_params: Optional list of parameters to vary.
     fixed_mode : What to replace minor parameters with : MEDIAN by default
-    sob: [optional] Pre-computed sobol indices
-    simplify_sums: If true (default) remove terms in sums that are lower than 1%
+    simple_sums: If true (default) remove terms in sums that are lower than 1%
 
     returns
     _______

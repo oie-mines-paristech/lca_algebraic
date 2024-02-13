@@ -351,6 +351,30 @@ def test_params_with_formulas(data):
     res.iloc[:, 0] == [2.0, 4.0]
 
 
+def test_compute_impacts_return_params(data):
+
+    p1 = newFloatParam("p1", default=1, min=0, max=2)
+    p_default = newFloatParam("p_default", default=0, min=0, max=2)
+    p_computed = newFloatParam("p_computed", default=0, min=0, max=3, formula=2 * p1)
+    p_unused = newFloatParam("p_unused", default=0, min=0, max=2)
+
+    act1 = newActivity(USER_DB, "act1", "kg",{
+                        data.bio1: p1,
+                        data.bio2: p_default,
+                        data.bio3: p_computed})
+
+    res = compute_impacts(
+        act1,
+        [data.ibio1, data.ibio2, data.ibio3],
+        functional_unit=p_default,
+        return_params=True,
+        description = "Something here",
+
+        # Params
+        p1 = [1, 2, 3])
+
+    print(res)
+
 def test_switch_value(data):
 
     p1 = newFloatParam("p1", default=0, min=0, max=2)
@@ -426,6 +450,8 @@ def test_interpolation(data) :
         interp_with_zero,
         [0.0, 0.5, 1.0, 3.0],
         [0.0, 0.5, 1.0, 2.0])
+
+
 
 
 def test_axis(data) :
