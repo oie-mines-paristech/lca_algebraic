@@ -2,7 +2,7 @@ import concurrent.futures
 from collections import OrderedDict
 from typing import Dict, List, Any
 
-from sympy import lambdify, simplify, Expr, Symbol, parse_expr
+from sympy import lambdify, simplify, Expr, Symbol, parse_expr, evaluate
 
 from .log import logger
 from .base_utils import _actName, error, _getDb, _method_unit
@@ -86,6 +86,24 @@ def _multiLCAWithCache(acts, methods) :
         return {(act, method):  cache.data[(act, method)] for act in acts for method in methods}
 
 
+def _replace_symbols_with_params_in_exp(expr:Basic) :
+    """After unpickling, the Symbols in the expression with same named are not the same object than Parameters.
+    This is problematic for xreplace wich relies on it :
+    Here we replace them.
+    """
+    all_params = _param_registry().as_dict()
+    subs = {
+        symb : all_params[symb.name]
+        for symb in expr.free_symbols
+            if isinstance(symb, Symbol) and symb.name in all_params}
+
+    logger.debug("Replace: %s", subs)
+
+    expr = expr.xreplace(subs)
+    return expr
+
+
+
 
 def _modelToExpr(
         model: ActivityExtended,
@@ -103,18 +121,23 @@ def _modelToExpr(
 
     # Try to load from cache
     with ExprCache() as cache :
-        if not model in cache.data :
+        key = (model, axis)
+        if not key in cache.data :
             expr, actBySymbolName = actToExpression(
                 model,
                 axis=axis)
-            cache.data[model] = (expr, actBySymbolName)
+            cache.data[key] = (expr, actBySymbolName)
 
-        expr, actBySymbolName = cache.data[model]
+        expr, actBySymbolName = cache.data[key]
+
+
+
+    #logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
+    #logger.debug("Act by symbol : %s", actBySymbolName)
+    #if logger.isEnabledFor("DEBUG") :
+    #logger.debug(f"Length of expression : {len(str(expr))}")
 
     expr = expr * alpha
-
-    #if logger.isEnabledFor("DEBUG") :
-    logger.debug(f"Length of expression : {len(str(expr))}")
 
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
@@ -131,10 +154,15 @@ def _modelToExpr(
     for method in methods:
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
-        exprs.append(expr.xreplace(sub))
 
+        expr = expr.xreplace(sub)
 
+        # Ensure symbols are params
+        expr = _replace_symbols_with_params_in_exp(expr)
 
+        exprs.append(expr)
+
+    logger.debug("Exprs for %s/%s : %s", model, str(methods), exprs)
 
     return exprs
 
