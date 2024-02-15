@@ -91,6 +91,10 @@ def _replace_symbols_with_params_in_exp(expr:Basic) :
     This is problematic for xreplace wich relies on it :
     Here we replace them.
     """
+
+    if not isinstance(expr, Basic):
+        return expr
+
     all_params = _param_registry().as_dict()
     subs = {
         symb : all_params[symb.name]
@@ -130,7 +134,7 @@ def _modelToExpr(
 
         expr, actBySymbolName = cache.data[key]
 
-
+    logger.debug("Alpha passed %s", alpha)
 
     #logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
     #logger.debug("Act by symbol : %s", actBySymbolName)
@@ -155,14 +159,13 @@ def _modelToExpr(
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
 
-        expr = expr.xreplace(sub)
+        expr_curr = expr.xreplace(sub)
 
         # Ensure symbols are params
-        expr = _replace_symbols_with_params_in_exp(expr)
+        expr_curr = _replace_symbols_with_params_in_exp(expr_curr)
 
-        exprs.append(expr)
+        exprs.append(expr_curr)
 
-    logger.debug("Exprs for %s/%s : %s", model, str(methods), exprs)
 
     return exprs
 
@@ -466,6 +469,8 @@ def compute_impacts(
 
         if type(model) is tuple:
             model, alpha = model
+
+        alpha = float(alpha)
 
         dbname = model.key[0]
         with DbContext(dbname):

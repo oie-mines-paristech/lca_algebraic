@@ -20,7 +20,6 @@ from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
 from .params import _variable_params, _param_registry, FixedParamMode, _param_name, NameType
-from lca_algebraic.lca import _are_symbols_params
 
 PARALLEL=False
 
