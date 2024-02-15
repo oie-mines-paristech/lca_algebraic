@@ -495,9 +495,7 @@ def _params_dataframe(param_values: Dict[str, float]):
 
     return df
 
-def _metadata_dataframe(metadata:Dict) :
-    records = [dict(Name=name, Value=value) for name, value in metadata.items()]
-    return DataFrame.from_records(records)
+
 
 def compute_impacts(
         models,
@@ -521,13 +519,12 @@ def compute_impacts(
         or Dict of model:amount
         In case of several models, you cannot use list of parameters
     methods : List of methods / impacts to consider
-    extract_activities : Optionnal : list of foregound or background activities. If provided, the result only integrate their contribution
     params : You should provide named values of all the parameters declared in the model. \
              Values can be single value or list of samples, all of the same size
     axis: Designates the name of an attribute of user activities to split impacts by their value. This is useful to get impact by phase or sub modules
     functional_unit: quantity (static or Sypy formula) by which to divide impacts
     return_params: If true, also returns the value of all parameters in as tabbed DataFrame
-    description: Optional description/metadata to be added in Dataframe
+    description: Optional description/metadata to be added in output when using "return params" Dataframe
     """
     dfs = dict()
 
@@ -620,15 +617,16 @@ def compute_impacts(
     if return_params :
 
         metadata = {
+            "Models" : str(models),
             "Functional unit" : functional_unit
         }
         if description :
             metadata["Description"] = description
 
         return TabbedDataframe(
+            metadata=metadata,
             Results=df,
-            Parameters=_params_dataframe(params_all),
-            Metadata=_metadata_dataframe(metadata))
+            Parameters=_params_dataframe(params_all))
     else:
         return df
 

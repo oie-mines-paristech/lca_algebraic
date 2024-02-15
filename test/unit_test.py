@@ -385,6 +385,9 @@ def test_compute_impacts_return_params(data):
          'value_2': {('', 'p1'): 2.0, ('', 'p_computed'): 4.0, ('', 'p_default'): 1.0},
          'value_3': {('', 'p1'): 3.0, ('', 'p_computed'): 6.0, ('', 'p_default'): 1.0}}
 
+
+    #res.to_excel("tst.xlsx")
+
 def test_switch_value(data):
 
     p1 = newFloatParam("p1", default=0, min=0, max=2)

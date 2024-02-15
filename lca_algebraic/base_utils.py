@@ -12,6 +12,7 @@ from six import raise_from
 import ipywidgets as widgets
 from IPython.core.display import display
 import numpy as np
+import pandas as pd
 
 DEBUG=False
 LANG="fr"
@@ -206,8 +207,9 @@ class TabbedDataframe :
     """This class holds a dictionnary of dataframes and can display and saved them awith 'tabs'/'sheets' """
 
 
-    def __init__(self, **dataframes):
+    def __init__(self, metadata=dict(), **dataframes):
         self.dataframes = dataframes
+        self.metadata = metadata
 
     def __str__(self):
         res = ""
@@ -219,6 +221,25 @@ class TabbedDataframe :
     def _repr_html_(self):
         return _mk_tabs(self.dataframes)
 
+    def to_excel(self, filename):
+
+        assert filename.endswith(".xlsx")
+
+        with pd.ExcelWriter(filename, engine="xlsxwriter") as writer :
+            for itab, (name, df) in enumerate(self.dataframes.items()):
+
+                if itab == 0:
+
+                    df.to_excel(writer, sheet_name=name, startrow=len(self.metadata) + 1)
+
+                    # Write metadata in header
+                    worksheet = writer.sheets[name]
+                    for imeta, (key, val) in enumerate(self.metadata.items()):
+                        worksheet.write_string(imeta, 0, str(key))
+                        worksheet.write_string(imeta, 1, str(val))
+
+                else:
+                    df.to_excel(writer, sheet_name=name)
 
 def _mk_tabs(titlesAndContent:Dict) :
     """Generate iPywidget tabs"""
