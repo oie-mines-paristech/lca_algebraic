@@ -5,8 +5,9 @@ seaborn
 sympy
 nbformat
 bw2data==3.6.2
+bw2io==0.8.6
 nbconvert
-numpy
+numpy==1.23.1
 matplotlib
 scipy
 brightway2==2.3

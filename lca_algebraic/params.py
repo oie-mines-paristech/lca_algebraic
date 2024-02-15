@@ -1,62 +1,57 @@
 import builtins
-import enum
-from collections import defaultdict, UserDict
+from collections import defaultdict
 from enum import Enum
-from typing import Dict, List, Union, Tuple, Any
+from typing import Any, Dict, List, Union
 
 import brightway2 as bw
-import ipywidgets as widgets
 import numpy as np
 import pandas as pd
-from IPython.core.display import HTML
 from bw2data.backends import LCIBackend
-from bw2data.backends.peewee import Activity, ExchangeDataset
-from bw2data.parameters import ActivityParameter, ProjectParameter, DatabaseParameter, Group
+from bw2data.backends.peewee import ExchangeDataset
+from bw2data.parameters import (ActivityParameter, DatabaseParameter, Group,
+                                ProjectParameter)
 from bw2data.proxies import ActivityProxyBase
+from IPython.core.display import HTML
+from scipy.stats import beta, lognorm, norm, triang, truncnorm
+from sympy import Basic, Expr, Symbol, lambdify, parse_expr
+from tabulate import tabulate
 
 from lca_algebraic.base_utils import ExceptionContext
 from lca_algebraic.log import logger
-from scipy.stats import triang, truncnorm, norm, beta, lognorm
-from sympy import Symbol, Basic, Expr, parse_expr, lambdify
-from tabulate import tabulate
 
-from .base_utils import _snake2camel
-from .base_utils import error, as_np_array, LANG
-from .base_utils import as_np_array, _actName
+from .base_utils import LANG, _snake2camel, as_np_array, error
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 
 
-
-
-class DbContext :
+class DbContext:
     """
-        Context class specifying the current foreground DB in use. in internal
-        Used internally to distinguish database parameters with same names
+    Context class specifying the current foreground DB in use. in internal
+    Used internally to distinguish database parameters with same names
 
-        usage :
-        with DbContext("db") :
-            <some code>
+    usage :
+    with DbContext("db") :
+        <some code>
 
     """
+
     stack = []
 
     @staticmethod
-    def current_db() :
+    def current_db():
         if len(DbContext.stack) == 0:
             return None
         return DbContext.stack[-1]
 
-
-    def __init__(self, db : Union[str, ActivityProxyBase, LCIBackend]) :
+    def __init__(self, db: Union[str, ActivityProxyBase, LCIBackend]):
         if db is None:
             self.db = None
-        elif isinstance(db, ActivityProxyBase) :
+        elif isinstance(db, ActivityProxyBase):
             self.db = db.key[0]
-        elif isinstance(db, str) :
+        elif isinstance(db, str):
             self.db = db
-        else :
+        else:
             self.db = db.name
 
     def __enter__(self):
@@ -66,9 +61,6 @@ class DbContext :
     def __exit__(self, exc_type, exc_value, exc_traceback):
         if self.db is not None:
             DbContext.stack.pop()
-
-
-
 
 
 class ParamType:
@@ -83,10 +75,11 @@ class ParamType:
     FLOAT = "float"
     """Float parameter """
 
-class DistributionType():
+
+class DistributionType:
     """
-        Type of statistic distribution of a float parameter.
-        Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
+    Type of statistic distribution of a float parameter.
+    Some type of distribution requires extra parameters, in italic, to be provided in the constructor of **ParamDef**()
     """
 
     LINEAR = "linear"
@@ -98,7 +91,7 @@ class DistributionType():
     LOGNORMAL = "lognormal"
     """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
 
-    BETA = "beta" # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
+    BETA = "beta"  # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
     """ Beta distribution with extra params *a* and *b*, 
     using *default* value as 'loc' (0 of beta distribution) and *std* as 'scale' (1 of beta distribution)
     See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta) """
@@ -110,10 +103,11 @@ class DistributionType():
     """ Fixed value, not considered as a variable input for monte carlo simulation. """
 
 
-class _UncertaintyType :
-    '''Enum of uncertainty types of Brightway.
+class _UncertaintyType:
+    """Enum of uncertainty types of Brightway.
     See https://stats-arrays.readthedocs.io/en/latest/
-    '''
+    """
+
     UNDEFINED = 0
     FIXED = 1
     LOGNORMAL = 2
@@ -126,19 +120,20 @@ class _UncertaintyType :
 
 # Map to Brightay2 / stats-arrays Distribution Type
 _DistributionTypeMap = {
-    DistributionType.LINEAR : _UncertaintyType.UNIFORM,
-    DistributionType.BETA : _UncertaintyType.BETA,
-    DistributionType.NORMAL : _UncertaintyType.NORMAL,
+    DistributionType.LINEAR: _UncertaintyType.UNIFORM,
+    DistributionType.BETA: _UncertaintyType.BETA,
+    DistributionType.NORMAL: _UncertaintyType.NORMAL,
     DistributionType.LOGNORMAL: _UncertaintyType.LOGNORMAL,
-    DistributionType.TRIANGLE : _UncertaintyType.TRIANGLE,
-    DistributionType.FIXED : _UncertaintyType.FIXED, # I made that up
+    DistributionType.TRIANGLE: _UncertaintyType.TRIANGLE,
+    DistributionType.FIXED: _UncertaintyType.FIXED,  # I made that up
 }
 
-_DistributionTypeMapReverse = {val:key for key, val in _DistributionTypeMap.items()}
+_DistributionTypeMapReverse = {val: key for key, val in _DistributionTypeMap.items()}
 
 
 class FixedParamMode:
-    """ Enum describing what value to set for fixed params """
+    """Enum describing what value to set for fixed params"""
+
     DEFAULT = "default"
     """ Use the default value as the parameter """
 
@@ -148,27 +143,42 @@ class FixedParamMode:
     MEAN = "mean"
     """ Use the mean of the distribution of the parameter """
 
+
 class ParamDef(Symbol):
-    '''Generic definition of a parameter, with name, bound, type, distribution
+    """Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
 
     This class inherits sympy Symbol, making it possible to use in standard arithmetic python
     while keeping it as a symbolic expression (delayed evaluation).
-    '''
+    """
 
     def __new__(cls, name, *karg, **kargs):
         # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
         assumptions = dict()
         assumptions["real"] = True
 
-        if 'dbname' in kargs and kargs['dbname'] :
-            assumptions[kargs['dbname']] = True
+        if "dbname" in kargs and kargs["dbname"]:
+            assumptions[kargs["dbname"]] = True
 
         return Symbol.__new__(cls, name, **assumptions)
 
-    def __init__(self, name, type: str, default, min=None, max=None, unit="", description="", label=None, label_fr=None,
-                 group=None, distrib:DistributionType=None, dbname=None, formula=None, **kwargs):
-
+    def __init__(
+        self,
+        name,
+        type: str,
+        default,
+        min=None,
+        max=None,
+        unit="",
+        description="",
+        label=None,
+        label_fr=None,
+        group=None,
+        distrib: DistributionType = None,
+        dbname=None,
+        formula=None,
+        **kwargs,
+    ):
         self.name = name
         self.type = type
         self.default = default
@@ -183,53 +193,55 @@ class ParamDef(Symbol):
         self.dbname = dbname
         self.formula = formula
 
-        #if (self.dbname == None) :
+        # if (self.dbname == None) :
         #    error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
-        if hasattr(self, "_distrib") :
+        if hasattr(self, "_distrib"):
             del self._distrib
 
-        if not distrib and type == ParamType.FLOAT  :
+        if not distrib and type == ParamType.FLOAT:
             if self.min is None:
                 raise Exception(f"No 'min/max' provided, distrib should explicitely set to FIXED" % self.name)
             else:
                 self.distrib = DistributionType.LINEAR
 
-        elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
-            if not 'std' in kwargs:
+        elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
+            if not "std" in kwargs:
                 raise Exception("Standard deviation is mandatory for normal / lognormal distribution")
-            self.std = kwargs['std']
+            self.std = kwargs["std"]
 
-            if distrib == DistributionType.LOGNORMAL and self.min is not None :
-                error("Warning : LogNormal does not support min/max boundaries for parameter : ", self.name)
+            if distrib == DistributionType.LOGNORMAL and self.min is not None:
+                error(
+                    "Warning : LogNormal does not support min/max boundaries for parameter : ",
+                    self.name,
+                )
 
-        elif distrib == DistributionType.BETA :
-            if not 'a' in kwargs or not 'b' in kwargs or not 'std' in kwargs :
+        elif distrib == DistributionType.BETA:
+            if not "a" in kwargs or not "b" in kwargs or not "std" in kwargs:
                 raise Exception("Beta distribution requires params 'a' 'b' and 'std' (used as scale)")
-            self.a = kwargs['a']
-            self.b = kwargs['b']
-            self.std = kwargs['std']
+            self.a = kwargs["a"]
+            self.b = kwargs["b"]
+            self.std = kwargs["std"]
 
-    def stat_value(self, mode : FixedParamMode):
-        """ Compute a fixed value for this parameter, according to the requested FixedParamMode """
-        if mode == FixedParamMode.DEFAULT :
+    def stat_value(self, mode: FixedParamMode):
+        """Compute a fixed value for this parameter, according to the requested FixedParamMode"""
+        if mode == FixedParamMode.DEFAULT:
             return self.default
-        else :
+        else:
             # Compute statistical value for replacement
             rnd = np.random.rand(1000)
             x = self.rand(rnd)
 
-            if mode == FixedParamMode.MEAN :
+            if mode == FixedParamMode.MEAN:
                 return np.mean(x)
-            elif mode == FixedParamMode.MEDIAN :
+            elif mode == FixedParamMode.MEDIAN:
                 return np.median(x)
-            else :
+            else:
                 raise Exception("Unkown mode " + mode)
 
-
     def get_label(self):
-        if LANG == "fr " and self.label_fr is not None :
+        if LANG == "fr " and self.label_fr is not None:
             return self.label_fr
         elif self.label is not None:
             return self.label
@@ -244,51 +256,42 @@ class ParamDef(Symbol):
     def rand(self, alpha):
         """Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter"""
 
-        if self.distrib == DistributionType.FIXED :
+        if self.distrib == DistributionType.FIXED:
             return self.default
-        
+
         elif self.distrib == DistributionType.LINEAR:
-            if self.min is None or self.max is None :
+            if self.min is None or self.max is None:
                 raise Exception("Missing min/max for : " + self.name)
             return self.min + alpha * (self.max - self.min)
 
-        else :
+        else:
             if not hasattr(self, "_distrib"):
-
                 if self.distrib == DistributionType.TRIANGLE:
                     scale = self.max - self.min
                     c = (self.default - self.min) / scale
                     self._distrib = triang(c, loc=self.min, scale=scale)
 
                 elif self.distrib == DistributionType.NORMAL:
-
-                    if self.min :
+                    if self.min:
                         # Truncated normal
                         self._distrib = truncnorm(
                             (self.min - self.default) / self.std,
                             (self.max - self.min) / self.std,
                             loc=self.default,
-                            scale=self.std)
-                    else :
+                            scale=self.std,
+                        )
+                    else:
                         # Normal
-                        self._distrib = norm(
-                            loc=self.default,
-                            scale=self.std)
+                        self._distrib = norm(loc=self.default, scale=self.std)
 
                 elif self.distrib == DistributionType.LOGNORMAL:
-
                     self._distrib = lognorm(self.default, self.std)
 
                 elif self.distrib == DistributionType.BETA:
-                    self._distrib = beta(
-                        self.a,
-                        self.b,
-                        loc=self.default,
-                        scale=self.std)
+                    self._distrib = beta(self.a, self.b, loc=self.default, scale=self.std)
 
                 else:
                     raise Exception("Unkown distribution type " + self.distrib)
-
 
             return self._distrib.ppf(alpha)
 
@@ -296,9 +299,9 @@ class ParamDef(Symbol):
         return hash((getattr(self, "dbname", ""), self.name))
 
     def __eq__(self, other):
-        if isinstance(other, ParamDef) :
-            return self.name == other.name and getattr(self, 'dbname', None) == getattr(other, 'dbname', None)
-        else :
+        if isinstance(other, ParamDef):
+            return self.name == other.name and getattr(self, "dbname", None) == getattr(other, "dbname", None)
+        else:
             return Symbol.__eq__(self, other)
 
     # Expand parameter (useful for enum param)
@@ -309,7 +312,7 @@ class ParamDef(Symbol):
 
     # Useful for enum param, having several names
     def names(self, use_label=False):
-        if use_label :
+        if use_label:
             return [self.get_label()]
         else:
             return [self.name]
@@ -326,7 +329,6 @@ class BooleanDef(ParamDef):
             argv = dict(argv, min=None, max=None)
         super(BooleanDef, self).__init__(name, ParamType.BOOL, **argv)
 
-
     def range(self, n):
         return [0, 1]
 
@@ -341,14 +343,13 @@ class EnumParam(ParamDef):
     """
 
     def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
-
-        if not "min" in argv :
+        if not "min" in argv:
             argv = dict(argv, min=None, max=None)
         super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
-        if type(values) == list :
+        if type(values) == list:
             self.values = values
-            self.weights = {key:1 for key in values}
-        else :
+            self.weights = {key: 1 for key in values}
+        else:
             self.weights = values
             self.values = list(values)
         self.sum = sum(self.weights.values())
@@ -360,39 +361,39 @@ class EnumParam(ParamDef):
         """
 
         # A dict of weights was passed
-        if isinstance(currValue, dict) :
-            res = { "%s_%s" % (self.name, key) : val / self.sum for key, val in currValue.items()}
+        if isinstance(currValue, dict):
+            res = {"%s_%s" % (self.name, key): val / self.sum for key, val in currValue.items()}
             res["%s_default" % self.name] = 0
             return res
-
-
 
         # Normal case
         values = self.values + [None]
 
         # Bad value ?
-        if currValue not in values :
-            raise Exception("Invalid value %s for param %s. Should be in %s" %
-                            (currValue, self.name, str(self.values)))
+        if currValue not in values:
+            raise Exception("Invalid value %s for param %s. Should be in %s" % (currValue, self.name, str(self.values)))
 
         res = dict()
         for enum_val in values:
-            var_name = "%s_%s" % (self.name, enum_val if enum_val is not None else "default")
+            var_name = "%s_%s" % (
+                self.name,
+                enum_val if enum_val is not None else "default",
+            )
             res[var_name] = 1.0 if enum_val == currValue else 0.0
         return res
 
     def symbol(self, enumValue):
         """Return the invididual symbol for a given enum value : <paramName>_<paramValue>"""
         if enumValue is None:
-            return Symbol(self.name + '_default')
+            return Symbol(self.name + "_default")
         if not enumValue in self.values:
             raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
-        return Symbol(self.name + '_' + enumValue)
+        return Symbol(self.name + "_" + enumValue)
 
     def names(self, use_label=False):
-        if use_label :
+        if use_label:
             base_name = self.get_label()
-        else :
+        else:
             base_name = self.name
         return ["%s_%s" % (base_name, value) for value in (self.values + ["default"])]
 
@@ -403,7 +404,7 @@ class EnumParam(ParamDef):
         # Build bins
         if not hasattr(self, "_bins"):
             self._bins = [0]
-            for i in range(len(self.values)) :
+            for i in range(len(self.values)):
                 enumvalue = self.values[i]
                 self._bins.append(self._bins[i] + self.weights[enumvalue])
 
@@ -415,10 +416,10 @@ class EnumParam(ParamDef):
     def range(self, n):
         return self.values
 
-    def stat_value(self, mode : FixedParamMode):
-        if mode == FixedParamMode.DEFAULT :
+    def stat_value(self, mode: FixedParamMode):
+        if mode == FixedParamMode.DEFAULT:
             return self.default
-        else :
+        else:
             # For statistical analysis we setup enum as its weights of values,
             # This distrib is then expanded as float parameters, for better fit of the distribution
             return self.weights
@@ -426,15 +427,15 @@ class EnumParam(ParamDef):
 
 def newParamDef(name, type, dbname=None, save=True, **kwargs):
     """
-        Creates a parameter and register it into a global registry and as a brightway parameter.
+    Creates a parameter and register it into a global registry and as a brightway parameter.
 
-        Parameters
-        ----------
+    Parameters
+    ----------
 
-        type : Type of the parameter (From ParamType)
-        save : Boolean, persist this into Brightway2 project (True by default)
-        dbname : Optional name of db. If None, the parameter is a project parameter
-        other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
+    type : Type of the parameter (From ParamType)
+    save : Boolean, persist this into Brightway2 project (True by default)
+    dbname : Optional name of db. If None, the parameter is a project parameter
+    other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
 
     """
     if type == ParamType.ENUM:
@@ -447,27 +448,30 @@ def newParamDef(name, type, dbname=None, save=True, **kwargs):
     _param_registry()[name] = param
 
     # Save in brightway2 project
-    if save :
+    if save:
         _persistParam(param)
 
     return param
 
+
 _BOOLEAN_UNCERTAINTY_ATTRIBUTES = {
     UNCERTAINTY_TYPE: _UncertaintyType.DISCRETE,
-    "minimum" : 0,
-    "maximum" : 2 # upper bound + 1
+    "minimum": 0,
+    "maximum": 2,  # upper bound + 1
 }
 
-def persistParams() :
-    """ Persist parameters into Brightway project, as per :
-     https://stats-arrays.readthedocs.io/en/latest/
+
+def persistParams():
+    """Persist parameters into Brightway project, as per :
+    https://stats-arrays.readthedocs.io/en/latest/
     """
 
-    for param in _param_registry().all() :
+    for param in _param_registry().all():
         _persistParam(param)
 
+
 def _persistParam(param):
-    """ Persist parameter into Brightway project """
+    """Persist parameter into Brightway project"""
     out = []
 
     # Common attributes for all types of params
@@ -477,69 +481,69 @@ def _persistParam(param):
         label=param.label,
         unit=param.unit,
         formula=str(param.formula) if param.formula else None,
-        description=param.description)
+        description=param.description,
+    )
 
-    if (param.dbname) :
+    if param.dbname:
         bwParam["database"] = param.dbname
 
-    if param.type == ParamType.ENUM :
+    if param.type == ParamType.ENUM:
         # Enum are not real params but a set of parameters
-        for value in param.values :
+        for value in param.values:
             enumValueParam = dict(bwParam)
-            enumValueParam["name"] = param.name + '_' + value
+            enumValueParam["name"] = param.name + "_" + value
             enumValueParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
             # Use 'scale' as weight for this enum value
-            enumValueParam['scale'] = param.weights[value]
-            enumValueParam['amount'] = 1 if param.default == value else 0
+            enumValueParam["scale"] = param.weights[value]
+            enumValueParam["amount"] = 1 if param.default == value else 0
             out.append(enumValueParam)
-    else :
-
+    else:
         bwParam["amount"] = param.default
 
-        if param.type == ParamType.BOOL :
+        if param.type == ParamType.BOOL:
             # "Discrete uniform"
             bwParam.update(_BOOLEAN_UNCERTAINTY_ATTRIBUTES)
 
-        elif param.type == ParamType.FLOAT :
-
+        elif param.type == ParamType.FLOAT:
             # Save uncertainty
             bwParam[UNCERTAINTY_TYPE] = _DistributionTypeMap[param.distrib]
             bwParam["minimum"] = param.min
             bwParam["maximum"] = param.max
             bwParam["loc"] = param.default
 
-            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL] :
+            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
                 bwParam["scale"] = param.std
 
             elif param.distrib == DistributionType.BETA:
-
                 bwParam["scale"] = param.std
                 bwParam["loc"] = param.a
                 bwParam["shape"] = param.b
 
-        else :
+        else:
             error("Param type not supported", param.type)
 
         out.append(bwParam)
 
-    if param.dbname :
+    if param.dbname:
         bw.parameters.new_database_parameters(out, param.dbname)
     else:
         bw.parameters.new_project_parameters(out)
 
-def _loadArgs(data) :
+
+def _loadArgs(data):
     """Load persisted data attributes into ParamDef attributes"""
     return {
         "group": data.get("group"),
-        "dbname" : data.get("database"),
+        "dbname": data.get("database"),
         "default": data.get("amount"),
         "label": data.get("label"),
         "description": data.get("description"),
         "min": data.get("minimum"),
         "max": data.get("maximum"),
-        "unit" : data.get("unit"),
-        "formula" : data.get("formula", None)
+        "unit": data.get("unit"),
+        "formula": data.get("formula", None),
     }
+
 
 def loadParams(global_variable=True, dbname=None):
     """
@@ -551,23 +555,23 @@ def loadParams(global_variable=True, dbname=None):
     dbname : None. By default load all project and database parameters. If provided, only load DB params
     """
 
-    enumParams=defaultdict(lambda : dict())
+    enumParams = defaultdict(lambda: dict())
 
-    def register(param) :
+    def register(param):
         _param_registry()[param.name] = param
 
         # Make it available as global var
         if global_variable:
-            if param.name in builtins.__dict__ :
+            if param.name in builtins.__dict__:
                 error("Variable '%s' was already defined : overidding it with param." % param.name)
             builtins.__dict__[param.name] = param
 
     select = DatabaseParameter.select()
-    if dbname :
+    if dbname:
         select = select.where(DatabaseParameter.database == dbname)
 
     params = list(select)
-    if not dbname :
+    if not dbname:
         params += list(ProjectParameter.select())
 
     for bwParam in params:
@@ -582,10 +586,10 @@ def loadParams(global_variable=True, dbname=None):
         # Common extra args
         args = _loadArgs(data)
 
-        if type == _UncertaintyType.DISCRETE :
+        if type == _UncertaintyType.DISCRETE:
             # Boolean or enum
 
-            if data.get('scale') is not None :
+            if data.get("scale") is not None:
                 # Enum param : group them by common prefix
                 splits = name.split("_")
                 enum_value = splits.pop()
@@ -593,13 +597,16 @@ def loadParams(global_variable=True, dbname=None):
                 enumParams[enum_name][enum_value] = data
                 continue
 
-            elif data["maximum"] == 2 :
+            elif data["maximum"] == 2:
                 del args["max"], args["min"]
                 param = newBoolParam(name, save=False, **args)
             else:
-                error("Non boolean discrete values (max != 2) are not supported for param :", name)
+                error(
+                    "Non boolean discrete values (max != 2) are not supported for param :",
+                    name,
+                )
                 continue
-        else :
+        else:
             # Float parameter
             if type is None or type == _UncertaintyType.UNDEFINED:
                 error("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
@@ -608,7 +615,7 @@ def loadParams(global_variable=True, dbname=None):
             # Uncertainty type to distribution type
             args["distrib"] = _DistributionTypeMapReverse[type]
 
-            if type == _UncertaintyType.TRIANGLE :
+            if type == _UncertaintyType.TRIANGLE:
                 args["default"] = data["loc"]
 
             elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
@@ -627,20 +634,20 @@ def loadParams(global_variable=True, dbname=None):
         register(param)
 
     # Loop on EnumParams
-    for param_name, param_values in enumParams.items() :
+    for param_name, param_values in enumParams.items():
         first_enum_param = list(param_values.values())[0]
         args = _loadArgs(first_enum_param)
         del args["default"]
 
         # Dictionary of enum values with scale as weight
-        args["values"] = {key : data["scale"] for key, data in param_values.items()}
+        args["values"] = {key: data["scale"] for key, data in param_values.items()}
 
         # Default enum value is the one with amount=1
         defaults = list(key for key, data in param_values.items() if data.get("amount") == 1)
-        if len(defaults) == 1 :
+        if len(defaults) == 1:
             default = defaults[0]
-        else :
-            default= None
+        else:
+            default = None
             error("No default enum value found for ", param_name, defaults)
 
         param = newEnumParam(param_name, default, save=False, **args)
@@ -649,142 +656,149 @@ def loadParams(global_variable=True, dbname=None):
         register(param)
 
     # Parse formulas
-    for param in _param_registry().all() :
+    for param in _param_registry().all():
         with DbContext(param.dbname):
             if isinstance(param.formula, str):
                 param.formula = _parse_formula(param.formula)
 
 
-
 def newFloatParam(name, default, dbname=None, **kwargs):
-    """ Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
+    """Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)
 
+
 def newBoolParam(name, default, dbname=None, **kwargs):
-    """ Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
+    """Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.BOOL, dbname=dbname, default=default, **kwargs)
 
+
 def newEnumParam(name, default, values: Union[List[str], Dict[str, float]], dbname=None, **kwargs):
-    """ Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
+    """Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
     return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, values=values, **kwargs)
 
+
 def _variable_params(param_names=None):
-    if param_names is None :
-        param_names =  _param_registry().keys()
-    params = {key : _param_registry()[key] for key in param_names}
+    if param_names is None:
+        param_names = _param_registry().keys()
+    params = {key: _param_registry()[key] for key in param_names}
     return {key: param for key, param in params.items() if param.distrib != DistributionType.FIXED}
 
 
 def _fixed_params(param_names=None):
-    if param_names is None :
-        param_names =  _param_registry().keys()
-    params = {key : _param_registry()[key] for key in param_names}
+    if param_names is None:
+        param_names = _param_registry().keys()
+    params = {key: _param_registry()[key] for key in param_names}
     return {key: param for key, param in params.items() if param.distrib == DistributionType.FIXED}
 
 
 def _listOfDictToDictOflist(LD):
     return {k: [dic[k] for dic in LD] for k in LD[0]}
 
-class DuplicateParamsAndNoContextException(Exception) :
+
+class DuplicateParamsAndNoContextException(Exception):
     pass
 
-class ParamRegistry :
 
-    """ In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs"""
-    def __init__(self) :
+class ParamRegistry:
+
+    """In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs"""
+
+    def __init__(self):
         # We store a dict of dict
         # Param Name -> { dbname ->  param}
-        self.params : Dict[Dict[ParamDef]] = defaultdict(dict)
+        self.params: Dict[Dict[ParamDef]] = defaultdict(dict)
 
     def __len__(self):
         return len(self.params)
 
     def __getitem__(self, key):
-
         try:
             params_per_db = self.params[key]
-            if len(params_per_db) == 1 :
+            if len(params_per_db) == 1:
                 return list(params_per_db.values())[0]
 
-            if DbContext.current_db() == None :
-                dbs = [key or '<project>' for key in params_per_db.keys()]
+            if DbContext.current_db() == None:
+                dbs = [key or "<project>" for key in params_per_db.keys()]
                 raise DuplicateParamsAndNoContextException(
-
                     """
                     Found several params with name '%s', linked to databases (%s) . Yet no context is provided. 
                     Please embed you code in a DbContext :
                         with DbContext(currentdb) :
                             <code>
-                    """ % (key, ", ".join(dbs)))
-            if DbContext.current_db() in params_per_db :
+                    """
+                    % (key, ", ".join(dbs))
+                )
+            if DbContext.current_db() in params_per_db:
                 return params_per_db[DbContext.current_db()]
-            else :
+            else:
                 return params_per_db[None]
 
-        except KeyError :
+        except KeyError:
             raise Exception(f"Parameter {key} not found :. Valid parameters : {self.keys()}")
-
 
     def as_dict(self):
         return dict(self.items())
 
-    def __setitem__(self, key, param : ParamDef):
+    def __setitem__(self, key, param: ParamDef):
         if param.dbname in self.params[key]:
-            error("[ParamRegistry] Param %s was already defined in '%s' : overriding." %
-                  (param.name, param.dbname or '<project>'))
+            error(
+                "[ParamRegistry] Param %s was already defined in '%s' : overriding." % (param.name, param.dbname or "<project>")
+            )
 
         self.params[key][param.dbname] = param
 
     def __contains__(self, key):
         return key in self.params
 
-    def values(self) :
+    def values(self):
         return [self.__getitem__(key) for key in (self.params)]
 
-    def keys(self) :
+    def keys(self):
         return self.params.keys()
 
-    def items(self) :
+    def items(self):
         return [(key, self.__getitem__(key)) for key in self.params.keys()]
 
     def clear(self, db_name=None):
-        if db_name is None :
+        if db_name is None:
             self.params.clear()
-        else :
-            for param_name, db_params in self.params.items() :
-                if db_name in db_params :
+        else:
+            for param_name, db_params in self.params.items():
+                if db_name in db_params:
                     del db_params[db_name]
 
-    def all(self) :
+    def all(self):
         """Return list of all parameters, including params with same names and different DB"""
         return list(param for params in self.params.values() for param in params.values())
-
 
 
 # Possible param values : either floator string (enum value)
 ParamValue = Union[float, str]
 
 # Single value or list of values
-ParamValues = Union[List[ParamValue],  ParamValue]
+ParamValues = Union[List[ParamValue], ParamValue]
 
 
-def _param_registry() -> ParamRegistry :
+def _param_registry() -> ParamRegistry:
     # Prevent reset upon auto reload in jupyter notebook
-    if not 'param_registry' in builtins.__dict__:
+    if not "param_registry" in builtins.__dict__:
         builtins.param_registry = ParamRegistry()
 
     return builtins.param_registry
+
 
 def all_params() -> Dict[str, ParamDef]:
     """Return the dict of all parameters defined in ParamRegistry"""
     return {param.name: param for param in _param_registry().all()}
 
-def _toSymbolDict(params : Dict[str, Any]):
-    """ Replace names with actual params as key when possible """
-    all_params = _param_registry().as_dict()
-    return {all_params[name] if name in all_params else Symbol(name) : val for name, val in params.items()}
 
-def _compute_param_length(params) :
+def _toSymbolDict(params: Dict[str, Any]):
+    """Replace names with actual params as key when possible"""
+    all_params = _param_registry().as_dict()
+    return {all_params[name] if name in all_params else Symbol(name): val for name, val in params.items()}
+
+
+def _compute_param_length(params):
     # Check length of parameter values
     param_length = 1
     for key, val in params.items():
@@ -796,12 +810,11 @@ def _compute_param_length(params) :
     return param_length
 
 
-def _expand_params(param_values:Dict[str, ParamValues]):
+def _expand_params(param_values: Dict[str, ParamValues]):
     res = dict()
 
     # Expand enum values
     for key, val in list(param_values.items()):
-
         param = _param_registry()[key]
 
         if isinstance(val, (list, np.ndarray)):
@@ -812,13 +825,14 @@ def _expand_params(param_values:Dict[str, ParamValues]):
 
     # Expand single values to lists of values of same size
     param_length = _compute_param_length(res)
-    if param_length > 1 :
+    if param_length > 1:
         for key, val in list(res.items()):
             if not isinstance(val, (list, np.ndarray)):
                 val = list([val] * param_length)
             res[key] = np.array(val, float)
 
     return res
+
 
 def _complete_params(params: Dict[str, ParamValues], required_params):
     params = params.copy()
@@ -830,17 +844,15 @@ def _complete_params(params: Dict[str, ParamValues], required_params):
         if not param_name in params:
             if param.formula:
                 params[param_name] = compute_expr_value(param.formula, params)
-                logger.info(
-                    f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
+                logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
             else:
                 params[param_name] = param.default
-                logger.info("Required param '%s' was missing, replacing by default value : %s" % (
-                param_name, str(param.default)))
+                logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
 
     return params
 
 
-def _complete_and_expand_params(params: Dict[str, ParamValues], required_params : List[str]=None, asSymbols=True):
+def _complete_and_expand_params(params: Dict[str, ParamValues], required_params: List[str] = None, asSymbols=True):
     """
     Check parameters and expand enum params.
     Also transform single values to list of param values of same size and compute formulas of missing params.
@@ -867,59 +879,66 @@ def resetParams(db_name=None):
     Clear either all params (project and all db params) or db params from a single database (if db_name provided)"""
     _param_registry().clear(db_name)
 
-    if db_name is None :
+    if db_name is None:
         ProjectParameter.delete().execute()
         ActivityParameter.delete().execute()
         DatabaseParameter.delete().execute()
-    else :
+    else:
         ActivityParameter.delete().where(ActivityParameter.database == db_name).execute()
         DatabaseParameter.delete().where(DatabaseParameter.database == db_name).execute()
         Group.delete().execute()
 
-class NameType(Enum) :
-    NAME="name"
-    LABEL="label"
+
+class NameType(Enum):
+    NAME = "name"
+    LABEL = "label"
     CAMEL_NAME = "CAMEL_NAME"
 
-def _param_name(param, name_type:NameType) :
-    if name_type == NameType.NAME :
+
+def _param_name(param, name_type: NameType):
+    if name_type == NameType.NAME:
         return param.name
-    elif name_type == NameType.LABEL :
+    elif name_type == NameType.LABEL:
         return param.get_label()
-    else :
+    else:
         return _snake2camel(param.name)
 
-def list_parameters(name_type=NameType.NAME, as_dataframe=False):
 
-    """ Print a pretty list of all defined parameters """
-    params = [dict(
-        group=param.group or "",
-        name=_param_name(param, name_type),
-        label=param.get_label(),
-        default=param.default,
-        min=param.min,
-        max=param.max,
-        std=getattr(param, "std", None),
-        distrib=param.distrib,
-        unit=param.unit,
-        db=param.dbname or "[project]") for  param in _param_registry().all()]
+def list_parameters(name_type=NameType.NAME, as_dataframe=False):
+    """Print a pretty list of all defined parameters"""
+    params = [
+        dict(
+            group=param.group or "",
+            name=_param_name(param, name_type),
+            label=param.get_label(),
+            default=param.default,
+            min=param.min,
+            max=param.max,
+            std=getattr(param, "std", None),
+            distrib=param.distrib,
+            unit=param.unit,
+            db=param.dbname or "[project]",
+        )
+        for param in _param_registry().all()
+    ]
 
     groups = list({p["group"] for p in params})
     groups = sorted(groups)
 
     # Sort by Group / name
-    def keyf(param) :
+    def keyf(param):
         return (groups.index(param["group"]), param["name"])
 
     sorted_params = sorted(params, key=keyf)
 
-    if as_dataframe :
+    if as_dataframe:
         return pd.DataFrame(sorted_params)
     else:
         return HTML(tabulate(sorted_params, tablefmt="html", headers="keys"))
 
-def compute_expr_value(expr:Expr, param_values:Dict) :
-    """Compute value of an expression for given set of parameter values """
+
+def compute_expr_value(expr: Expr, param_values: Dict):
+    """Compute value of an expression for given set of parameter values"""
     free_symbols = [str(symbol) for symbol in expr.free_symbols]
     lambd = lambdify(free_symbols, expr)
 
@@ -931,9 +950,10 @@ def compute_expr_value(expr:Expr, param_values:Dict) :
     values = {name: val for name, val in values.items() if name in free_symbols}
 
     return lambd(**values)
-    #return expr.evalf(subs=_completeParamValues(param_values, required_params=required_params))
+    # return expr.evalf(subs=_completeParamValues(param_values, required_params=required_params))
 
-def freezeParams(db_name, **params) :
+
+def freezeParams(db_name, **params):
     """
     Freeze parameters values in all exchanges amounts of a DB.
     The formulas are computed and the 'amount' attributes are set with the result.
@@ -942,21 +962,19 @@ def freezeParams(db_name, **params) :
 
     db = bw.Database(db_name)
 
-    with DbContext(db) :
-        for act in db :
+    with DbContext(db):
+        for act in db:
             for exc in act.exchanges():
-
                 amount = _getAmountOrFormula(exc)
 
                 # Amount is a formula ?
                 if isinstance(amount, Expr):
-
                     val = compute_expr_value(amount, params)
 
-                    with ExceptionContext(val) :
+                    with ExceptionContext(val):
                         val = float(val)
 
-                    print("Freezing %s // %s : %s => %0.2f" % (act, exc['name'], amount, val))
+                    print("Freezing %s // %s : %s => %0.2f" % (act, exc["name"], amount, val))
 
                     # Update in DB
                     exc["amount"] = val
@@ -971,10 +989,9 @@ def _listParams(db_name) -> List[ParamDef]:
     db = bw.Database(db_name)
     res = set()
 
-    with DbContext(db) :
-        for act in db :
+    with DbContext(db):
+        for act in db:
             for exc in act.exchanges():
-
                 amount = _getAmountOrFormula(exc)
 
                 # Amount is a formula ?
@@ -986,8 +1003,8 @@ def _listParams(db_name) -> List[ParamDef]:
     return res
 
 
-def _expand_param_names(param_names:List[str]) -> List[str]:
-    '''Expand parameters names (with enum params) '''
+def _expand_param_names(param_names: List[str]) -> List[str]:
+    """Expand parameters names (with enum params)"""
     return [name for key in param_names for name in _param_registry()[key].names()]
 
 
@@ -999,9 +1016,9 @@ def _expanded_names_to_names(param_names):
     res = dict()
 
     # Search for param with same name of prefix paramName_enumValue
-    for expended_name in param_names :
+    for expended_name in param_names:
         for param_name in _param_registry().keys():
-            if expended_name.startswith(param_name) :
+            if expended_name.startswith(param_name):
                 param = _param_registry()[param_name]
                 for name in param.names():
                     if name == expended_name:
@@ -1017,12 +1034,13 @@ def _expanded_names_to_names(param_names):
 def _parse_formula(formula):
     return parse_expr(formula, local_dict=_param_registry().as_dict())
 
-def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
-    """ Return either a fixed float value or an expression for the amount of this exchange"""
-    if "formula" in ex :
-        try:
-            return _parse_formula(ex['formula'])
-        except Exception as e:
-            error("Error while parsing formula '%s' : backing to amount" % ex['formula'])
 
-    return ex['amount']
+def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
+    """Return either a fixed float value or an expression for the amount of this exchange"""
+    if "formula" in ex:
+        try:
+            return _parse_formula(ex["formula"])
+        except Exception as e:
+            error("Error while parsing formula '%s' : backing to amount" % ex["formula"])
+
+    return ex["amount"]

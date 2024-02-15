@@ -6,19 +6,21 @@ sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
 import pytest
+from conftest import BG_DB, METHOD_PREFIX, USER_DB
+from fixtures import *
 from numpy.testing import assert_array_equal
+
 from lca_algebraic.helpers import _isForeground
 from lca_algebraic.params import _param_registry
-from conftest import USER_DB, BG_DB, METHOD_PREFIX
 
-from fixtures import *
 
 def test_load_params():
-
-    _p1 = newEnumParam('p1',values={"v1":0.6, "v2":0.3}, default="v1")
-    _p2 = newFloatParam('p2', min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
-    _p3 = newBoolParam('p3',default=1, min=1, max=2, formula=_p2+4)
-    _p3_fg = newBoolParam('p3', default=1, distrib=DistributionType.FIXED, dbname=USER_DB) # Param with same name linked to a user DB
+    _p1 = newEnumParam("p1", values={"v1": 0.6, "v2": 0.3}, default="v1")
+    _p2 = newFloatParam("p2", min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
+    _p3 = newBoolParam("p3", default=1, min=1, max=2, formula=_p2 + 4)
+    _p3_fg = newBoolParam(
+        "p3", default=1, distrib=DistributionType.FIXED, dbname=USER_DB
+    )  # Param with same name linked to a user DB
 
     _param_registry().clear()
 
@@ -26,7 +28,7 @@ def test_load_params():
     loadParams()
 
     # Get params from in memory DB
-    loaded_params = {(param.name, param.dbname) : param for param in _param_registry().all()}
+    loaded_params = {(param.name, param.dbname): param for param in _param_registry().all()}
 
     assert _p1.__dict__ == loaded_params[("p1", None)].__dict__
     assert _p2.__dict__ == loaded_params[("p2", None)].__dict__
@@ -35,13 +37,18 @@ def test_load_params():
 
 
 def test_export(data):
-    p1 = newFloatParam('p1', default=0.5, distrib=DistributionType.FIXED)
-    p3_fg = newBoolParam('p3', default=1, dbname=USER_DB) # Param with same name linked to a user DB
+    p1 = newFloatParam("p1", default=0.5, distrib=DistributionType.FIXED)
+    p3_fg = newBoolParam("p3", default=1, dbname=USER_DB)  # Param with same name linked to a user DB
 
-    act1 = newActivity(USER_DB, "act1", "unit", {
-        data.bio1: 2 * p1,
-        data.bio2: 3 * p3_fg,
-    })
+    act1 = newActivity(
+        USER_DB,
+        "act1",
+        "unit",
+        {
+            data.bio1: 2 * p1,
+            data.bio2: 3 * p3_fg,
+        },
+    )
 
     f, filename = mkstemp()
 
@@ -70,61 +77,61 @@ def test_export(data):
     assert res.values[0] == 7.0
 
 
-def test_switch_activity_support_sevral_times_same_target() :
-    """ Test that switch activity can target the same activity several times """
+def test_switch_activity_support_sevral_times_same_target():
+    """Test that switch activity can target the same activity several times"""
 
     # Enum param
-    p1 = newEnumParam(
-        'p1',
-        values=["v1", "v2", "v3"],
-        default="v1")
+    p1 = newEnumParam("p1", values=["v1", "v2", "v3"], default="v1")
 
     bg_act1 = findTechAct("bg_act1")
 
-    act = newSwitchAct(USER_DB, "switchAct", p1, {
-        "v1" : bg_act1,
-        "v2" : bg_act1,
-        "v3" : bg_act1
-    })
+    act = newSwitchAct(USER_DB, "switchAct", p1, {"v1": bg_act1, "v2": bg_act1, "v3": bg_act1})
 
-    impact = (METHOD_PREFIX, 'all', 'total')
+    impact = (METHOD_PREFIX, "all", "total")
 
     res = compute_impacts(act, [impact], p1=["v1", "v2", "v3"])
     vals = res.values
 
     assert vals[0] == vals[1] and vals[1] == vals[2]
 
-def test_new_switch_act_with_tuples() :
 
-    p1 = newEnumParam(
-        'p1',
-        values=["v1", "v2", "v3"],
-        default="v1")
+def test_new_switch_act_with_tuples():
+    p1 = newEnumParam("p1", values=["v1", "v2", "v3"], default="v1")
 
     bg_act1 = findTechAct("bg_act1")
     bg_act2 = findTechAct("bg_act2")
 
-    newSwitchAct(USER_DB, "switchAct", p1, {
-        "v1": (bg_act1, 2.0),
-        "v2": (bg_act2, 3.0),
-    })
+    newSwitchAct(
+        USER_DB,
+        "switchAct",
+        p1,
+        {
+            "v1": (bg_act1, 2.0),
+            "v2": (bg_act2, 3.0),
+        },
+    )
 
-def test_list_params_should_support_missing_groups() :
 
-    p1 = newFloatParam('p1', default=1.0, distrib=DistributionType.FIXED)
-    p2 = newFloatParam('p2', default=2.0, distrib=DistributionType.FIXED, group="mygroup")
+def test_list_params_should_support_missing_groups():
+    p1 = newFloatParam("p1", default=1.0, distrib=DistributionType.FIXED)
+    p2 = newFloatParam("p2", default=2.0, distrib=DistributionType.FIXED, group="mygroup")
 
     list_parameters()
 
-def test_freeze(data) :
 
-    p1 = newFloatParam('p1', default=1.0, distrib=DistributionType.FIXED)
-    p2 = newFloatParam('p2', default=1.0, distrib=DistributionType.FIXED)
+def test_freeze(data):
+    p1 = newFloatParam("p1", default=1.0, distrib=DistributionType.FIXED)
+    p2 = newFloatParam("p2", default=1.0, distrib=DistributionType.FIXED)
 
-    newActivity(USER_DB, "act1", "unit", {
-        data.bio1 : 2 * p1,
-        data.bio2 : 3 * p2,
-    })
+    newActivity(
+        USER_DB,
+        "act1",
+        "unit",
+        {
+            data.bio1: 2 * p1,
+            data.bio2: 3 * p2,
+        },
+    )
 
     # p1 should be set as default value 1
     freezeParams(USER_DB, p2=2)
@@ -133,9 +140,8 @@ def test_freeze(data) :
     act1 = findActivity("act1", db_name=USER_DB)
 
     for exc in act1.exchanges():
-
         # Don't show production
-        if exc['type'] == 'production' :
+        if exc["type"] == "production":
             continue
 
         name = exc["name"]
@@ -144,15 +150,15 @@ def test_freeze(data) :
         # Brightway2 does not like ints ...
         assert isinstance(amount, float)
 
-        if name == "bio1" :
+        if name == "bio1":
             # p1=1 (default) * 2
             assert amount == 2.0
-        elif name == 'bio2' :
+        elif name == "bio2":
             # p2=2 * 3
             assert amount == 6.0
 
-def test_find_activities() :
 
+def test_find_activities():
     act1 = newActivity(USER_DB, "Activity 1", "unit", categories=["cat1", "cat2"])
 
     res = findActivity("Activity 1", db_name=USER_DB, case_sensitive=True)
@@ -168,23 +174,20 @@ def test_find_activities() :
 
 
 def test_enum_values_are_enforced():
-
     # Enum param
-    p1 = newEnumParam(
-        'p1',
-        values=["v1", "v2", "v3"], default="v1")
+    p1 = newEnumParam("p1", values=["v1", "v2", "v3"], default="v1")
 
     act = newActivity(USER_DB, "Foo", "unit")
 
-    climate = [m for m in bw.methods if 'ILCD 1.0.8 2016' in str(m) and 'no LT' in str(m)][1]
+    climate = [m for m in bw.methods if "ILCD 1.0.8 2016" in str(m) and "no LT" in str(m)][1]
 
     with pytest.raises(Exception) as exc:
         compute_impacts(act, climate, p1="bar")
 
-    assert 'Invalid value' in str(exc)
+    assert "Invalid value" in str(exc)
 
-def test_setforeground() :
 
+def test_setforeground():
     setForeground(USER_DB)
 
     assert _isForeground(USER_DB)
@@ -194,8 +197,7 @@ def test_setforeground() :
     assert _isForeground(USER_DB) == False
 
 
-def test_db_params_low_level() :
-
+def test_db_params_low_level():
     # Define 3 variables with same name, attached to project or db (user or bg)
     p1_bg = newBoolParam("p1", False, dbname=BG_DB)
     p1_fg = newBoolParam("p1", False, dbname=USER_DB)
@@ -207,7 +209,7 @@ def test_db_params_low_level() :
 
     assert "context" in str(exc.value)
 
-    with DbContext(USER_DB) :
+    with DbContext(USER_DB):
         p1 = _param_registry()["p1"]
         assert p1 == p1_fg
 
@@ -215,12 +217,12 @@ def test_db_params_low_level() :
         p1 = _param_registry()["p1"]
         assert p1 == p1_bg
 
-def test_reset_params() :
 
+def test_reset_params():
     # Define 3 variables with same name, attached to project or db (user or bg)
     newBoolParam("p1", False, dbname=BG_DB)
     newBoolParam("p2", False, dbname=USER_DB)
-    newBoolParam("p3", False) # Project param
+    newBoolParam("p3", False)  # Project param
 
     # Should only delete p2
     resetParams(USER_DB)
@@ -236,8 +238,8 @@ def test_reset_params() :
     loadParams()
     assert len(_param_registry().all()) == 0
 
-def test_simplify_model(data) :
 
+def test_simplify_model(data):
     # key param, varying from 1 to 2
     p1 = newFloatParam("p1", 1, min=1, max=2)
 
@@ -245,8 +247,7 @@ def test_simplify_model(data) :
     p2 = newFloatParam("p2", 1, min=0.001, max=0.001)
 
     # Model p1 + 0.001*p1 + p2
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1: p1 * (p1 + 0.001 * p1 + p2)})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: p1 * (p1 + 0.001 * p1 + p2)})
 
     # Simplified model, removing minor sum terms (default)
     res = sobol_simplify_model(m1, [data.ibio1], simple_products=False)[0]
@@ -263,28 +264,30 @@ def test_simplify_model(data) :
 
     # Boolean should not be removed
     p5 = newBoolParam("p5", 1)
-    m2 = newActivity(USER_DB, "m2", "kg",
-                     {data.bio1: 4.0 + 5 * p3 + 3 * p4 + 3 * p5})
+    m2 = newActivity(USER_DB, "m2", "kg", {data.bio1: 4.0 + 5 * p3 + 3 * p4 + 3 * p5})
 
     res = sobol_simplify_model(m2, [data.ibio1], simple_products=True)[0]
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
-def test_db_params_lca(data) :
+def test_db_params_lca(data):
     """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
     USER_DB2 = "fg2"
     resetDb(USER_DB2)
 
     # Define 3 variables with same name, attached to project or db (user or bg)
-    p1_project = newFloatParam("p1", 0, min=0, max=2, )
+    p1_project = newFloatParam(
+        "p1",
+        0,
+        min=0,
+        max=2,
+    )
     p1_user = newFloatParam("p1", 1, min=0, max=2, dbname=USER_DB)
     p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=USER_DB2)
 
     # Create 2 models : one for each user db, using different params with same name
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1 : 2.0 * p1_user})
-    m2 = newActivity(USER_DB2, "m2", "kg",
-                     {data.bio1: 2.0 * p1_user2})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 2.0 * p1_user})
+    m2 = newActivity(USER_DB2, "m2", "kg", {data.bio1: 2.0 * p1_user2})
 
     # p1 as default value of 1 for user db 1
     res = compute_impacts(m1, [data.ibio1])
@@ -304,122 +307,101 @@ def test_db_params_lca(data) :
 
 
 def test_params_with_formulas(data):
-
     p1 = newFloatParam("p1", default=1, min=0, max=2)
-    p2 = newFloatParam("p2", default=0, min=0, max=2, formula=2*p1)
-    p3 = newFloatParam("p3", default=0, min=0, max=3, formula=2*p2)
+    p2 = newFloatParam("p2", default=0, min=0, max=2, formula=2 * p1)
+    p3 = newFloatParam("p3", default=0, min=0, max=3, formula=2 * p2)
 
     # act1 = bio1 : p2
-    act1 = newActivity(USER_DB, "act1", "kg",
-                     {data.bio1: p2})
+    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: p2})
 
     # act2 = bio1 : p2
-    act2 = newActivity(USER_DB, "act2", "kg",
-                       {data.bio1: p3})
+    act2 = newActivity(USER_DB, "act2", "kg", {data.bio1: p3})
 
     # By default, p2 should be (p1=1)*2
     res = compute_impacts(act1, [data.ibio1])
     assert res.values[0] == 2.0
 
     # p2 is computed automatically from p1
-    res = compute_impacts(
-        act1, [data.ibio1],
-        p1=2)
+    res = compute_impacts(act1, [data.ibio1], p1=2)
     assert res.values[0] == 4.0
 
     # Overriding p2 should disable computing of formula
-    res = compute_impacts(
-        act1, [data.ibio1],
-        p1=2,
-        p2=1)
+    res = compute_impacts(act1, [data.ibio1], p1=2, p2=1)
 
     assert res.values[0] == 1.0
 
     # p1 > p2 > p3
-    res = compute_impacts(
-        act2, [data.ibio1],
-        p1=4)
+    res = compute_impacts(act2, [data.ibio1], p1=4)
 
     assert res.values[0] == 16.0
 
     # Should also work with lists of values
-    res = compute_impacts(
-        act1, [data.ibio1],
-        p1=[1.0, 2.0])
+    res = compute_impacts(act1, [data.ibio1], p1=[1.0, 2.0])
 
     res.iloc[:, 0] == [2.0, 4.0]
 
 
 def test_compute_impacts_return_params(data):
-
     p1 = newFloatParam("p1", default=1, min=0, max=2)
     p_default = newFloatParam("p_default", default=1, min=0, max=2)
     p_computed = newFloatParam("p_computed", default=0, min=0, max=3, formula=2 * p1)
     p_unused = newFloatParam("p_unused", default=0, min=0, max=2)
 
-    act1 = newActivity(USER_DB, "act1", "kg",{
-                        data.bio1: p1,
-                        data.bio2: p_default,
-                        data.bio3: p_computed})
+    act1 = newActivity(
+        USER_DB,
+        "act1",
+        "kg",
+        {data.bio1: p1, data.bio2: p_default, data.bio3: p_computed},
+    )
 
-    res : TabbedDataframe = compute_impacts(
+    res: TabbedDataframe = compute_impacts(
         act1,
         [data.ibio1, data.ibio2, data.ibio3],
         functional_unit=p_default,
         return_params=True,
-        description = "Something here",
-
+        description="Something here",
         # Params
-        p1 = [1, 2, 3])
+        p1=[1, 2, 3],
+    )
 
     assert res.dataframes["Results"].to_dict() == {
-        'bio1 - total[MJ-Eq]': {1: 1.0, 2: 2.0, 3: 3.0},
-        'bio2 - total[MJ-Eq]': {1: 1.0, 2: 1.0, 3: 1.0},
-        'bio3 - total[MJ-Eq]': {1: 2.0, 2: 4.0, 3: 6.0}}
+        "bio1 - total[MJ-Eq]": {1: 1.0, 2: 2.0, 3: 3.0},
+        "bio2 - total[MJ-Eq]": {1: 1.0, 2: 1.0, 3: 1.0},
+        "bio3 - total[MJ-Eq]": {1: 2.0, 2: 4.0, 3: 6.0},
+    }
 
     assert res.dataframes["Parameters"].to_dict() == {
-         'min': {('', 'p1'): 0, ('', 'p_computed'): 0, ('', 'p_default'): 0},
-         'max': {('', 'p1'): 2, ('', 'p_computed'): 3, ('', 'p_default'): 2},
-         'default': {('', 'p1'): 1, ('', 'p_computed'): 0, ('', 'p_default'): 1},
-         'value_1': {('', 'p1'): 1.0, ('', 'p_computed'): 2.0, ('', 'p_default'): 1.0},
-         'value_2': {('', 'p1'): 2.0, ('', 'p_computed'): 4.0, ('', 'p_default'): 1.0},
-         'value_3': {('', 'p1'): 3.0, ('', 'p_computed'): 6.0, ('', 'p_default'): 1.0}}
+        "min": {("", "p1"): 0, ("", "p_computed"): 0, ("", "p_default"): 0},
+        "max": {("", "p1"): 2, ("", "p_computed"): 3, ("", "p_default"): 2},
+        "default": {("", "p1"): 1, ("", "p_computed"): 0, ("", "p_default"): 1},
+        "value_1": {("", "p1"): 1.0, ("", "p_computed"): 2.0, ("", "p_default"): 1.0},
+        "value_2": {("", "p1"): 2.0, ("", "p_computed"): 4.0, ("", "p_default"): 1.0},
+        "value_3": {("", "p1"): 3.0, ("", "p_computed"): 6.0, ("", "p_default"): 1.0},
+    }
 
+    # res.to_excel("tst.xlsx")
 
-    #res.to_excel("tst.xlsx")
 
 def test_switch_value(data):
-
     p1 = newFloatParam("p1", default=0, min=0, max=2)
     p2 = newFloatParam("p2", default=0, min=0, max=2)
     switch_param = newEnumParam("switch_param", default="p1", values=["from_p1", "from_p2"])
-    computed = newFloatParam(
-        "computed",
-        default=0, min=0, max=3)
+    computed = newFloatParam("computed", default=0, min=0, max=3)
 
-    computed.formula = switchValue(
-            switch_param,
-            from_p1=p1*2,
-            from_p2=p2*3)
+    computed.formula = switchValue(switch_param, from_p1=p1 * 2, from_p2=p2 * 3)
 
-    act1 = newActivity(USER_DB, "act1", "kg",{data.bio1: computed})
+    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: computed})
 
-    res = compute_impacts(act1, [data.ibio1],
-        switch_param="from_p1",
-        p1=1)
+    res = compute_impacts(act1, [data.ibio1], switch_param="from_p1", p1=1)
 
     assert res.values[0] == 2.0
 
-
-    res = compute_impacts(act1, [data.ibio1],
-                      switch_param="from_p2",
-                      p2=1)
+    res = compute_impacts(act1, [data.ibio1], switch_param="from_p2", p2=1)
 
     assert res.values[0] == 3.0
 
 
-def test_interpolation(data) :
-
+def test_interpolation(data):
     # Common helper to check results
     def check_impacts(model, p_values, expected_results):
         # Compute impacts for several values of p
@@ -432,82 +414,46 @@ def test_interpolation(data) :
     p = newFloatParam("p", 1.0, min=1, max=3)
 
     # Create act1 act2 and act4 having respectively 1.0, 2.0 units of bio1
-    act1, act2 = [
-        newActivity(
-            USER_DB, "act%d" % v, "unit",
-            {data.bio1:v})
-        for v in [1.0, 2.0]]
+    act1, act2 = [newActivity(USER_DB, "act%d" % v, "unit", {data.bio1: v}) for v in [1.0, 2.0]]
 
     # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
-    interp1 = interpolate_activities(
-        USER_DB,
-        "interp1",
-        p,
-        {1.0 : act1,
-        3.0 : act2})
+    interp1 = interpolate_activities(USER_DB, "interp1", p, {1.0: act1, 3.0: act2})
 
-    check_impacts(
-        interp1,
-        [0.0, 1.0, 2.0, 3.0, 5.0],
-        [0.5, 1.0, 1.5, 2.0, 3.0])
+    check_impacts(interp1, [0.0, 1.0, 2.0, 3.0, 5.0], [0.5, 1.0, 1.5, 2.0, 3.0])
 
     # Interpolate including zero
-    interp_with_zero = interpolate_activities(
-        USER_DB, "interp_w_zero",
-        p,
-        {1.0: act1,
-        3.0: act2},
-        add_zero=True)
+    interp_with_zero = interpolate_activities(USER_DB, "interp_w_zero", p, {1.0: act1, 3.0: act2}, add_zero=True)
 
-    check_impacts(
-        interp_with_zero,
-        [0.0, 0.5, 1.0, 3.0],
-        [0.0, 0.5, 1.0, 2.0])
+    check_impacts(interp_with_zero, [0.0, 0.5, 1.0, 3.0], [0.0, 0.5, 1.0, 2.0])
 
 
-
-
-def test_axis(data) :
-
+def test_axis(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)
 
-    act1_phase_a = newActivity(
-        USER_DB, "act1", "unit",
-        {data.bio1: 1.0}, phase="a")
+    act1_phase_a = newActivity(USER_DB, "act1", "unit", {data.bio1: 1.0}, phase="a")
 
-    act2_phase_b = newActivity(
-        USER_DB, "act2", "unit",
-        {data.bio1: 2.0}, phase="b")
+    act2_phase_b = newActivity(USER_DB, "act2", "unit", {data.bio1: 2.0}, phase="b")
 
-    act3_no_phase = newActivity(
-        USER_DB, "act3", "unit",
-        {data.bio1: 3.0})
+    act3_no_phase = newActivity(USER_DB, "act3", "unit", {data.bio1: 3.0})
 
     model = newActivity(
-        USER_DB, "model", "unit",
+        USER_DB,
+        "model",
+        "unit",
         {
             act1_phase_a: 1,
             act2_phase_b: 1,
             act3_no_phase: 1,
-         })
+        },
+    )
 
-    res = compute_impacts(
-        model, [data.ibio1],
-        functional_unit=p1,
-        axis="phase",
-        p1=0.5)
+    res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)
 
     # Compute twice to warm the cache :
     # Creating dummy activities clears it and we cannot check it works properly otherwize
-    res = compute_impacts(
-        model, [data.ibio1],
-        functional_unit=p1,
-        axis="phase",
-        p1=0.5)
+    res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)
 
-    res = {key:val for key, val in zip(
-        res.index.values,
-        res[res.columns[0]].values)}
+    res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
 
     expected = dict(a=2.0, b=4.0)
     expected["*other*"] = 6.0
@@ -515,43 +461,28 @@ def test_axis(data) :
 
     assert res == expected
 
-    res = compute_impacts(
-        model, [data.ibio1],
-        functional_unit=p1,
-        p1=0.5)
+    res = compute_impacts(model, [data.ibio1], functional_unit=p1, p1=0.5)
 
     print(res)
 
     assert res.values[0] == 12.0
 
 
-
-def test_compute_impacts_with_parametrized_fu(data) :
-
+def test_compute_impacts_with_parametrized_fu(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)
 
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1: 4 * p1})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 4 * p1})
 
     # Functional unit is parametrized
     fu_value = 2 * p1
 
     # Compute single value
-    res = compute_impacts(
-        m1,
-        [data.ibio1],
-        functional_unit=fu_value,
-        p1=[1.0])
+    res = compute_impacts(m1, [data.ibio1], functional_unit=fu_value, p1=[1.0])
 
     assert res.iloc[0, 0] == 2.0
 
-
     # Compute list of values
-    res = compute_impacts(
-        m1,
-        [data.ibio1],
-        functional_unit=fu_value,
-        p1=[1.0, 2.0])
+    res = compute_impacts(m1, [data.ibio1], functional_unit=fu_value, p1=[1.0, 2.0])
 
     print(res)
 
@@ -559,37 +490,34 @@ def test_compute_impacts_with_parametrized_fu(data) :
     assert res.iloc[1, 0] == 2.0
 
 
-def test_should_list_params_with_mixed_groups(data) :
-    """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13 """
+def test_should_list_params_with_mixed_groups(data):
+    """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13"""
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
     bar = newFloatParam("bar", 2, min=1, max=3)
 
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1: 2.0 * p1 + bar})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 2.0 * p1 + bar})
 
     oat_matrix(m1, [data.ibio1, data.ibio2])
 
-def test_oat_should_work_with_named_params(data) :
-    """Test for bug #12 : https://github.com/oie-mines-paristech/lca_algebraic/issues/12 """
+
+def test_oat_should_work_with_named_params(data):
+    """Test for bug #12 : https://github.com/oie-mines-paristech/lca_algebraic/issues/12"""
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
     bar = newFloatParam("bar", 2, min=1, max=3)
 
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1: 2.0 * p1 + bar})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 2.0 * p1 + bar})
 
     oat_matrix(model=m1, impacts=[data.ibio1, data.ibio2])
 
 
-def test_multiLCAAlgebric_with_dict(data) :
-    """Tests parameters can be used in 'power' """
+def test_multiLCAAlgebric_with_dict(data):
+    """Tests parameters can be used in 'power'"""
 
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1 : 1})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
 
-    m2 = newActivity(USER_DB, "m2", "kg",
-                     {data.bio2: 1})
+    m2 = newActivity(USER_DB, "m2", "kg", {data.bio2: 1})
 
-    res = compute_impacts({m1:1, m2:2}, [data.ibio1, data.ibio2])
+    res = compute_impacts({m1: 1, m2: 2}, [data.ibio1, data.ibio2])
 
     assert res.iloc[0, 0] == 1.0
     assert res.iloc[1, 1] == 2.0
@@ -597,41 +525,37 @@ def test_multiLCAAlgebric_with_dict(data) :
     assert res.iloc[1, 0] == 0.0
 
 
-def test_params_as_power(data) :
-    """Tests parameters can be used in 'power' """
+def test_params_as_power(data):
+    """Tests parameters can be used in 'power'"""
 
     p1 = newFloatParam("p1", 2, min=0, max=2)
 
-    m1 = newActivity(USER_DB, "m1", "kg",
-                     {data.bio1 : 2.0 ** p1})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 2.0**p1})
 
     res = compute_impacts(m1, [data.ibio1], p1=2)
     assert res.values[0] == 4.0
 
-def test_brightway_lca(data) :
-    """Tests parameters can be used in 'power' """
+
+def test_brightway_lca(data):
+    """Tests parameters can be used in 'power'"""
 
     p1 = newFloatParam("p1", 2, min=0, max=2)
 
-    act1 = newActivity(USER_DB, "act1", "kg",
-                       {data.bio1 : 2.0 * p1})
-    act2 = newActivity(USER_DB, "act2", "kg",
-                     {act1: 1})
+    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: 2.0 * p1})
+    act2 = newActivity(USER_DB, "act2", "kg", {act1: 1})
 
     res = multiLCA(act2, [data.ibio1], p1=2)
     assert res.values[0] == 4.0
 
-def test_named_parameters_for_with_db_context(data) :
+
+def test_named_parameters_for_with_db_context(data):
     """Tests functions annotated with with_context_db, still support named db .
-     See: https://github.com/oie-mines-paristech/lca_algebraic/issues/12
+    See: https://github.com/oie-mines-paristech/lca_algebraic/issues/12
     """
-    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1 : 1})
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
 
     actToExpression(act=m1)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     pytest.main(sys.argv)
-
-
-
-

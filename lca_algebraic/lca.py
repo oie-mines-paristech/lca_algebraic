@@ -1,47 +1,59 @@
+import builtins
 import concurrent.futures
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import List
-
-from sympy import lambdify, Symbol, parse_expr, evaluate
-
-from .params import all_params
-from .log import logger
-from .base_utils import _actName, _getDb, _method_unit
-from .cache import LCIACache, ExprCache
-from .helpers import *
-from .helpers import _actDesc, _isForeground, _getAmountOrFormula
-from .params import _param_registry, _fixed_params, _expanded_names_to_names, \
-    _expand_param_names, \
-    FixedParamMode, freezeParams, _toSymbolDict, compute_expr_value, _compute_param_length, _complete_params, \
-    _expand_params
 from warnings import warn
+
+import numpy as np
 import pandas as pd
-import builtins
+from bw2data.errors import UnknownObject
+from peewee import DoesNotExist
+from sympy import Symbol, lambdify, parse_expr
+
+from . import SymDict, TabbedDataframe
+from .base_utils import _actName, _getDb, _method_unit
+from .cache import ExprCache, LCIACache
+from .helpers import (BIOSPHERE3_DB_NAME, Activity, ActivityExtended, Basic,
+                      DbContext, Dict, Expr, Union, _actDesc,
+                      _getAmountOrFormula, _isForeground, bw, error,
+                      newActivity, re, simplify, symbols, types,
+                      with_db_context)
+from .log import logger
+from .params import (FixedParamMode, _complete_params, _compute_param_length,
+                     _expand_param_names, _expand_params,
+                     _expanded_names_to_names, _fixed_params, _param_registry,
+                     _toSymbolDict, all_params, compute_expr_value,
+                     freezeParams)
+
 
 def _impact_labels():
     """Dictionnary of custom impact names
-        Dict of "method tuple" => string
+    Dict of "method tuple" => string
     """
     # Prevent reset upon auto reload in jupyter notebook
-    if not '_impact_labels' in builtins.__dict__:
+    if "_impact_labels" not in builtins.__dict__:
         builtins._impact_labels = dict()
 
     return builtins._impact_labels
 
-def set_custom_impact_labels(impact_labels:Dict) :
-    """ Global function to override name of impact method in graphs """
+
+def set_custom_impact_labels(impact_labels: Dict):
+    """Global function to override name of impact method in graphs"""
     _impact_labels().update(impact_labels)
+
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    bw.calculation_setups['process'] = {'inv': activities, 'ia': methods}
-    lca = bw.MultiLCA('process')
+    bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
+    lca = bw.MultiLCA("process")
     cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
     return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
 
 
 def multiLCA(models, methods, **params):
-    """Compute LCA for a single activity and a set of methods, after settings the parameters and updating exchange amounts.
+    """Compute LCA for a single activity and a set of methods,
+    after settings the parameters and updating exchange amounts.
     This function does not use algebraic factorization and just calls the Brightway2 vanilla code.
 
     Parameters
@@ -56,40 +68,35 @@ def multiLCA(models, methods, **params):
 
     # Freeze params
     dbs = set(model[0] for model in models)
-    for db in dbs :
-        if _isForeground(db) :
+    for db in dbs:
+        if _isForeground(db):
             freezeParams(db, **params)
 
     activities = [{act: 1} for act in models]
     return _multiLCA(activities, methods).transpose()
 
 
-
-
-
 """ Compute LCA and return (act, method) => value """
-def _multiLCAWithCache(acts, methods) :
 
-    with LCIACache() as cache :
 
+def _multiLCAWithCache(acts, methods):
+    with LCIACache() as cache:
         # List activities with at least one missing value
         remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in cache.data))
 
-        if (len(remaining_acts) > 0) :
-            lca = _multiLCA(
-                [{act: 1} for act in remaining_acts],
-                methods)
+        if len(remaining_acts) > 0:
+            lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
 
             # Set output from dataframe
-            for imethod, method in enumerate(methods) :
-                for iact, act in enumerate(remaining_acts) :
+            for imethod, method in enumerate(methods):
+                for iact, act in enumerate(remaining_acts):
                     cache.data[(act, method)] = lca.iloc[imethod, iact]
 
         # Return a copy of the cache for selected impacts and activities
-        return {(act, method):  cache.data[(act, method)] for act in acts for method in methods}
+        return {(act, method): cache.data[(act, method)] for act in acts for method in methods}
 
 
-def _replace_symbols_with_params_in_exp(expr:Basic) :
+def _replace_symbols_with_params_in_exp(expr: Basic):
     """After unpickling, the Symbols in the expression with same named are not the same object than Parameters.
     This is problematic for xreplace wich relies on it :
     Here we replace them.
@@ -99,10 +106,7 @@ def _replace_symbols_with_params_in_exp(expr:Basic) :
         return expr
 
     all_params = _param_registry().as_dict()
-    subs = {
-        symb : all_params[symb.name]
-        for symb in expr.free_symbols
-            if isinstance(symb, Symbol) and symb.name in all_params}
+    subs = {symb: all_params[symb.name] for symb in expr.free_symbols if isinstance(symb, Symbol) and symb.name in all_params}
 
     logger.debug("Replace: %s", subs)
 
@@ -110,34 +114,24 @@ def _replace_symbols_with_params_in_exp(expr:Basic) :
     return expr
 
 
-
-
-def _modelToExpr(
-        model: ActivityExtended,
-        methods,
-        alpha=1,
-        axis=None):
-    '''
+def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
+    """
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
     Return
     ------
     <list of expressions (one per impact)>, <list of required param names>
 
-    '''
+    """
 
     # Try to load from cache
-    with ExprCache() as cache :
-
+    with ExprCache() as cache:
         key = (model, axis)
 
-        if not key in cache.data:
-
+        if key not in cache.data:
             logger.debug(f"{model} was not in exrepssion cache, computing...")
 
-            expr, actBySymbolName = actToExpression(
-                model,
-                axis=axis)
+            expr, actBySymbolName = actToExpression(model, axis=axis)
 
             cache.data[key] = (expr, actBySymbolName)
         else:
@@ -147,10 +141,10 @@ def _modelToExpr(
 
     logger.debug("Alpha passed %s", alpha)
 
-    #logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
-    #logger.debug("Act by symbol : %s", actBySymbolName)
-    #if logger.isEnabledFor("DEBUG") :
-    #logger.debug(f"Length of expression : {len(str(expr))}")
+    # logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
+    # logger.debug("Act by symbol : %s", actBySymbolName)
+    # if logger.isEnabledFor("DEBUG") :
+    # logger.debug(f"Length of expression : {len(str(expr))}")
 
     expr = expr * alpha
 
@@ -158,8 +152,8 @@ def _modelToExpr(
     # We cannot run LCA to biosphere activities
     # We create a technosphere activity mapping exactly to 1 biosphere item
     pureTechActBySymbol = OrderedDict()
-    for name, act in actBySymbolName.items():
-        pureTechActBySymbol[name] = _createTechProxyForBio(act, model.key[0])
+    for act_name, act in actBySymbolName.items():
+        pureTechActBySymbol[act_name] = _createTechProxyForBio(act, model.key[0])
 
     # Compute LCA for background activities
     lcas = _multiLCAWithCache(pureTechActBySymbol.values(), methods)
@@ -177,73 +171,76 @@ def _modelToExpr(
 
         exprs.append(expr_curr)
 
-
     return exprs
 
 
-def _filter_param_values(params, expanded_param_names) :
-    return {key : val for key, val in params.items() if key in expanded_param_names}
+def _filter_param_values(params, expanded_param_names):
+    return {key: val for key, val in params.items() if key in expanded_param_names}
 
-def _free_symbols(expr:Union[SymDict, Expr]) :
-    if isinstance(expr, SymDict) :
+
+def _free_symbols(expr: Union[SymDict, Expr]):
+    if isinstance(expr, SymDict):
         # SymDict => sum of vars of members
-        return set.union(
-            *[_free_symbols(ex) for ex in expr.dict.values()])
+        return set.union(*[_free_symbols(ex) for ex in expr.dict.values()])
     elif isinstance(expr, Expr):
         return set([str(symb) for symb in expr.free_symbols])
     else:
         # Static value
         return set()
 
-def _lambdify(expr:Union[SymDict, Expr], expanded_params) :
-    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
-    if isinstance(expr, SymDict) :
 
+def _lambdify(expr: Union[SymDict, Expr], expanded_params):
+    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
+    if isinstance(expr, SymDict):
         lambd_dict = dict()
         for key, val in expr.dict.items():
             lambd_dict[key] = _lambdify(val, expanded_params)
 
         # Dynamic  function calling lambda function with same params
-        def dict_func(*args, **kwargs) :
-            return SymDict({
-                key : func(*args, **kwargs)
-                for key, func in lambd_dict.items()})
+        def dict_func(*args, **kwargs):
+            return SymDict({key: func(*args, **kwargs) for key, func in lambd_dict.items()})
 
         return dict_func
 
     elif isinstance(expr, Expr):
-        return lambdify(expanded_params, expr, 'numpy')
+        return lambdify(expanded_params, expr, "numpy")
     else:
         # Not an expression : return statis func
         def static_func(*args, **kargs):
             return expr
+
         return static_func
 
-def compute_param_formulas(param_values:Dict, required_params:List[str]):
 
+def compute_param_formulas(param_values: Dict, required_params: List[str]):
     # Compute the values params computed from formulas (and not specified in input)
     pass
+
 
 @dataclass
 class ValueContext:
     """Represents a result value, with all parameters values used in context"""
+
     value: float
     context: Dict[str, float]
 
-class LambdaWithParamNames :
+
+class LambdaWithParamNames:
     """
-    This class represents a compiled (lambdified) expression together with the list of requirement parameters and the source expression
+    This class represents a compiled (lambdified) expression together
+    with the list of requirement parameters and the source expression
     """
+
     def __init__(self, exprOrDict, expanded_params=None, params=None, sobols=None):
-        """ Computes a lamdda function from expression and list of expected parameters.
+        """Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
 
-        if isinstance(exprOrDict, dict) :
+        if isinstance(exprOrDict, dict):
             # Come from JSON serialization
             obj = exprOrDict
             # LIst of required params for this lambda
-            self.params:List[str] = obj["params"]
+            self.params: List[str] = obj["params"]
 
             # Full names
             self.expanded_params = _expand_param_names(self.params)
@@ -251,28 +248,27 @@ class LambdaWithParamNames :
             self.lambd = _lambdify(self.expr, self.expanded_params)
             self.sobols = obj["sobols"]
 
-        else :
+        else:
             self.expr = exprOrDict
             self.params = params
 
             if expanded_params is None:
-
-                if params is None :
+                if params is None:
                     expanded_params = _free_symbols(exprOrDict)
                     params = _expanded_names_to_names(expanded_params)
                     self.params = params
 
                 # We expand again the parameters
-                # If we expect an enum param name, we also expect the other ones : enumparam_val1 => enumparam_val1, enumparam_val2, ...
+                # If we expect an enum param name, we also expect the other ones :
+                # enumparam_val1 => enumparam_val1, enumparam_val2, ...
                 expanded_params = _expand_param_names(params)
 
-            elif self.params is None :
+            elif self.params is None:
                 self.params = _expanded_names_to_names(expanded_params)
 
             self.lambd = _lambdify(exprOrDict, expanded_params)
             self.expanded_params = expanded_params
             self.sobols = sobols
-
 
     @property
     def has_axis(self):
@@ -280,13 +276,13 @@ class LambdaWithParamNames :
 
     @property
     def axis_keys(self):
-        if self.has_axis :
+        if self.has_axis:
             return list(self.expr.dict.keys())
         else:
             return None
 
     def compute(self, **params) -> ValueContext:
-        """Compute result value based of input parameters """
+        """Compute result value based of input parameters"""
 
         # Add default or computed values
         completed_params = _complete_params(params, self.params)
@@ -299,21 +295,15 @@ class LambdaWithParamNames :
 
         value = self.lambd(**expanded_params)
 
-        return ValueContext(
-            value=value,
-            context=completed_params)
+        return ValueContext(value=value, context=completed_params)
 
-    def serialize(self) :
-
-        if isinstance(self.expr, SymDict) :
+    def serialize(self):
+        if isinstance(self.expr, SymDict):
             expr = {key: str(sym) for key, sym in self.expr.dict.items()}
         else:
             expr = str(self.expr)
 
-        return dict(
-            params=self.params,
-            expr=expr,
-            sobols=self.sobols)
+        return dict(params=self.params, expr=expr, sobols=self.sobols)
 
     def __repr__(self):
         return repr(self.expr)
@@ -321,64 +311,57 @@ class LambdaWithParamNames :
     def _repr_latex_(self):
         return self.expr._repr_latex_()
 
-def _preMultiLCAAlgebric(
-        model: ActivityExtended,
-        methods,
-        alpha=1,
-        axis=None):
-    '''
-        This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
-        You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
 
-        This method is used by multiLCAAlgebric
-    '''
-    with DbContext(model) :
-        exprs = _modelToExpr(
-            model, methods,
-            alpha=alpha,
-            axis=axis)
+def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha=1, axis=None):
+    """
+    This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
+    You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
+
+    This method is used by multiLCAAlgebric
+    """
+    with DbContext(model):
+        exprs = _modelToExpr(model, methods, alpha=alpha, axis=axis)
 
         # Lambdify (compile) expressions
         return [LambdaWithParamNames(expr) for expr in exprs]
 
 
 def method_name(method):
-    """Return name of method, taking into account custom label set via set_custom_impact_labels(...) """
-    if method in _impact_labels() :
+    """Return name of method, taking into account custom label set via set_custom_impact_labels(...)"""
+    if method in _impact_labels():
         return _impact_labels()[method]
     return method[1] + " - " + method[2]
 
-def _slugify(str) :
-    return re.sub('[^0-9a-zA-Z]+', '_', str)
+
+def _slugify(str):
+    return re.sub("[^0-9a-zA-Z]+", "_", str)
 
 
 @dataclass
 class ResultsWithParams:
     """Holds bith the result with context parameters"""
-    dataframe: DataFrame
+
+    dataframe: pd.DataFrame
     params: Dict
 
-def _postMultiLCAAlgebric(
-        methods,
-        lambdas:List[LambdaWithParamNames],
-        with_params=False,
-        **params):
-    '''
-        Compute LCA for a given set of parameters and pre-compiled lambda functions.
-        This function is used by **multiLCAAlgebric**
 
-        Parameters
-        ----------
-        methodAndLambdas : Output of preMultiLCAAlgebric
-        **params : Parameters of the model
-    '''
+def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_params=False, **params):
+    """
+    Compute LCA for a given set of parameters and pre-compiled lambda functions.
+    This function is used by **multiLCAAlgebric**
+
+    Parameters
+    ----------
+    methodAndLambdas : Output of preMultiLCAAlgebric
+    **params : Parameters of the model
+    """
 
     param_length = _compute_param_length(params)
 
     # lambda are SymDict ?
     # If use them as number of params
-    if lambdas[0].has_axis :
-        if param_length > 1 :
+    if lambdas[0].has_axis:
+        if param_length > 1:
             raise Exception("Multi params cannot be used together with 'axis'")
         param_length = len(lambdas[0].axis_keys)
 
@@ -389,13 +372,11 @@ def _postMultiLCAAlgebric(
     context_params = dict()
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    def process(args) :
-
+    def process(args):
         nonlocal context_params
 
-
         imethod = args[0]
-        lambd : LambdaWithParamNames = args[1]
+        lambd: LambdaWithParamNames = args[1]
 
         value_context = lambd.compute(**params)
 
@@ -405,7 +386,7 @@ def _postMultiLCAAlgebric(
         value = value_context.value
 
         # Expand axis values as a list, to fit into the result numpy array
-        if lambd.has_axis :
+        if lambd.has_axis:
             value = list(float(val) for val in value.dict.values())
 
         return (imethod, value)
@@ -415,7 +396,10 @@ def _postMultiLCAAlgebric(
         for imethod, value in exec.map(process, enumerate(lambdas)):
             res[imethod, :] = value
 
-    result = pd.DataFrame(res, index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods]).transpose()
+    result = pd.DataFrame(
+        res,
+        index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods],
+    ).transpose()
 
     if with_params:
         return ResultsWithParams(dataframe=result, params=context_params)
@@ -424,7 +408,7 @@ def _postMultiLCAAlgebric(
 
 
 # Add default values for issing parameters or warn about extra params
-def _filter_params(params, expected_names, model) :
+def _filter_params(params, expected_names, model):
     res = params.copy()
 
     expected_params_names = _expanded_names_to_names(expected_names)
@@ -435,15 +419,15 @@ def _filter_params(params, expected_names, model) :
             error("Missing parameter %s, replaced by default value %s" % (expected_name, default))
 
     for key, value in params.items():
-        if not key in expected_params_names:
+        if key not in expected_params_names:
             del res[key]
-            if model :
+            if model:
                 error("Param %s not required for model %s" % (key, model))
     return res
 
 
 def compute_value(formula, **params):
-    """ Compute actual value for a given formula, with possible parameters (or default ones) """
+    """Compute actual value for a given formula, with possible parameters (or default ones)"""
     if isinstance(formula, float) or isinstance(formula, int):
         return formula
 
@@ -454,8 +438,8 @@ def compute_value(formula, **params):
     return value_context.value
 
 
-def multiLCAAlgebric(*args, **kwargs) :
-    """ deprecated. `compute_impacts()` instead """
+def multiLCAAlgebric(*args, **kwargs):
+    """deprecated. `compute_impacts()` instead"""
     warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
     return compute_impacts(*args, **kwargs)
 
@@ -472,43 +456,43 @@ def _params_dataframe(param_values: Dict[str, float]):
         param = params_by_name[param_name]
         record = {
             "group": param.group if param.group is not None else "",
-            "name" : param.name,
+            "name": param.name,
             "min": param.min,
             "max": param.max,
-            "default": param.default}
+            "default": param.default,
+        }
 
         if plen == 1:
             record["value"] = value
         else:
             if isinstance(value, (list, np.ndarray)):
-                record.update({f"value_{i}":value for i, value in enumerate(value, 1)})
+                record.update({f"value_{i}": value for i, value in enumerate(value, 1)})
             else:
                 # Repeat single value
-                record.update({f"value_{i}": value for i in range(1, plen+1)})
+                record.update({f"value_{i}": value for i in range(1, plen + 1)})
 
         records.append(record)
 
-    df = DataFrame\
-            .from_records(records)\
-            .set_index(["group", "name"])\
-            .sort_index()
+    df = pd.DataFrame.from_records(records).set_index(["group", "name"]).sort_index()
 
     return df
 
 
-
 def compute_impacts(
-        models,
-        methods,
-        axis=None,
-        functional_unit=1,
-        return_params=False,
-        description=None,
-        **params):
+    models,
+    methods,
+    axis=None,
+    functional_unit=1,
+    return_params=False,
+    description=None,
+    **params,
+):
     """
-    Main parametric LCIA method : Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
+    Main parametric LCIA method :
+    Computes LCA by expressing the foreground model as symbolic expression of background activities and parameters.
     Then, compute 'static' inventory of the referenced background activities.
-    This enables a very fast recomputation of LCA with different parameters, useful for stochastic evaluation of parametrized model
+    This enables a very fast recomputation of LCA with different parameters, \
+    useful for stochastic evaluation of parametrized model
 
     Parameters
     ----------
@@ -521,7 +505,8 @@ def compute_impacts(
     methods : List of methods / impacts to consider
     params : You should provide named values of all the parameters declared in the model. \
              Values can be single value or list of samples, all of the same size
-    axis: Designates the name of an attribute of user activities to split impacts by their value. This is useful to get impact by phase or sub modules
+    axis: Designates the name of an attribute of user activities to split impacts by their value. \
+        This is useful to get impact by phase or sub modules
     functional_unit: quantity (static or Sypy formula) by which to divide impacts
     return_params: If true, also returns the value of all parameters in as tabbed DataFrame
     description: Optional description/metadata to be added in output when using "return params" Dataframe
@@ -529,20 +514,21 @@ def compute_impacts(
     dfs = dict()
 
     if isinstance(models, list):
-        def to_tuple(item) :
-            if isinstance(item, tuple) :
+
+        def to_tuple(item):
+            if isinstance(item, tuple):
                 return item
             else:
                 return (item, 1)
+
         models = dict(to_tuple(item) for item in models)
     elif not isinstance(models, dict):
-        models = {models:1}
+        models = {models: 1}
 
     # Gather all param values (even default and computed)
     params_all = dict()
 
     for model, alpha in models.items():
-
         if type(model) is tuple:
             model, alpha = model
 
@@ -550,33 +536,32 @@ def compute_impacts(
 
         dbname = model.key[0]
         with DbContext(dbname):
-
             # Check no params are passed for FixedParams
             for key in params:
-                if key in _fixed_params() :
+                if key in _fixed_params():
                     error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
-            if functional_unit != 1 :
+            if functional_unit != 1:
                 alpha = alpha / functional_unit
 
             lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
 
             res = _postMultiLCAAlgebric(methods, lambdas, with_params=return_params, **params)
-            if return_params :
+            if return_params:
                 df = res.dataframe
                 params_all.update(res.params)
             else:
                 df = res
 
             model_name = _actName(model)
-            while model_name in dfs :
+            while model_name in dfs:
                 model_name += "'"
 
             # param with several values
             list_params = {k: vals for k, vals in params.items() if isinstance(vals, list)}
 
             # Shapes the output / index according to the axis or multi param entry
-            if axis :
+            if axis:
                 df[axis] = lambdas[0].axis_keys
                 df = df.set_index(axis)
                 df.index.set_names([axis])
@@ -585,7 +570,9 @@ def compute_impacts(
                 df = df.loc[
                     df.apply(
                         lambda row: not (row.name is None and row.values[0] == 0.0),
-                        axis=1)]
+                        axis=1,
+                    )
+                ]
 
                 # Rename "None" to others
                 df = df.rename(index={None: "*other*"})
@@ -594,15 +581,14 @@ def compute_impacts(
                 df.sort_index(inplace=True)
 
                 # Add "total" line
-                df.loc['*sum*'] = df.sum(numeric_only=True)
-
+                df.loc["*sum*"] = df.sum(numeric_only=True)
 
             elif len(list_params) > 0:
                 for k, vals in list_params.items():
                     df[k] = vals
                 df = df.set_index(list(list_params.keys()))
 
-            else :
+            else:
                 # Single output ? => give the single row the name of the model activity
                 df = df.rename(index={0: model_name})
 
@@ -614,55 +600,44 @@ def compute_impacts(
         # Concat several dataframes for several models
         df = pd.concat(list(dfs.values()))
 
-    if return_params :
-
-        metadata = {
-            "Models" : str(models),
-            "Functional unit" : functional_unit
-        }
-        if description :
+    if return_params:
+        metadata = {"Models": str(models), "Functional unit": functional_unit}
+        if description:
             metadata["Description"] = description
 
-        return TabbedDataframe(
-            metadata=metadata,
-            Results=df,
-            Parameters=_params_dataframe(params_all))
+        return TabbedDataframe(metadata=metadata, Results=df, Parameters=_params_dataframe(params_all))
     else:
         return df
 
 
-
-
 def _createTechProxyForBio(act_key, target_db):
     """
-        We cannot reference directly biosphere in the model, since LCA can only be applied to products
-        We create a dummy activity in our DB, with same code, and single exchange of amount '1'
+    We cannot reference directly biosphere in the model, since LCA can only be applied to products
+    We create a dummy activity in our DB, with same code, and single exchange of amount '1'
     """
     dbname, code = act_key
     act = _getDb(dbname).get(code)
 
     # Biosphere ?
-    if (dbname == BIOSPHERE3_DB_NAME) or ("type" in act and act["type"] in ["emission", "natural resource"]) :
-
+    if (dbname == BIOSPHERE3_DB_NAME) or ("type" in act and act["type"] in ["emission", "natural resource"]):
         code_to_find = code + "#asTech"
 
         try:
             # Already created ?
             return _getDb(target_db).get(code_to_find)
-        except:
-            name = act['name'] + ' # asTech'
+        except DoesNotExist:
+            name = act["name"] + " # asTech"
 
             # Create biosphere proxy in User Db
-            res = newActivity(target_db, name, act['unit'], {act: 1},
-                              code=code_to_find,
-                              isProxy=True) # add a this flag to distinguish this dummy activity from others
+            res = newActivity(
+                target_db, name, act["unit"], {act: 1}, code=code_to_find, isProxy=True
+            )  # add a this flag to distinguish this dummy activity from others
             return res
-    else :
+    else:
         return act
 
 
-
-def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT) :
+def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
     """Replace fixed params with their value."""
 
     sub = {key: val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
@@ -670,35 +645,30 @@ def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT)
     return expr.xreplace(sub)
 
 
-def _tag_expr(expr, act, axis) :
+def _tag_expr(expr, act, axis):
     """Tag expression for one axe. Check the child expression is not already tagged with different values"""
     axis_tag = act.get(axis, None)
 
-    if axis_tag is None :
+    if axis_tag is None:
         return expr
 
-    if isinstance(expr, SymDict) :
+    if isinstance(expr, SymDict):
         res = 0
-        for key, val in expr.dict.items() :
-            if key is not None and key != axis_tag :
+        for key, val in expr.dict.items():
+            if key is not None and key != axis_tag:
                 raise ValueError(
-                    "Inconsistent axis for one change of  '%s' : attempt to tag as '%s'. Already tagged as '%s'. Value of the exchange : %s" % (
-                        act["name"],
-                        axis_tag,
-                        key,
-                        str(val)))
+                    "Inconsistent axis for one change of  '%s' : attempt to tag as '%s'. "
+                    "Already tagged as '%s'. Value of the exchange : %s" % (act["name"], axis_tag, key, str(val))
+                )
             res += val
     else:
         res = expr
 
-    return SymDict({axis_tag:res})
+    return SymDict({axis_tag: res})
 
 
 @with_db_context(arg="act")
-def actToExpression(
-        act: Activity,
-        axis=None):
-
+def actToExpression(act: Activity, axis=None):
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -706,18 +676,17 @@ def actToExpression(
         (sympy_expr, dict of symbol => activity)
     """
 
-    act_symbols : Dict[Symbol]= dict()  # Cache of  act = > symbol
+    act_symbols: Dict[Symbol] = dict()  # Cache of  act = > symbol
 
     def act_to_symbol(sub_act):
-        """ Transform an activity to a named symbol and keep cache of it """
+        """Transform an activity to a named symbol and keep cache of it"""
 
         db_name, code = sub_act.key
 
         # Look in cache
         if not (db_name, code) in act_symbols:
-
             act = _getDb(db_name).get(code)
-            name = act['name']
+            name = act["name"]
             base_slug = _slugify(name)
 
             slug = base_slug
@@ -733,16 +702,14 @@ def actToExpression(
     # Local cache of expressions
 
     def actToExpressionRec(act: ActivityExtended, parents=[]):
-
         res = 0
         outputAmount = act.getOutputAmount()
 
-        if not _isForeground(act["database"]) :
+        if not _isForeground(act["database"]):
             # We reached a background DB ? => stop developping and create reference to activity
             return act_to_symbol(act)
 
         for exch in act.exchanges():
-
             formula = _getAmountOrFormula(exch)
 
             if isinstance(formula, types.FunctionType):
@@ -750,29 +717,27 @@ def actToExpression(
                 continue
 
             #  Production exchange
-            if exch['input'] == exch['output']:
+            if exch["input"] == exch["output"]:
                 continue
 
-            input_db, input_code = exch['input']
+            input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
 
             # Background DB => reference it as a symbol
-            if not _isForeground(input_db) :
+            if not _isForeground(input_db):
                 act_expr = act_to_symbol(sub_act)
 
             # Our model : recursively it to a symbolic expression
             else:
-
                 parents = parents + [act]
-                if sub_act in parents :
+                if sub_act in parents:
                     raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
 
                 act_expr = actToExpressionRec(sub_act, parents)
 
             avoidedBurden = 1
 
-            if exch.get('type') == 'production' and not exch.get('input') == exch.get('output') :
-                debug("Avoided burden", exch[name])
+            if exch.get("type") == "production" and not exch.get("input") == exch.get("output"):
                 avoidedBurden = -1
 
             res += formula * act_expr * avoidedBurden
@@ -780,14 +745,14 @@ def actToExpression(
         res = res / outputAmount
 
         # Axis ? transforms this to a dict with the correct Tag
-        if axis :
+        if axis:
             res = _tag_expr(res, act, axis)
 
         return res
 
     expr = actToExpressionRec(act)
 
-    if isinstance(expr, float) :
+    if isinstance(expr, float):
         expr = simplify(expr)
     else:
         # Replace fixed params with their default value
@@ -800,7 +765,7 @@ def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
 
 
-def exploreImpacts(impact, *activities : ActivityExtended, **params):
+def exploreImpacts(impact, *activities: ActivityExtended, **params):
     """
     Advanced version of #printAct()
 
@@ -815,12 +780,10 @@ def exploreImpacts(impact, *activities : ActivityExtended, **params):
     withImpactPerUnit = params.pop("withImpactPerUnit", False)
 
     for main_act in activities:
-
         inputs_by_ex_name = dict()
         data = dict()
 
         for i, (name, input, amount) in enumerate(main_act.listExchanges()):
-
             # Params provided ? Evaluate formulas
             if len(params) > 0 and isinstance(amount, Basic):
                 amount = compute_expr_value(amount, params)
@@ -835,26 +798,25 @@ def exploreImpacts(impact, *activities : ActivityExtended, **params):
 
             input_name = _actName(input)
 
-            if _isForeground(input.key[0]) :
+            if _isForeground(input.key[0]):
                 input_name += "{user-db}"
 
             data[ex_name] = dict(input=input_name, amount=amount)
-
 
         # Provide impact calculation if impact provided
         all_acts = list(set(inputs_by_ex_name.values()))
         res = multiLCAAlgebric(all_acts, [impact], **params)
         impacts = res[res.columns.tolist()[0]].to_list()
 
-        impact_by_act = {act : value for act, value in zip(all_acts, impacts)}
+        impact_by_act = {act: value for act, value in zip(all_acts, impacts)}
 
         # Add impacts to data
-        for key, vals in data.items() :
+        for key, vals in data.items():
             amount = vals["amount"]
             act = inputs_by_ex_name[key]
             impact = impact_by_act[act]
 
-            if withImpactPerUnit :
+            if withImpactPerUnit:
                 vals["impact_per_unit"] = impact
             vals["impact"] = amount * impact
 
@@ -872,23 +834,25 @@ def exploreImpacts(impact, *activities : ActivityExtended, **params):
         diff_cols = ["amount", "input", "impact"]
         cols1 = dict()
         cols2 = dict()
-        for col_name in diff_cols :
+        for col_name in diff_cols:
             cols1[col_name] = full.columns.get_loc((names[0], col_name))
             cols2[col_name] = full.columns.get_loc((names[1], col_name))
 
         if diffOnly:
+
             def isDiff(row):
-                return row[cols1['impact']] != row[cols2['impact']]
+                return row[cols1["impact"]] != row[cols2["impact"]]
 
             full = full.loc[isDiff]
 
         def same_amount(row):
             res = [""] * len(row)
-            for col_name in diff_cols :
-                if row[cols1[col_name]] != row[cols2[col_name]] :
+            for col_name in diff_cols:
+                if row[cols1[col_name]] != row[cols2[col_name]]:
                     res[cols1[col_name]] = YELLOW
                     res[cols2[col_name]] = YELLOW
             return res
+
         full = full.style.apply(same_amount, axis=1)
 
     return full

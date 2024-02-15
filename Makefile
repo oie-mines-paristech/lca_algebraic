@@ -39,8 +39,14 @@ upload : upload-pip upload-conda
 pytest:
 	pytest test
 
-notebook_test:
+test_notebook:
 	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
-	./test/notebook_runner.py $(TST_IPYNB)
+	pytest --nbmake *.ipynb
 
-test: pytest notebook_test
+lint:
+	pre-commit run
+
+lint-all:
+	pre-commit run --all-files
+
+test: pytest test_notebook
