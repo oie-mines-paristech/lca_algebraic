@@ -1007,7 +1007,7 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """ Return either a fixed float value or an expression for the amount of this exchange"""
-    if "formula" in ex and ex["type"] != "biosphere":
+    if "formula" in ex :
         try:
             return _parse_formula(ex['formula'])
         except Exception as e:
