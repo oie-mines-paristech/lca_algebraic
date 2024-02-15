@@ -248,14 +248,13 @@ def test_simplify_model(data) :
     m1 = newActivity(USER_DB, "m1", "kg",
                      {data.bio1: p1 * (p1 + 0.001 * p1 + p2)})
 
-    # Simplified model, without removing minor sum term
-    res = sobol_simplify_model(m1, [data.ibio1], simple_sums=False, simple_products=False)[0]
-    assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
-
     # Simplified model, removing minor sum terms (default)
     res = sobol_simplify_model(m1, [data.ibio1], simple_products=False)[0]
     assert res.expr.__repr__() == "1.0*p1**2"
 
+    # Simplified model, without removing minor sum term
+    res = sobol_simplify_model(m1, [data.ibio1], simple_sums=False, simple_products=False)[0]
+    assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
 
     # -- Simplify products
 
@@ -354,7 +353,7 @@ def test_params_with_formulas(data):
 def test_compute_impacts_return_params(data):
 
     p1 = newFloatParam("p1", default=1, min=0, max=2)
-    p_default = newFloatParam("p_default", default=0, min=0, max=2)
+    p_default = newFloatParam("p_default", default=1, min=0, max=2)
     p_computed = newFloatParam("p_computed", default=0, min=0, max=3, formula=2 * p1)
     p_unused = newFloatParam("p_unused", default=0, min=0, max=2)
 
@@ -363,7 +362,7 @@ def test_compute_impacts_return_params(data):
                         data.bio2: p_default,
                         data.bio3: p_computed})
 
-    res = compute_impacts(
+    res : TabbedDataframe = compute_impacts(
         act1,
         [data.ibio1, data.ibio2, data.ibio3],
         functional_unit=p_default,
@@ -373,7 +372,18 @@ def test_compute_impacts_return_params(data):
         # Params
         p1 = [1, 2, 3])
 
-    print(res)
+    assert res.dataframes["Results"].to_dict() == {
+        'bio1 - total[MJ-Eq]': {1: 1.0, 2: 2.0, 3: 3.0},
+        'bio2 - total[MJ-Eq]': {1: 1.0, 2: 1.0, 3: 1.0},
+        'bio3 - total[MJ-Eq]': {1: 2.0, 2: 4.0, 3: 6.0}}
+
+    assert res.dataframes["Parameters"].to_dict() == {
+         'min': {('', 'p1'): 0, ('', 'p_computed'): 0, ('', 'p_default'): 0},
+         'max': {('', 'p1'): 2, ('', 'p_computed'): 3, ('', 'p_default'): 2},
+         'default': {('', 'p1'): 1, ('', 'p_computed'): 0, ('', 'p_default'): 1},
+         'value_1': {('', 'p1'): 1.0, ('', 'p_computed'): 2.0, ('', 'p_default'): 1.0},
+         'value_2': {('', 'p1'): 2.0, ('', 'p_computed'): 4.0, ('', 'p_default'): 1.0},
+         'value_3': {('', 'p1'): 3.0, ('', 'p_computed'): 6.0, ('', 'p_default'): 1.0}}
 
 def test_switch_value(data):
 

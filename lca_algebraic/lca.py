@@ -2,7 +2,7 @@ import concurrent.futures
 from collections import OrderedDict
 from typing import List
 
-from sympy import lambdify, Symbol, parse_expr
+from sympy import lambdify, Symbol, parse_expr, evaluate
 
 from .params import all_params
 from .log import logger
@@ -89,6 +89,28 @@ def _multiLCAWithCache(acts, methods) :
         return {(act, method):  cache.data[(act, method)] for act in acts for method in methods}
 
 
+def _replace_symbols_with_params_in_exp(expr:Basic) :
+    """After unpickling, the Symbols in the expression with same named are not the same object than Parameters.
+    This is problematic for xreplace wich relies on it :
+    Here we replace them.
+    """
+
+    if not isinstance(expr, Basic):
+        return expr
+
+    all_params = _param_registry().as_dict()
+    subs = {
+        symb : all_params[symb.name]
+        for symb in expr.free_symbols
+            if isinstance(symb, Symbol) and symb.name in all_params}
+
+    logger.debug("Replace: %s", subs)
+
+    expr = expr.xreplace(subs)
+    return expr
+
+
+
 
 def _modelToExpr(
         model: ActivityExtended,
@@ -123,10 +145,14 @@ def _modelToExpr(
 
         expr, actBySymbolName = cache.data[key]
 
-    expr = expr * alpha
+    logger.debug("Alpha passed %s", alpha)
 
+    #logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
+    #logger.debug("Act by symbol : %s", actBySymbolName)
     #if logger.isEnabledFor("DEBUG") :
-    logger.debug(f"Length of expression : {len(str(expr))}")
+    #logger.debug(f"Length of expression : {len(str(expr))}")
+
+    expr = expr * alpha
 
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
@@ -143,9 +169,13 @@ def _modelToExpr(
     for method in methods:
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
-        exprs.append(expr.xreplace(sub))
 
+        expr_curr = expr.xreplace(sub)
 
+        # Ensure symbols are params
+        expr_curr = _replace_symbols_with_params_in_exp(expr_curr)
+
+        exprs.append(expr_curr)
 
 
     return exprs
@@ -435,6 +465,9 @@ def _params_dataframe(param_values: Dict[str, float]):
     params_by_name = all_params()
 
     records = []
+
+    plen = _compute_param_length(param_values)
+
     for param_name, value in param_values.items():
         param = params_by_name[param_name]
         record = {
@@ -443,10 +476,16 @@ def _params_dataframe(param_values: Dict[str, float]):
             "min": param.min,
             "max": param.max,
             "default": param.default}
-        if isinstance(value, (list, np.ndarray)) :
-            record.update({f"value_{i}":value for i, value in enumerate(value)})
-        else:
+
+        if plen == 1:
             record["value"] = value
+        else:
+            if isinstance(value, (list, np.ndarray)):
+                record.update({f"value_{i}":value for i, value in enumerate(value, 1)})
+            else:
+                # Repeat single value
+                record.update({f"value_{i}": value for i in range(1, plen+1)})
+
         records.append(record)
 
     df = DataFrame\
@@ -509,6 +548,8 @@ def compute_impacts(
 
         if type(model) is tuple:
             model, alpha = model
+
+        alpha = float(alpha)
 
         dbname = model.key[0]
         with DbContext(dbname):
@@ -574,7 +615,7 @@ def compute_impacts(
         df = list(dfs.values())[0]
     else:
         # Concat several dataframes for several models
-        df =  pd.concat(list(dfs.values()))
+        df = pd.concat(list(dfs.values()))
 
     if return_params :
 
@@ -589,7 +630,7 @@ def compute_impacts(
             Parameters=_params_dataframe(params_all),
             Metadata=_metadata_dataframe(metadata))
     else:
-        return
+        return df
 
 
 
