@@ -19,7 +19,8 @@ from sympy.core.operations import AssocOp
 from .base_utils import _method_unit
 from .lca import *
 from .lca import _expanded_names_to_names, _filter_param_values, _replace_fixed_params, _modelToExpr, _preMultiLCAAlgebric, _postMultiLCAAlgebric
-from .params import _variable_params, _param_registry, FixedParamMode, _param_name, NameType
+from .params import _variable_params, _param_registry, FixedParamMode, _param_name, NameType, \
+    _complete_and_expand_params
 
 PARALLEL=False
 
@@ -782,8 +783,8 @@ def sobol_simplify_model(
         lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
         # Compute list of parameter values (monte carlo)
-        completed_params = lambd.complete_params(params)
-        expanded_params = _filter_param_values(completed_params, lambd.expanded_params)
+        expanded_params = _complete_and_expand_params(params, lambd.params, asSymbols=False)
+        expanded_params = _filter_param_values(expanded_params, lambd.expanded_params)
 
         # Extra step of simplification : simplify sums with neligeable terms
         if simple_sums :
