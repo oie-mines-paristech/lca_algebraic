@@ -2,6 +2,8 @@ import os
 import sys
 from tempfile import mkstemp
 
+from lca_algebraic.cache import clear_caches, disable_cache
+
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
@@ -248,14 +250,13 @@ def test_simplify_model(data) :
     m1 = newActivity(USER_DB, "m1", "kg",
                      {data.bio1: p1 * (p1 + 0.001 * p1 + p2)})
 
-    # Simplified model, without removing minor sum term
-    res = sobol_simplify_model(m1, [data.ibio1], simple_sums=False, simple_products=False)[0]
-    assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
-
     # Simplified model, removing minor sum terms (default)
     res = sobol_simplify_model(m1, [data.ibio1], simple_products=False)[0]
     assert res.expr.__repr__() == "1.0*p1**2"
 
+    # Simplified model, without removing minor sum term
+    res = sobol_simplify_model(m1, [data.ibio1], simple_sums=False, simple_products=False)[0]
+    assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
 
     # -- Simplify products
 

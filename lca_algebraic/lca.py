@@ -2,7 +2,7 @@ import concurrent.futures
 from collections import OrderedDict
 from typing import Dict, List, Any
 
-from sympy import lambdify, simplify, Expr, Symbol, parse_expr
+from sympy import lambdify, simplify, Expr, Symbol, parse_expr, evaluate
 
 from .log import logger
 from .base_utils import _actName, error, _getDb, _method_unit
@@ -86,6 +86,28 @@ def _multiLCAWithCache(acts, methods) :
         return {(act, method):  cache.data[(act, method)] for act in acts for method in methods}
 
 
+def _replace_symbols_with_params_in_exp(expr:Basic) :
+    """After unpickling, the Symbols in the expression with same named are not the same object than Parameters.
+    This is problematic for xreplace wich relies on it :
+    Here we replace them.
+    """
+
+    if not isinstance(expr, Basic):
+        return expr
+
+    all_params = _param_registry().as_dict()
+    subs = {
+        symb : all_params[symb.name]
+        for symb in expr.free_symbols
+            if isinstance(symb, Symbol) and symb.name in all_params}
+
+    logger.debug("Replace: %s", subs)
+
+    expr = expr.xreplace(subs)
+    return expr
+
+
+
 
 def _modelToExpr(
         model: ActivityExtended,
@@ -120,10 +142,14 @@ def _modelToExpr(
 
         expr, actBySymbolName = cache.data[key]
 
-    expr = expr * alpha
+    logger.debug("Alpha passed %s", alpha)
 
+    #logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
+    #logger.debug("Act by symbol : %s", actBySymbolName)
     #if logger.isEnabledFor("DEBUG") :
-    logger.debug(f"Length of expression : {len(str(expr))}")
+    #logger.debug(f"Length of expression : {len(str(expr))}")
+
+    expr = expr * alpha
 
     # Create dummy reference to biosphere
     # We cannot run LCA to biosphere activities
@@ -140,9 +166,13 @@ def _modelToExpr(
     for method in methods:
         # Replace activities by their value in expression for this method
         sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
-        exprs.append(expr.xreplace(sub))
 
+        expr_curr = expr.xreplace(sub)
 
+        # Ensure symbols are params
+        expr_curr = _replace_symbols_with_params_in_exp(expr_curr)
+
+        exprs.append(expr_curr)
 
 
     return exprs
@@ -428,6 +458,8 @@ def compute_impacts(
 
         if type(model) is tuple:
             model, alpha = model
+
+        alpha = float(alpha)
 
         dbname = model.key[0]
         with DbContext(dbname):
