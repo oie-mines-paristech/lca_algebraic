@@ -14,11 +14,24 @@ from bw2data.meta import databases as dbmeta
 from IPython.display import display
 from sympy import Basic, Expr, Piecewise, simplify, symbols
 
-from .base_utils import (Activity, _actDesc, _actName, _getDb, _isOutputExch,
-                         bw, error, interpolate)
-from .params import (DbContext, EnumParam, ParamDef,
-                     _complete_and_expand_params, _getAmountOrFormula,
-                     _param_registry)
+from .base_utils import (
+    Activity,
+    _actDesc,
+    _actName,
+    _getDb,
+    _isOutputExch,
+    bw,
+    error,
+    interpolate,
+)
+from .params import (
+    DbContext,
+    EnumParam,
+    ParamDef,
+    _complete_and_expand_params,
+    _getAmountOrFormula,
+    _param_registry,
+)
 
 BIOSPHERE3_DB_NAME = "biosphere3"
 

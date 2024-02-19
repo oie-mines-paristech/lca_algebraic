@@ -16,17 +16,40 @@ from SALib.sample import saltelli, sobol_sequence
 from sympy import Abs, Add, AtomicExpr, Eq, Float, Mul, Number, Piecewise, Sum
 from sympy.core.operations import AssocOp
 
-from .base_utils import (_display_tabs, _method_unit, displayWithExportButton,
-                         r_squared)
-from .lca import (Activity, DbContext, Dict, Expr, LambdaWithParamNames,
-                  Symbol, _expanded_names_to_names, _filter_param_values,
-                  _modelToExpr, _postMultiLCAAlgebric, _preMultiLCAAlgebric,
-                  _replace_fixed_params, compute_impacts, concurrent, error,
-                  lambdify, method_name, pd, simplify, symbols,
-                  with_db_context)
-from .params import (FixedParamMode, NameType, ParamDef, ParamType,
-                     _complete_and_expand_params, _param_name, _param_registry,
-                     _variable_params)
+from .base_utils import _display_tabs, _method_unit, displayWithExportButton, r_squared
+from .lca import (
+    Activity,
+    DbContext,
+    Dict,
+    Expr,
+    LambdaWithParamNames,
+    Symbol,
+    _expanded_names_to_names,
+    _filter_param_values,
+    _modelToExpr,
+    _postMultiLCAAlgebric,
+    _preMultiLCAAlgebric,
+    _replace_fixed_params,
+    compute_impacts,
+    concurrent,
+    error,
+    lambdify,
+    method_name,
+    pd,
+    simplify,
+    symbols,
+    with_db_context,
+)
+from .params import (
+    FixedParamMode,
+    NameType,
+    ParamDef,
+    ParamType,
+    _complete_and_expand_params,
+    _param_name,
+    _param_registry,
+    _variable_params,
+)
 
 PARALLEL = False
 
@@ -594,11 +617,11 @@ def _enum_to_piecewize(exp):
     def checkEnumSymbol(term):
         if not isinstance(term, Symbol):
             return (None, None)
-        if not "_" in term.name:
+        if "_" not in term.name:
             return (None, None)
         enum_name, enum_val = term.name.rsplit("_", 1)
 
-        if not enum_name in _param_registry():
+        if enum_name not in _param_registry():
             return (None, None)
         return enum_name, enum_val
 
@@ -687,7 +710,7 @@ def _replace_abs(exp):
             return absExp
 
         params = _param_registry()
-        if not arg.name in params:
+        if arg.name not in params:
             return absExp
 
         param = params[arg.name]

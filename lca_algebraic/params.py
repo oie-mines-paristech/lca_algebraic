@@ -8,8 +8,12 @@ import numpy as np
 import pandas as pd
 from bw2data.backends import LCIBackend
 from bw2data.backends.peewee import ExchangeDataset
-from bw2data.parameters import (ActivityParameter, DatabaseParameter, Group,
-                                ProjectParameter)
+from bw2data.parameters import (
+    ActivityParameter,
+    DatabaseParameter,
+    Group,
+    ProjectParameter,
+)
 from bw2data.proxies import ActivityProxyBase
 from IPython.core.display import HTML
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
@@ -92,7 +96,7 @@ class DistributionType:
     """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
 
     BETA = "beta"  # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
-    """ Beta distribution with extra params *a* and *b*, 
+    """ Beta distribution with extra params *a* and *b*,
     using *default* value as 'loc' (0 of beta distribution) and *std* as 'scale' (1 of beta distribution)
     See [scipy doc](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.beta.html#scipy.stats.beta) """
 
@@ -202,12 +206,12 @@ class ParamDef(Symbol):
 
         if not distrib and type == ParamType.FLOAT:
             if self.min is None:
-                raise Exception(f"No 'min/max' provided, distrib should explicitely set to FIXED" % self.name)
+                raise Exception("No 'min/max' provided, distrib should explicitely set to FIXED" % self.name)
             else:
                 self.distrib = DistributionType.LINEAR
 
         elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
-            if not "std" in kwargs:
+            if "std" not in kwargs:
                 raise Exception("Standard deviation is mandatory for normal / lognormal distribution")
             self.std = kwargs["std"]
 
@@ -218,7 +222,7 @@ class ParamDef(Symbol):
                 )
 
         elif distrib == DistributionType.BETA:
-            if not "a" in kwargs or not "b" in kwargs or not "std" in kwargs:
+            if "a" not in kwargs or "b" not in kwargs or "std" not in kwargs:
                 raise Exception("Beta distribution requires params 'a' 'b' and 'std' (used as scale)")
             self.a = kwargs["a"]
             self.b = kwargs["b"]
@@ -254,7 +258,8 @@ class ParamDef(Symbol):
         return list(i * step + self.min for i in range(0, n))
 
     def rand(self, alpha):
-        """Transforms a random number between 0 and 1 to valid value according to the distribution of probability of the parameter"""
+        """Transforms a random number between 0 and 1 to valid value according
+        to the distribution of probability of the parameter"""
 
         if self.distrib == DistributionType.FIXED:
             return self.default
@@ -325,7 +330,7 @@ class BooleanDef(ParamDef):
     """Parameter with discrete value 0 or 1"""
 
     def __init__(self, name, **argv):
-        if not "min" in argv:
+        if "min" not in argv:
             argv = dict(argv, min=None, max=None)
         super(BooleanDef, self).__init__(name, ParamType.BOOL, **argv)
 
@@ -343,10 +348,10 @@ class EnumParam(ParamDef):
     """
 
     def __init__(self, name, values: Union[List[str], Dict[str, float]], **argv):
-        if not "min" in argv:
+        if "min" not in argv:
             argv = dict(argv, min=None, max=None)
         super(EnumParam, self).__init__(name, ParamType.ENUM, **argv)
-        if type(values) == list:
+        if isinstance(values, list):
             self.values = values
             self.weights = {key: 1 for key in values}
         else:
@@ -386,7 +391,7 @@ class EnumParam(ParamDef):
         """Return the invididual symbol for a given enum value : <paramName>_<paramValue>"""
         if enumValue is None:
             return Symbol(self.name + "_default")
-        if not enumValue in self.values:
+        if enumValue not in self.values:
             raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
         return Symbol(self.name + "_" + enumValue)
 
@@ -717,11 +722,11 @@ class ParamRegistry:
             if len(params_per_db) == 1:
                 return list(params_per_db.values())[0]
 
-            if DbContext.current_db() == None:
+            if DbContext.current_db() is None:
                 dbs = [key or "<project>" for key in params_per_db.keys()]
                 raise DuplicateParamsAndNoContextException(
                     """
-                    Found several params with name '%s', linked to databases (%s) . Yet no context is provided. 
+                    Found several params with name '%s', linked to databases (%s) . Yet no context is provided.
                     Please embed you code in a DbContext :
                         with DbContext(currentdb) :
                             <code>
@@ -781,7 +786,7 @@ ParamValues = Union[List[ParamValue], ParamValue]
 
 def _param_registry() -> ParamRegistry:
     # Prevent reset upon auto reload in jupyter notebook
-    if not "param_registry" in builtins.__dict__:
+    if "param_registry" not in builtins.__dict__:
         builtins.param_registry = ParamRegistry()
 
     return builtins.param_registry
@@ -841,7 +846,7 @@ def _complete_params(params: Dict[str, ParamValues], required_params):
     for param_name in required_params:
         param = _param_registry()[param_name]
 
-        if not param_name in params:
+        if param_name not in params:
             if param.formula:
                 params[param_name] = compute_expr_value(param.formula, params)
                 logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
@@ -1040,7 +1045,7 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     if "formula" in ex:
         try:
             return _parse_formula(ex["formula"])
-        except Exception as e:
+        except Exception:
             error("Error while parsing formula '%s' : backing to amount" % ex["formula"])
 
     return ex["amount"]

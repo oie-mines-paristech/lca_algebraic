@@ -7,24 +7,48 @@ from warnings import warn
 
 import numpy as np
 import pandas as pd
-from bw2data.errors import UnknownObject
 from peewee import DoesNotExist
 from sympy import Symbol, lambdify, parse_expr
 
 from . import SymDict, TabbedDataframe
 from .base_utils import _actName, _getDb, _method_unit
 from .cache import ExprCache, LCIACache
-from .helpers import (BIOSPHERE3_DB_NAME, Activity, ActivityExtended, Basic,
-                      DbContext, Dict, Expr, Union, _actDesc,
-                      _getAmountOrFormula, _isForeground, bw, error,
-                      newActivity, re, simplify, symbols, types,
-                      with_db_context)
+from .helpers import (
+    BIOSPHERE3_DB_NAME,
+    Activity,
+    ActivityExtended,
+    Basic,
+    DbContext,
+    Dict,
+    Expr,
+    Union,
+    _actDesc,
+    _getAmountOrFormula,
+    _isForeground,
+    bw,
+    error,
+    newActivity,
+    re,
+    simplify,
+    symbols,
+    types,
+    with_db_context,
+)
 from .log import logger
-from .params import (FixedParamMode, _complete_params, _compute_param_length,
-                     _expand_param_names, _expand_params,
-                     _expanded_names_to_names, _fixed_params, _param_registry,
-                     _toSymbolDict, all_params, compute_expr_value,
-                     freezeParams)
+from .params import (
+    FixedParamMode,
+    _complete_params,
+    _compute_param_length,
+    _expand_param_names,
+    _expand_params,
+    _expanded_names_to_names,
+    _fixed_params,
+    _param_registry,
+    _toSymbolDict,
+    all_params,
+    compute_expr_value,
+    freezeParams,
+)
 
 
 def _impact_labels():
