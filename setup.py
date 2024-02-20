@@ -65,12 +65,7 @@ setup(
         "sympy",
         "matplotlib",
         "deprecation",
-        "brightway2==2.3",
-        "bw2analyzer==0.11.4",
-        "bw2calc==1.8.1",
-        "bw2data",
-        "bw2io==0.8.6",
-        "bw2parameters==0.7",
+        "brightway2",
         "SALib",
     ],
 )

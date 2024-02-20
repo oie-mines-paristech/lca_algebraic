@@ -4,13 +4,11 @@ pandas
 seaborn
 sympy
 nbformat
-bw2data
-bw2io
 nbconvert
 numpy
 matplotlib
 scipy
-brightway2==2.3
+brightway2
 ipython
 SALib
 tqdm
