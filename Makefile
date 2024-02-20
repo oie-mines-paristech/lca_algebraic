@@ -50,3 +50,6 @@ lint-all:
 	pre-commit run --all-files
 
 test: pytest test_notebook
+
+tox:
+	tox run
