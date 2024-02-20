@@ -4,10 +4,10 @@ pandas
 seaborn
 sympy
 nbformat
-bw2data==3.6.2
-bw2io==0.8.6
+bw2data
+bw2io
 nbconvert
-numpy==1.23.1
+numpy
 matplotlib
 scipy
 brightway2==2.3

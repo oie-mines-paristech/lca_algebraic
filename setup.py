@@ -17,24 +17,29 @@ def run(args):
     return subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8").splitlines()
 
 
-# Get current git branch
-branches = run(["git", "branch"])
-curr_branch = next(line for line in branches if "*" in line)
-curr_branch = curr_branch.replace(" ", "").replace("*", "")
 version = read("VERSION")
 name = "lca_algebraic"
 
-if curr_branch != "master":
-    name += "_dev"
+# Try to get branch from git
+try:
+    branches = run(["git", "branch"])
+    curr_branch = next(line for line in branches if "*" in line)
+    curr_branch = curr_branch.replace(" ", "").replace("*", "")
 
-    # commit = run(["git", "log"])[0].split()[1][0:8]
+    if curr_branch != "master":
+        name += "_dev"
 
-    start = datetime.strptime("2021-01-01", "%Y-%m-%d")
-    now = datetime.now()
+        # commit = run(["git", "log"])[0].split()[1][0:8]
 
-    min_diff = int((now - start).total_seconds() // 60)
+        start = datetime.strptime("2021-01-01", "%Y-%m-%d")
+        now = datetime.now()
 
-    version += "." + str(min_diff) + "-dev"
+        min_diff = int((now - start).total_seconds() // 60)
+
+        version += "." + str(min_diff) + "_dev"
+
+except Exception as e:
+    print("Failed to get git branch. Might be in TOX ?.", e)
 
 setup(
     name=name,
@@ -63,7 +68,7 @@ setup(
         "brightway2==2.3",
         "bw2analyzer==0.11.4",
         "bw2calc==1.8.1",
-        "bw2data==3.6.2",
+        "bw2data",
         "bw2io==0.8.6",
         "bw2parameters==0.7",
         "SALib",
