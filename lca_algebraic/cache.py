@@ -25,26 +25,43 @@ def disable_cache():
     CacheSettings.enabled = False
 
 
+class _Caches:
+    "Singleton instance holding caches"
+    caches = dict()
+
+
 class _CacheDict:
     """A smart cache that get cleared whenever database changes, and dumped to file whenever we exit from it"""
 
     def __init__(self, name):
         self.name = name
-        self.data = None
 
-        if CacheSettings.enabled:
-            filename = _CacheDict.filename(self.name)
-            if path.exists(filename):
-                if last_db_update() > path.getmtime(filename):
-                    logger.info(f"Db changed recently, clearing cache {self.name}")
-                    os.remove(filename)
-                else:
+        # No cache ? => LOCAL DICT
+        if not CacheSettings.enabled:
+            self.data = dict()
+            return
+
+        filename = _CacheDict.filename(self.name)
+        if path.exists(filename):
+            if last_db_update() > path.getmtime(filename):
+                logger.info(f"Db changed recently, clearing cache {self.name}")
+
+                # Reset cache on disk and locally
+                os.remove(filename)
+                _Caches.caches[name] = dict()
+
+            else:
+                # Cache not already loaded in memory ?
+                if name not in _Caches.caches:
                     # Load cache from disk
                     with open(filename, "rb") as pickleFile:
-                        self.data = pickle.load(pickleFile)
+                        _Caches.caches[name] = pickle.load(pickleFile)
+        else:
+            # No file yet, init local cache
+            _Caches.caches[name] = dict()
 
-        if self.data is None:
-            self.data = dict()
+        # Point to local cache
+        self.data = _Caches.caches[name]
 
     def __enter__(self):
         return self
@@ -70,8 +87,12 @@ class ExprCache(_CacheDict):
         _CacheDict.__init__(self, EXPR_CACHE)
 
 
-def clear_caches():
-    for cache_name in [LCIA_CACHE, EXPR_CACHE]:
-        filename = _CacheDict.filename(cache_name)
-        if path.exists(filename):
-            os.remove(filename)
+def clear_caches(local=True, disk=True):
+    if local:
+        _Caches.caches = dict()
+
+    if disk:
+        for cache_name in [LCIA_CACHE, EXPR_CACHE]:
+            filename = _CacheDict.filename(cache_name)
+            if path.exists(filename):
+                os.remove(filename)
