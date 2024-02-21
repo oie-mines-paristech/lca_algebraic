@@ -1,4 +1,5 @@
 from contextlib import AbstractContextManager
+from inspect import isfunction
 from sys import stderr
 from typing import Dict
 
@@ -216,7 +217,7 @@ class TabbedDataframe:
         return res
 
     def _repr_html_(self):
-        return _mk_tabs(self.dataframes)
+        display(_mk_tabs(self.dataframes))
 
     def to_excel(self, filename):
         assert filename.endswith(".xlsx")
@@ -240,17 +241,21 @@ def _mk_tabs(titlesAndContent: Dict):
     """Generate iPywidget tabs"""
     tabs = []
     titles = []
-    for title, content_f in titlesAndContent:
+    for title, content in titlesAndContent.items():
         titles.append(title)
 
         tab = widgets.Output()
         with tab:
-            content_f()
+            if isfunction(content):
+                content()
+            else:
+                display(content)
         tabs.append(tab)
 
     res = widgets.Tab(children=tabs)
     for i, title in enumerate(titles):
         res.set_title(i, title)
+    return res
 
 
 def _display_tabs(titlesAndContent: Dict):
