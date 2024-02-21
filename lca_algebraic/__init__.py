@@ -1,7 +1,7 @@
 #
 # This file defines several utility functions above brightway2 to be used by notebooks
 #
-
+from typing_extensions import deprecated
 
 import lca_algebraic.helpers
 
@@ -32,8 +32,9 @@ def resetDb(db_name, foreground=True):
 
 def initProject(project_name):
     """Setup the project if not already done."""
-    bw.projects.set_current(project_name)
-    bw.bw2setup()
+    raise DeprecationWarning(
+        "Deprecated : use bw2io.import_ecoinvent_release() instead, " "which takes care of installing the proper biosphere"
+    )
 
 
 def initDb(project_name):
@@ -42,8 +43,12 @@ def initDb(project_name):
     initProject(project_name)
 
 
+@deprecated
 def importDb(dbname, path, parallel=False):
-    """Import eco invent DB"""
+    """Import eco invent DB
+
+    DEPRECATED : Use the new bw2io.
+    """
 
     if dbname in bw.databases:
         error("Database '%s' has already been imported " % dbname)

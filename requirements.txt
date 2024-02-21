@@ -12,3 +12,4 @@ brightway2
 ipython
 SALib
 tqdm
+python-dotenv
