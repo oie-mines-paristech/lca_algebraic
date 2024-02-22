@@ -88,6 +88,7 @@ def _listTechBackgroundDbs():
     """List all background databases technosphere (non biosphere) batabases"""
     return list(name for name in bw.databases if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
 
+
 def _find_biosphere_db():
     """List all background databases technosphere (non biosphere) batabases"""
     return one(name for name in bw.databases if BIOSPHERE_PREFIX in name)

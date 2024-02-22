@@ -262,7 +262,7 @@ def _display_tabs(titlesAndContent: Dict):
     display(_mk_tabs(titlesAndContent))
 
 
-def one(it:Iterable):
+def one(it: Iterable):
     """Expect a list with single value a returns it"""
     it = list(it)
     if len(it) != 1:
