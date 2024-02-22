@@ -847,9 +847,13 @@ def freezeParams(db_name, **params) :
     This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
     """
 
+    # TODO: do proper sub-modules dependancy
+    from .lca import LambdaWithParamNames
+
     db = bw.Database(db_name)
 
     with DbContext(db) :
+        params_values = _completeParamValues(params, setDefaults=True)
         for act in db :
             for exc in act.exchanges():
 
@@ -858,11 +862,8 @@ def freezeParams(db_name, **params) :
                 # Amount is a formula ?
                 if isinstance(amount, Basic):
 
-                    replace = [(name, value) for name, value in _completeParamValues(params, setDefaults=True).items()]
-                    val = amount.subs(replace).evalf()
-
-                    with ExceptionContext(val) :
-                        val = float(val)
+                    val = float(LambdaWithParamNames(amount, params=list(params_values))
+                                .compute(**params_values))
 
                     print("Freezing %s // %s : %s => %d" % (act, exc['name'], amount, val))
 
