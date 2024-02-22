@@ -15,6 +15,7 @@ from IPython.display import display
 from sympy import Basic, Expr, Piecewise, simplify, symbols
 
 from .base_utils import (
+    one,
     Activity,
     _actDesc,
     _actName,
@@ -33,7 +34,7 @@ from .params import (
     _param_registry,
 )
 
-BIOSPHERE3_DB_NAME = "biosphere3"
+BIOSPHERE_PREFIX = "biosphere"
 
 _metaCache = defaultdict(lambda: {})
 
@@ -85,7 +86,11 @@ def SET_USER_DB(db_name):
 
 def _listTechBackgroundDbs():
     """List all background databases technosphere (non biosphere) batabases"""
-    return list(name for name in bw.databases if not _isForeground(name) and not name == BIOSPHERE3_DB_NAME)
+    return list(name for name in bw.databases if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
+
+def _find_biosphere_db():
+    """List all background databases technosphere (non biosphere) batabases"""
+    return one(name for name in bw.databases if BIOSPHERE_PREFIX in name)
 
 
 old_amount = symbols(
@@ -101,7 +106,7 @@ def list_databases():
             name=name,
             backend=_getMeta(name, "backend"),
             nb_activities=len(bw.Database(name)),
-            type="foreground" if _isForeground(name) else "background",
+            type="biosphere" if BIOSPHERE_PREFIX in name else "foreground" if _isForeground(name) else "background",
         )
         for name in bw.databases
     )
@@ -527,7 +532,7 @@ def findActivity(
 
 def findBioAct(name=None, loc=None, **kwargs):
     """Alias for findActivity(name, ... db_name=BIOSPHERE3_DB_NAME). See doc for #findActivity"""
-    return findActivity(name=name, loc=loc, db_name=BIOSPHERE3_DB_NAME, **kwargs)
+    return findActivity(name=name, loc=loc, db_name=_find_biosphere_db(), **kwargs)
 
 
 def findTechAct(name=None, loc=None, single=True, **kwargs):
@@ -809,6 +814,8 @@ def printAct(*args, **params):
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
     If impact is provided it will be computed.
+
+    :return A Dataframe.
     """
     tables = []
     names = []
@@ -875,17 +882,17 @@ def printAct(*args, **params):
         def same_amount(row):
             res = [""] * len(row)
 
-            if row[iamount1] != row[iamount2]:
+            if row.iloc[iamount1] != row.iloc[iamount2]:
                 res[iamount1] = yellow
                 res[iamount2] = yellow
-            if row[iact1] != row[iact2]:
+            if row.iloc[iact1] != row.iloc[iact2]:
                 res[iact1] = yellow
                 res[iact2] = yellow
             return res
 
         full = full.style.apply(same_amount, axis=1)
 
-    display(full)
+    return full
 
 
 def newInterpolatedAct(

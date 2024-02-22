@@ -1,7 +1,7 @@
 from contextlib import AbstractContextManager
 from inspect import isfunction
 from sys import stderr
-from typing import Dict
+from typing import Dict, Iterable
 
 import brightway2 as bw
 import ipywidgets as widgets
@@ -260,3 +260,11 @@ def _mk_tabs(titlesAndContent: Dict):
 
 def _display_tabs(titlesAndContent: Dict):
     display(_mk_tabs(titlesAndContent))
+
+
+def one(it:Iterable):
+    """Expect a list with single value a returns it"""
+    it = list(it)
+    if len(it) != 1:
+        raise Exception(f"Expected a single value but got {len(it)}")
+    return it[0]

@@ -12,7 +12,7 @@
 * Fixed bug when loading params with undefined uncertainty
 * Added "formula" in params, to have parameters automatically computed from others
 * Added option *return_params* in compute_impacts that returns "Tabbed Dataframe" to display / save as excel both results and all parameters   
-
+* Remove support for conda : Only pip install supported now
 
 # 1.0.4 
 

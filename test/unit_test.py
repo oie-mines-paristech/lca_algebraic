@@ -402,6 +402,7 @@ def test_switch_value(data):
 
 
 def test_interpolation(data):
+
     # Common helper to check results
     def check_impacts(model, p_values, expected_results):
         # Compute impacts for several values of p

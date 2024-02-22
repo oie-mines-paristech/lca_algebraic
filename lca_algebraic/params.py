@@ -206,7 +206,7 @@ class ParamDef(Symbol):
 
         if not distrib and type == ParamType.FLOAT:
             if self.min is None:
-                raise Exception("No 'min/max' provided, distrib should explicitely set to FIXED" % self.name)
+                raise Exception(f"No 'min/max' provided for {self.name}, distrib should explicitely set to FIXED")
             else:
                 self.distrib = DistributionType.LINEAR
 

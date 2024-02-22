@@ -43,11 +43,11 @@ def initDb(project_name):
     initProject(project_name)
 
 
-@deprecated
+@deprecated("DEPRECATED : Use the new bw2io.import_ecoinvent_release instead")
 def importDb(dbname, path, parallel=False):
     """Import eco invent DB
 
-    DEPRECATED : Use the new bw2io.
+    DEPRECATED : Use the new bw2io.import_ecoinvent_release instead
     """
 
     if dbname in bw.databases:

@@ -18,3 +18,4 @@ dist
 *.bw2
 *.bash
 settings.env
+.env

@@ -17,7 +17,8 @@ def data():
     """Setup background data"""
 
     # Reset func project, empty DB
-    initProject("tests")
+    bw.projects.set_current("tests")
+    bw.bw2setup()
 
     # Create 3 bio activities
     bio1, bio2, bio3 = init_acts(BG_DB)

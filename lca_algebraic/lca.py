@@ -14,7 +14,7 @@ from . import SymDict, TabbedDataframe
 from .base_utils import _actName, _getDb, _method_unit
 from .cache import ExprCache, LCIACache
 from .helpers import (
-    BIOSPHERE3_DB_NAME,
+    BIOSPHERE_PREFIX,
     Activity,
     ActivityExtended,
     Basic,
@@ -643,7 +643,7 @@ def _createTechProxyForBio(act_key, target_db):
     act = _getDb(dbname).get(code)
 
     # Biosphere ?
-    if (dbname == BIOSPHERE3_DB_NAME) or ("type" in act and act["type"] in ["emission", "natural resource"]):
+    if (BIOSPHERE_PREFIX in dbname) or ("type" in act and act["type"] in ["emission", "natural resource"]):
         code_to_find = code + "#asTech"
 
         try:
