@@ -66,6 +66,7 @@ setup(
         "matplotlib",
         "deprecation",
         "brightway2",
+        "pypardiso",
         "SALib",
     ],
 )

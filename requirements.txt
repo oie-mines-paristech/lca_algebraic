@@ -13,3 +13,4 @@ ipython
 SALib
 tqdm
 python-dotenv
+pypardiso
