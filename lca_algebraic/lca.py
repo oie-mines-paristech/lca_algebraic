@@ -10,7 +10,8 @@ import pandas as pd
 from peewee import DoesNotExist
 from sympy import Symbol, lambdify, parse_expr
 
-from . import SymDict, TabbedDataframe
+from . import TabbedDataframe
+from .axis_dict import AxisDict
 from .base_utils import _actName, _getDb, _method_unit
 from .cache import ExprCache, LCIACache
 from .helpers import (
@@ -20,8 +21,6 @@ from .helpers import (
     Basic,
     DbContext,
     Dict,
-    Expr,
-    Union,
     _actDesc,
     _getAmountOrFormula,
     _isForeground,
@@ -202,34 +201,31 @@ def _filter_param_values(params, expanded_param_names):
     return {key: val for key, val in params.items() if key in expanded_param_names}
 
 
-def _free_symbols(expr: Union[SymDict, Expr]):
-    if isinstance(expr, SymDict):
-        # SymDict => sum of vars of members
-        return set.union(*[_free_symbols(ex) for ex in expr.dict.values()])
-    elif isinstance(expr, Expr):
+def _free_symbols(expr: Basic):
+    if isinstance(expr, Basic):
         return set([str(symb) for symb in expr.free_symbols])
     else:
         # Static value
         return set()
 
 
-def _lambdify(expr: Union[SymDict, Expr], expanded_params):
+def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
-    if isinstance(expr, SymDict):
-        lambd_dict = dict()
-        for key, val in expr.dict.items():
-            lambd_dict[key] = _lambdify(val, expanded_params)
+    if isinstance(expr, Basic):
+        lambd = lambdify(expanded_params, expr, "numpy")
 
-        # Dynamic  function calling lambda function with same params
-        def dict_func(*args, **kwargs):
-            return SymDict({key: func(*args, **kwargs) for key, func in lambd_dict.items()})
+        def func(*arg, **kwargs):
+            res = lambd(*arg, **kwargs)
+            if isinstance(res, dict):
+                # Transform key symbols into Str
+                return {str(k): v for k, v in res.items()}
+            else:
+                return res
 
-        return dict_func
+        return func
 
-    elif isinstance(expr, Expr):
-        return lambdify(expanded_params, expr, "numpy")
     else:
-        # Not an expression : return statis func
+        # Not an expression : return static func
         def static_func(*args, **kargs):
             return expr
 
@@ -296,12 +292,12 @@ class LambdaWithParamNames:
 
     @property
     def has_axis(self):
-        return isinstance(self.expr, SymDict)
+        return isinstance(self.expr, AxisDict)
 
     @property
     def axis_keys(self):
         if self.has_axis:
-            return list(self.expr.dict.keys())
+            return self.expr.str_keys()
         else:
             return None
 
@@ -322,11 +318,7 @@ class LambdaWithParamNames:
         return ValueContext(value=value, context=completed_params)
 
     def serialize(self):
-        if isinstance(self.expr, SymDict):
-            expr = {key: str(sym) for key, sym in self.expr.dict.items()}
-        else:
-            expr = str(self.expr)
-
+        expr = str(self.expr)
         return dict(params=self.params, expr=expr, sobols=self.sobols)
 
     def __repr__(self):
@@ -410,8 +402,8 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
         value = value_context.value
 
         # Expand axis values as a list, to fit into the result numpy array
-        if lambd.has_axis:
-            value = list(float(val) for val in value.dict.values())
+        if isinstance(value, dict):
+            value = list(float(val) for val in value.values())
 
         return (imethod, value)
 
@@ -669,6 +661,13 @@ def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT)
     return expr.xreplace(sub)
 
 
+def _safe_axis(axis_name: str):
+    if axis_name.isalnum():
+        return axis_name
+    else:
+        return re.sub("[^0-9a-zA-Z]+", "*", axis_name)
+
+
 def _tag_expr(expr, act, axis):
     """Tag expression for one axe. Check the child expression is not already tagged with different values"""
     axis_tag = act.get(axis, None)
@@ -676,10 +675,12 @@ def _tag_expr(expr, act, axis):
     if axis_tag is None:
         return expr
 
-    if isinstance(expr, SymDict):
+    axis_tag = _safe_axis(axis_tag)
+
+    if isinstance(expr, AxisDict):
         res = 0
-        for key, val in expr.dict.items():
-            if key is not None and key != axis_tag:
+        for key, val in expr._dict.items():
+            if key is not None and str(key) != axis_tag:
                 raise ValueError(
                     "Inconsistent axis for one change of  '%s' : attempt to tag as '%s'. "
                     "Already tagged as '%s'. Value of the exchange : %s" % (act["name"], axis_tag, key, str(val))
@@ -688,7 +689,7 @@ def _tag_expr(expr, act, axis):
     else:
         res = expr
 
-    return SymDict({axis_tag: res})
+    return AxisDict({axis_tag: res})
 
 
 @with_db_context(arg="act")

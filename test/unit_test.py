@@ -455,8 +455,7 @@ def test_axis(data):
 
     res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
 
-    expected = dict(a=2.0, b=4.0)
-    expected["*other*"] = 6.0
+    expected = dict(a=2.0, b=4.0, _other_=6.0)
     expected["*sum*"] = 12.0
 
     assert res == expected

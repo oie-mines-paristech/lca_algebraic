@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from SALib.analyze import sobol as analyse_sobol
 from SALib.sample import sobol, sobol_sequence
-from sympy import Abs, Add, AtomicExpr, Eq, Float, Mul, Number, Piecewise, Sum
+from sympy import Abs, Add, AtomicExpr, Eq, Expr, Float, Mul, Number, Piecewise, Sum
 from sympy.core.operations import AssocOp
 
 from .base_utils import _display_tabs, _method_unit, displayWithExportButton, r_squared
@@ -21,7 +21,6 @@ from .lca import (
     Activity,
     DbContext,
     Dict,
-    Expr,
     LambdaWithParamNames,
     Symbol,
     _expanded_names_to_names,
