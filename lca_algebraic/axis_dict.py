@@ -64,4 +64,4 @@ class AxisDict(SympyDict):
         for key, val in self._dict.items():
             if hasattr(val, "free_symbols"):
                 res |= val.free_symbols
-            return res
+        return res

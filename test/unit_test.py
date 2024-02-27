@@ -430,9 +430,9 @@ def test_interpolation(data):
 def test_axis(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)
 
-    act1_phase_a = newActivity(USER_DB, "act1", "unit", {data.bio1: 1.0}, phase="a")
+    act1_phase_a = newActivity(USER_DB, "act1", "unit", {data.bio1: 1.0}, phase="phase a")
 
-    act2_phase_b = newActivity(USER_DB, "act2", "unit", {data.bio1: 2.0}, phase="b")
+    act2_phase_b = newActivity(USER_DB, "act2", "unit", {data.bio1: 2.0}, phase="phase b")
 
     act3_no_phase = newActivity(USER_DB, "act3", "unit", {data.bio1: 3.0})
 
@@ -455,7 +455,7 @@ def test_axis(data):
 
     res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
 
-    expected = dict(a=2.0, b=4.0, _other_=6.0)
+    expected = dict(phase_a=2.0, phase_b=4.0, _other_=6.0)
     expected["*sum*"] = 12.0
 
     assert res == expected

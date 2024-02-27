@@ -665,7 +665,7 @@ def _safe_axis(axis_name: str):
     if axis_name.isalnum():
         return axis_name
     else:
-        return re.sub("[^0-9a-zA-Z]+", "*", axis_name)
+        return re.sub("[^0-9a-zA-Z]+", "_", axis_name)
 
 
 def _tag_expr(expr, act, axis):
