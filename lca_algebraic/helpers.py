@@ -11,11 +11,9 @@ import pandas as pd
 from bw2data.backends.peewee import ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
-from IPython.display import display
 from sympy import Basic, Expr, Piecewise, simplify, symbols
 
 from .base_utils import (
-    one,
     Activity,
     _actDesc,
     _actName,
@@ -24,6 +22,7 @@ from .base_utils import (
     bw,
     error,
     interpolate,
+    one,
 )
 from .params import (
     DbContext,

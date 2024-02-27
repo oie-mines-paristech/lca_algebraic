@@ -52,7 +52,8 @@ from .params import (
 )
 
 PARALLEL = False
-DEFAULT_N=1024
+DEFAULT_N = 1024
+
 
 def _parallel_map(f, items):
     if PARALLEL:
@@ -730,7 +731,7 @@ def sobol_simplify_model(
     model,
     methods,
     min_ratio=0.8,
-    n=DEFAULT_N*2,
+    n=DEFAULT_N * 2,
     var_params=None,
     fixed_mode=FixedParamMode.MEDIAN,
     num_digits=3,
@@ -1074,7 +1075,7 @@ def graphs(
     """
 
     if Y is None:
-        _, _, Y = _stochastics(model, methods, n=DEFAULT_N*16, functional_unit=functional_unit)
+        _, _, Y = _stochastics(model, methods, n=DEFAULT_N * 16, functional_unit=functional_unit)
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)

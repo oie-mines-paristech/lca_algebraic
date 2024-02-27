@@ -3,33 +3,34 @@
 #
 
 from .base_utils import *
+from .db import *
 from .helpers import *
 from .io import *
 from .lca import *
+from .log import *
 from .params import *
 from .stats import *
-from .log import *
-from .db import *
 
 # Backport the test of pypardiso from bw2calc to emit a warning
 try:
     from pypardiso import factorized, spsolve
 except ImportError:
     from scipy.sparse.linalg import factorized, spsolve
-
     from scipy.sparse.linalg._dsolve import linsolve
 
     if not linsolve.useUmfpack:
-        logger.warn("""
+        logger.warn(
+            """
         Did not findPypardisio or Umfpack. Matrix computation may be very slow.
 
         If you are on an Intel architecture, please install pypardiso as explained in the docs :
         https://docs.brightway.dev/en/latest/content/installation/index.html
 
         > pip install pypardiso
-        or 
+        or
         > conda install pypardiso
-        """)
+        """
+        )
 
 
 # Global print options

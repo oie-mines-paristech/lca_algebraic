@@ -1,8 +1,8 @@
 import brightway2 as bw
 from typing_extensions import deprecated
 
-from .log import logger
 from .helpers import setBackground, setForeground
+from .log import logger
 
 
 def deleteDb(db_name):
