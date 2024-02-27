@@ -78,12 +78,6 @@ def setBackground(db_name):
     return _setMeta(db_name, FOREGROUND_KEY, False)
 
 
-def SET_USER_DB(db_name):
-    """Deprecated, use #setForeground() / setBackground() instead"""
-    error("Deprecated, use #setForeground() / setBackground() instead")
-    setForeground(db_name)
-
-
 def _listTechBackgroundDbs():
     """List all background databases technosphere (non biosphere) batabases"""
     return list(name for name in bw.databases if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
@@ -393,44 +387,6 @@ class ActivityExtended(Activity):
 for name, item in ActivityExtended.__dict__.items():
     if isinstance(item, types.FunctionType):
         setattr(Activity, name, item)
-
-
-def _split_words(name):
-    clean = re.sub("[^0-9a-zA-Z]+", " ", name)
-    clean = re.sub(" +", " ", clean)
-    clean = clean.lower()
-
-    return clean.split(" ")
-
-
-def _build_index(db):
-    res = defaultdict(set)
-    for act in db:
-        words = _split_words(act["name"])
-        for word in words:
-            res[word].add(act)
-    return res
-
-
-# Index of activities per name, for fast search dict[db_name][activity_word] => list of activitites
-db_index = dict()
-
-
-def _get_indexed_db(db_name):
-    if db_name not in db_index:
-        db_index[db_name] = _build_index(_getDb(db_name))
-    return db_index[db_name]
-
-
-def _find_candidates(db_name, name):
-    res = []
-    index = _get_indexed_db(db_name)
-    words = _split_words(name)
-    for word in words:
-        candidates = index[word]
-        if len(res) == 0 or (0 < len(candidates) < len(res)):
-            res = list(candidates)
-    return res
 
 
 def getActByCode(db_name, code):
