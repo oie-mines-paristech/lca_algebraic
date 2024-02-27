@@ -22,6 +22,7 @@ def resetDb(db_name, foreground=True):
     else:
         setBackground(db_name)
 
+
 @deprecated("DEPRECATED : Use bw2io.import_ecoinvent_release() instead")
 def initProject(project_name):
     """Setup the project if not already done."""

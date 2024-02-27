@@ -8,7 +8,7 @@ import ipywidgets as widgets
 import numpy as np
 import pandas as pd
 from bw2data.backends.peewee import Activity
-from IPython.core.display import display
+from IPython.display import display
 from six import raise_from
 
 DEBUG = False

@@ -11,8 +11,8 @@ from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
-from SALib.analyze import sobol
-from SALib.sample import saltelli, sobol_sequence
+from SALib.analyze import sobol as analyse_sobol
+from SALib.sample import sobol, sobol_sequence
 from sympy import Abs, Add, AtomicExpr, Eq, Float, Mul, Number, Piecewise, Sum
 from sympy.core.operations import AssocOp
 
@@ -52,7 +52,7 @@ from .params import (
 )
 
 PARALLEL = False
-
+DEFAULT_N=1024
 
 def _parallel_map(f, items):
     if PARALLEL:
@@ -252,7 +252,7 @@ class StochasticMethod:
 def _stochastics(
     modelOrLambdas,
     methods,
-    n=1000,
+    n=DEFAULT_N,
     var_params=None,
     sample_method=StochasticMethod.SALTELLI,
     functional_unit=1,
@@ -296,7 +296,7 @@ def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_para
     }
     print("Generating samples ...")
     if sample_method == StochasticMethod.SALTELLI:
-        X = saltelli.sample(problem, n, calc_second_order=True)
+        X = sobol.sample(problem, n, calc_second_order=True)
     elif sample_method == StochasticMethod.RAND:
         X = np.random.rand(n, len(var_param_names))
     elif sample_method == StochasticMethod.SOBOL:
@@ -344,7 +344,7 @@ def _sobols(methods, problem, Y) -> SobolResults:
 
         print("Processing sobol for " + str(method))
         y = Y[Y.columns[imethod]]
-        res = sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
+        res = analyse_sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
         return imethod, res
 
     for imethod, res in _parallel_map(process, enumerate(methods)):
@@ -406,7 +406,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
 
 
 @with_db_context(arg="model")
-def incer_stochastic_matrix(model, methods, functional_unit=1, n=1000, name_type=NameType.LABEL):
+def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name_type=NameType.LABEL):
     """
     Method computing matrix of parameter importance
 
@@ -479,7 +479,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
 
 
 @with_db_context(arg="modelOrLambdas")
-def incer_stochastic_violin(modelOrLambdas, methods, functional_unit=1, n=1000, var_params=None, **kwparams):
+def incer_stochastic_violin(modelOrLambdas, methods, functional_unit=1, n=DEFAULT_N, var_params=None, **kwparams):
     """
     Method for computing violin graph of impacts
 
@@ -562,7 +562,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
 
 @with_db_context(arg="model")
-def incer_stochastic_dashboard(model, methods, n=1000, var_params=None, functional_unit=1, **kwparams):
+def incer_stochastic_dashboard(model, methods, n=DEFAULT_N, var_params=None, functional_unit=1, **kwparams):
     """Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
 
     parameters
@@ -730,7 +730,7 @@ def sobol_simplify_model(
     model,
     methods,
     min_ratio=0.8,
-    n=2000,
+    n=DEFAULT_N*2,
     var_params=None,
     fixed_mode=FixedParamMode.MEDIAN,
     num_digits=3,
@@ -1074,7 +1074,7 @@ def graphs(
     """
 
     if Y is None:
-        _, _, Y = _stochastics(model, methods, n=10000, functional_unit=functional_unit)
+        _, _, Y = _stochastics(model, methods, n=DEFAULT_N*16, functional_unit=functional_unit)
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)

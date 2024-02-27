@@ -61,6 +61,7 @@ setup(
         "tabulate",
         "ipywidgets",
         "pandas",
+        "pyarrow",
         "seaborn",
         "sympy",
         "matplotlib",
