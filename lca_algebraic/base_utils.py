@@ -1,7 +1,7 @@
 from contextlib import AbstractContextManager
 from inspect import isfunction
 from sys import stderr
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List, Tuple, TypeVar, Union
 
 import brightway2 as bw
 import ipywidgets as widgets
@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 from bw2data.backends.peewee import Activity
 from IPython.display import display
+from pint import Quantity
 from six import raise_from
+from sympy import Basic
 
 DEBUG = False
 LANG = "fr"
@@ -81,10 +83,16 @@ def _actDesc(act: Activity):
     return "%s (%f %s)" % (name, amount, act["unit"])
 
 
-def _method_unit(method):
+def _method_unit(method, fu_unit=None):
     if method in UNIT_OVERRIDE:
-        return UNIT_OVERRIDE[method]
-    return bw.Method(method).metadata["unit"]
+        res = UNIT_OVERRIDE[method]
+    else:
+        res = bw.Method(method).metadata["unit"]
+
+    if fu_unit is not None:
+        res += f" / {fu_unit}"
+
+    return res
 
 
 def _actName(act: Activity):
@@ -213,3 +221,11 @@ def one(it: Iterable):
 def getActByCode(db_name, code):
     """Get activity by code"""
     return _getDb(db_name).get(code)
+
+
+# Type definition
+Amount = Union[Basic, Quantity, float]
+
+T = TypeVar("T")
+OneOrList = Union[T, List[T]]
+MethodKey = Union[Tuple[str, str], Tuple[str, str, str]]

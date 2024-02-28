@@ -9,7 +9,7 @@ UNIT_ALIASES = {
     "ratio": "count",
     "fraction": "count",
     "unit": "count",
-    "ton": "metric_ton",  # Override silly US ton to metric ton
+    "ton": "metric_ton",  # Override silly US ton to metric ton (fck imperial unit system ...)
 }
 
 

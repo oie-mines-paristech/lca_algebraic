@@ -3,7 +3,7 @@ import pytest
 from lca_algebraic.params import _getAmountOrFormula
 from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
-from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity
+from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity, compute_impacts
 from test.conftest import USER_DB
 
 
@@ -75,6 +75,29 @@ def test_update_exchanges(data):
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_ton})
 
     assert _getAmountOrFormula(act1.getExchange(name="bg_act1")) == 2000.0 * p2
+
+
+def test_compute_impact_with_functional_unit(data):
+    # P1 in meter
+    p1_m = newFloatParam("p1", default=1, min=0, max=2, unit="m")
+
+    # P2 in Kg
+    p2_kg = newFloatParam("p2", default=2, min=0, max=2, unit="kg")
+
+    # Create activity with units
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_kg})
+
+    fonctional_unit = 2 * p1_m
+
+    # Ask with fonctional units of unit "meter
+    res = compute_impacts(act1, data.ibio1, functional_unit=fonctional_unit)
+
+    # Result should contain physical units in method names
+    assert res.to_dict() == {"bio1 - total[MJ-Eq / meter]": {"act1": 2.0}}
+
+
+def test_persist_load_params():
+    """Custom units should be persisted to db and loaded correctly"""
 
 
 def test_parse_db_unit():

@@ -2,17 +2,18 @@ import builtins
 import concurrent.futures
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List
-from warnings import warn
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
 from peewee import DoesNotExist
+from pint import Quantity, Unit
 from sympy import Symbol, lambdify, parse_expr
+from typing_extensions import deprecated
 
-from . import TabbedDataframe
+from . import MethodKey, OneOrList, TabbedDataframe
 from .axis_dict import AxisDict
-from .base_utils import _actName, _getDb, _method_unit
+from .base_utils import Amount, _actName, _getDb, _method_unit
 from .cache import ExprCache, LCIACache
 from .helpers import (
     BIOSPHERE_PREFIX,
@@ -328,13 +329,18 @@ class LambdaWithParamNames:
         return self.expr._repr_latex_()
 
 
-def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha=1, axis=None):
+def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: Amount = 1, axis=None):
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
 
     This method is used by multiLCAAlgebric
     """
+
+    # Using units ? Only keep the magnitude, drop the units
+    if isinstance(alpha, Quantity):
+        alpha = alpha.magnitude
+
     with DbContext(model):
         exprs = _modelToExpr(model, methods, alpha=alpha, axis=axis)
 
@@ -361,7 +367,7 @@ class ResultsWithParams:
     params: Dict
 
 
-def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_params=False, **params):
+def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_params=False, unit: Unit = None, **params):
     """
     Compute LCA for a given set of parameters and pre-compiled lambda functions.
     This function is used by **multiLCAAlgebric**
@@ -414,7 +420,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
 
     result = pd.DataFrame(
         res,
-        index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods],
+        index=[method_name(method) + f"[{_method_unit(method, fu_unit=unit)}]" for method in methods],
     ).transpose()
 
     if with_params:
@@ -454,9 +460,9 @@ def compute_value(formula, **params):
     return value_context.value
 
 
+@deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
 def multiLCAAlgebric(*args, **kwargs):
     """deprecated. `compute_impacts()` instead"""
-    warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
     return compute_impacts(*args, **kwargs)
 
 
@@ -495,12 +501,12 @@ def _params_dataframe(param_values: Dict[str, float]):
 
 
 def compute_impacts(
-    models,
-    methods,
-    axis=None,
-    functional_unit=1,
-    return_params=False,
-    description=None,
+    models: OneOrList[ActivityExtended],
+    methods: OneOrList[MethodKey],
+    axis: str = None,
+    functional_unit: Amount = 1,
+    return_params: bool = False,
+    description: Optional[str] = None,
     **params,
 ):
     """
@@ -544,6 +550,10 @@ def compute_impacts(
     # Gather all param values (even default and computed)
     params_all = dict()
 
+    # Single method provided ?
+    if isinstance(methods, tuple):
+        methods = [methods]
+
     for model, alpha in models.items():
         if type(model) is tuple:
             model, alpha = model
@@ -562,7 +572,10 @@ def compute_impacts(
 
             lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
 
-            res = _postMultiLCAAlgebric(methods, lambdas, with_params=return_params, **params)
+            unit: Optional[Unit] = functional_unit.units if isinstance(functional_unit, Quantity) else None
+
+            res = _postMultiLCAAlgebric(methods, lambdas, with_params=return_params, unit=unit, **params)
+
             if return_params:
                 df = res.dataframe
                 params_all.update(res.params)
