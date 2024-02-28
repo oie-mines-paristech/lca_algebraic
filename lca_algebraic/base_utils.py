@@ -208,3 +208,8 @@ def one(it: Iterable):
     if len(it) != 1:
         raise Exception(f"Expected a single value but got {len(it)}")
     return it[0]
+
+
+def getActByCode(db_name, code):
+    """Get activity by code"""
+    return _getDb(db_name).get(code)

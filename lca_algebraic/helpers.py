@@ -11,8 +11,10 @@ import pandas as pd
 from bw2data.backends.peewee import ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.meta import databases as dbmeta
+from pint import Quantity
 from sympy import Basic, Expr, Piecewise, simplify, symbols
 
+from . import getActByCode
 from .base_utils import (
     Activity,
     _actDesc,
@@ -24,6 +26,7 @@ from .base_utils import (
     interpolate,
     one,
 )
+from .log import logger
 from .params import (
     DbContext,
     EnumParam,
@@ -32,6 +35,9 @@ from .params import (
     _getAmountOrFormula,
     _param_registry,
 )
+from .settings import Settings
+from .units import is_dimensionless, parse_db_unit
+from .units import unit_registry as u
 
 BIOSPHERE_PREFIX = "biosphere"
 
@@ -265,7 +271,7 @@ class ActivityExtended(Activity):
                         attrs = dict(amount=attrs)
 
                 if "amount" in attrs:
-                    attrs.update(_amountToFormula(attrs["amount"], exch["amount"]))
+                    attrs.update(_amountToFormula(attrs["amount"], exch["amount"], unit=exch["unit"]))
 
                 exch.update(attrs)
                 exch.save()
@@ -339,7 +345,7 @@ class ActivityExtended(Activity):
                 )
 
                 exch.update(attrs)
-                exch.update(_amountToFormula(amount))
+                exch.update(_amountToFormula(amount, unit=exch["unit"]))
                 exch.save()
             self.save()
 
@@ -386,11 +392,6 @@ class ActivityExtended(Activity):
 for name, item in ActivityExtended.__dict__.items():
     if isinstance(item, types.FunctionType):
         setattr(Activity, name, item)
-
-
-def getActByCode(db_name, code):
-    """Get activity by code"""
-    return _getDb(db_name).get(code)
 
 
 def findActivity(
@@ -504,9 +505,24 @@ def findTechAct(name=None, loc=None, single=True, **kwargs):
     return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
 
 
-def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
+def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None, unit=None):
     """Transform amount in exchange to either simple amount or formula"""
     res = dict()
+
+    if Settings.units_enabled:
+        if unit is None:
+            logger.warn("Missing unit for target activity; Assuming dimensionless")
+            unit = u.dimensionless
+        else:
+            unit = parse_db_unit(unit)
+
+        if isinstance(amount, Quantity):
+            # Try to transform the unit, and take only its
+            amount = amount.to(unit).magnitude
+
+        elif not is_dimensionless(unit):
+            raise Exception(f"Unit mode enabled, unit '{unit}' expected, and dimensionless amount provided : {amount}")
+
     if isinstance(amount, Basic):
         if currentAmount is not None:
             amount = amount.subs(old_amount, currentAmount)
@@ -554,7 +570,7 @@ def newActivity(
     code=None,
     type="process",
     **argv,
-):
+) -> ActivityExtended:
     """Creates a new activity
 
     Parameters
@@ -685,6 +701,10 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
     """Copy activity into a new DB"""
 
     res = _newAct(db_name, code)
+
+    # Same code if not provided
+    if code is None:
+        code = activity.key[1]
 
     for key, value in activity.items():
         if key not in ["database", "code"]:

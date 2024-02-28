@@ -16,6 +16,7 @@ from bw2data.parameters import (
 )
 from bw2data.proxies import ActivityProxyBase
 from IPython.core.display import HTML
+from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, lambdify, parse_expr
 from tabulate import tabulate
@@ -24,6 +25,8 @@ from lca_algebraic.base_utils import ExceptionContext
 from lca_algebraic.log import logger
 
 from .base_utils import LANG, _snake2camel, as_np_array, error
+from .settings import Settings
+from .units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -321,6 +324,10 @@ class ParamDef(Symbol):
             return [self.get_label()]
         else:
             return [self.name]
+
+    def with_unit(self):
+        """Returns the symbol together with its unit, as a Pint Quantity"""
+        return u.Quantity(self, self.unit)
 
     def __repr__(self):
         return self.name
@@ -667,9 +674,19 @@ def loadParams(global_variable=True, dbname=None):
                 param.formula = _parse_formula(param.formula)
 
 
-def newFloatParam(name, default, dbname=None, **kwargs):
+def newFloatParam(name, default, dbname=None, **kwargs) -> Union[ParamDef, Quantity]:
     """Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)
+
+    if Settings.units_enabled and "unit" not in kwargs:
+        raise Exception("Unit mode activated : unit is mandatory for parameters")
+
+    param = newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)
+
+    # If units are enables, wrap float params with their unit
+    if Settings.units_enabled:
+        return param.with_unit()
+    else:
+        return param
 
 
 def newBoolParam(name, default, dbname=None, **kwargs):

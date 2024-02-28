@@ -69,5 +69,6 @@ setup(
         "brightway2",
         "pypardiso",
         "SALib",
+        "pint",
     ],
 )
