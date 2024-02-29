@@ -333,6 +333,10 @@ class LambdaWithParamNames:
         return self.expr._repr_latex_()
 
 
+def lambdify_expr(expr):
+    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
+
+
 def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha=1, axis=None):
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
