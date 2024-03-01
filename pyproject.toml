@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lca_algebraic"
+dynamic = ["version"]
+description = "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
+requires-python = ">= 3.7"
+readme = {file = "README.md", content-type = "text/markdown"}
+keywords = ["LCA", "brightway2", "monte-carlo", "parametric"]
+authors = [
+    {name = "OIE - Mines ParisTech"},
+    {name = "Raphaël Jolivet", email = "raphael.jolivet@mines-paristech.fr"}
+]
+maintainers = [
+    {name = "Raphaël Jolivet", email = "raphael.jolivet@mines-paristech.fr"}
+]
+classifiers = [
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11"
+]
+dependencies = [
+    "tabulate",
+    "ipywidgets",
+    "pandas",
+    "seaborn",
+    "sympy",
+    "matplotlib",
+    "deprecation",
+    "brightway2==2.3",
+    "SALib"
+]
+
+[project.urls]
+Homepage = "https://github.com/oie-mines-paristech/lca_algebraic/"
+Repository = "https://github.com/oie-mines-paristech/lca_algebraic/"
+Issues = "https://github.com/oie-mines-paristech/lca_algebraic/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "metadata.VERSION"}
