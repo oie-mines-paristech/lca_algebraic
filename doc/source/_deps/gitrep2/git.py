@@ -53,9 +53,7 @@ class Repo:
             return None
 
         # Read the config file and strip each line (configparser doesn't like tabs)
-        config_src = "\n".join(
-            [line.strip() for line in config_path.read_text().splitlines()]
-        )
+        config_src = "\n".join([line.strip() for line in config_path.read_text().splitlines()])
         config_io = StringIO(config_src)
 
         # Read the config - intentionally don't catch exceptions, we need those reported

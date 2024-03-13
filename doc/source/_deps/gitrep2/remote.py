@@ -3,7 +3,6 @@ Remote definitions
 """
 import re
 
-
 if hasattr(re, "Pattern"):
     Pattern = re.Pattern
 else:
@@ -100,9 +99,7 @@ class Remote:
         """
         line_rendered = self.render_line(line)
 
-        url = self.url_pattern.format(
-            repo=self.repo, branch=self.branch, filename=filename, line=line_rendered
-        )
+        url = self.url_pattern.format(repo=self.repo, branch=self.branch, filename=filename, line=line_rendered)
         return url
 
     def render_line(self, line):
@@ -149,8 +146,8 @@ class GitLab(Remote):
     url_pattern = "https://gitlab.com/{repo}/blob/{branch}/{filename}{line}"
     url_pattern_line = "#L{line}"
 
-class PrivateGitlab(Remote):
 
+class PrivateGitlab(Remote):
     remote_match = [
         re.compile(r"^https://git.sophia.mines-paristech.fr/.*/(?P<repo>.+?)(\.git)?$"),
     ]

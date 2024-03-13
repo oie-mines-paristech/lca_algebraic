@@ -5,7 +5,6 @@ import ast
 
 from .exceptions import NodeNotFound, ParseError
 
-
 # Prep assignment node types:
 #   ast.Assign: assignment, eg ``x = 1``
 #   ast.AugAssign: augmented assignment, eg ``x += 1``
