@@ -403,7 +403,8 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
 
         # Expand axis values as a list, to fit into the result numpy array
         if isinstance(value, dict):
-            value = list(float(val) for val in value.values())
+            # Ensure the values are in the same order as the value
+            value = list(float(value[axis]) if axis in value else 0.0 for axis in lambd.axis_keys)
 
         return (imethod, value)
 
@@ -591,7 +592,7 @@ def compute_impacts(
                 ]
 
                 # Rename "None" to others
-                df = df.rename(index={None: "*other*"})
+                df = df.rename(index={None: "_other_"})
 
                 # Sort index
                 df.sort_index(inplace=True)
