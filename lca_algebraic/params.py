@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Union
 import brightway2 as bw
 import numpy as np
 import pandas as pd
-from bw2data.backends import LCIBackend
 from bw2data.backends.peewee import ExchangeDataset
 from bw2data.parameters import (
     ActivityParameter,
@@ -14,57 +13,20 @@ from bw2data.parameters import (
     Group,
     ProjectParameter,
 )
-from bw2data.proxies import ActivityProxyBase
 from IPython.core.display import HTML
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, lambdify, parse_expr
 from tabulate import tabulate
 
-from lca_algebraic.base_utils import ExceptionContext
+from lca_algebraic.base_utils import ExceptionContext, ValueOrExpression
 from lca_algebraic.log import logger
 
-from .base_utils import LANG, _snake2camel, as_np_array, error
+from .base_utils import _snake2camel, as_np_array
+from .database import DbContext
+from .log import warn
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
-
-
-class DbContext:
-    """
-    Context class specifying the current foreground DB in use. in internal
-    Used internally to distinguish database parameters with same names
-
-    usage :
-    with DbContext("db") :
-        <some code>
-
-    """
-
-    stack = []
-
-    @staticmethod
-    def current_db():
-        if len(DbContext.stack) == 0:
-            return None
-        return DbContext.stack[-1]
-
-    def __init__(self, db: Union[str, ActivityProxyBase, LCIBackend]):
-        if db is None:
-            self.db = None
-        elif isinstance(db, ActivityProxyBase):
-            self.db = db.key[0]
-        elif isinstance(db, str):
-            self.db = db
-        else:
-            self.db = db.name
-
-    def __enter__(self):
-        if self.db is not None:
-            DbContext.stack.append(self.db)
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        if self.db is not None:
-            DbContext.stack.pop()
 
 
 class ParamType:
@@ -216,7 +178,7 @@ class ParamDef(Symbol):
             self.std = kwargs["std"]
 
             if distrib == DistributionType.LOGNORMAL and self.min is not None:
-                error(
+                warn(
                     "Warning : LogNormal does not support min/max boundaries for parameter : ",
                     self.name,
                 )
@@ -245,9 +207,7 @@ class ParamDef(Symbol):
                 raise Exception("Unkown mode " + mode)
 
     def get_label(self):
-        if LANG == "fr " and self.label_fr is not None:
-            return self.label_fr
-        elif self.label is not None:
+        if self.label is not None:
             return self.label
         else:
             return self.name.replace("_", " ")
@@ -470,7 +430,6 @@ def persistParams():
     """Persist parameters into Brightway project, as per :
     https://stats-arrays.readthedocs.io/en/latest/
     """
-
     for param in _param_registry().all():
         _persistParam(param)
 
@@ -525,7 +484,7 @@ def _persistParam(param):
                 bwParam["shape"] = param.b
 
         else:
-            error("Param type not supported", param.type)
+            warn("Param type not supported", param.type)
 
         out.append(bwParam)
 
@@ -568,7 +527,7 @@ def loadParams(global_variable=True, dbname=None):
         # Make it available as global var
         if global_variable:
             if param.name in builtins.__dict__:
-                error("Variable '%s' was already defined : overidding it with param." % param.name)
+                warn("Variable '%s' was already defined : overidding it with param." % param.name)
             builtins.__dict__[param.name] = param
 
     select = DatabaseParameter.select()
@@ -606,7 +565,7 @@ def loadParams(global_variable=True, dbname=None):
                 del args["max"], args["min"]
                 param = newBoolParam(name, save=False, **args)
             else:
-                error(
+                warn(
                     "Non boolean discrete values (max != 2) are not supported for param :",
                     name,
                 )
@@ -614,7 +573,7 @@ def loadParams(global_variable=True, dbname=None):
         else:
             # Float parameter
             if type is None or type == _UncertaintyType.UNDEFINED:
-                error("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
+                warn("'Uncertainty type' of param %s not provided. Assuming UNIFORM")
                 type = _UncertaintyType.UNIFORM
 
             # Uncertainty type to distribution type
@@ -653,7 +612,7 @@ def loadParams(global_variable=True, dbname=None):
             default = defaults[0]
         else:
             default = None
-            error("No default enum value found for ", param_name, defaults)
+            warn("No default enum value found for ", param_name, defaults)
 
         param = newEnumParam(param_name, default, save=False, **args)
 
@@ -746,9 +705,7 @@ class ParamRegistry:
 
     def __setitem__(self, key, param: ParamDef):
         if param.dbname in self.params[key]:
-            error(
-                "[ParamRegistry] Param %s was already defined in '%s' : overriding." % (param.name, param.dbname or "<project>")
-            )
+            warn("[ParamRegistry] Param %s was already defined in '%s' : overriding." % (param.name, param.dbname or "<project>"))
 
         self.params[key][param.dbname] = param
 
@@ -1046,6 +1003,15 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
         try:
             return _parse_formula(ex["formula"])
         except Exception:
-            error("Error while parsing formula '%s' : backing to amount" % ex["formula"])
+            warn("Error while parsing formula '%s' : backing to amount" % ex["formula"])
 
     return ex["amount"]
+
+
+def switchValue(param: EnumParam, **values: Dict[str, ValueOrExpression]):
+    """Defines different formulas for each value of an eum"""
+
+    res = 0
+    for key, val in values.items():
+        res += param.symbol(key) * val
+    return res

@@ -1,30 +1,23 @@
-import functools
-import inspect
 import re
-import types
 from collections import defaultdict
 from copy import deepcopy
-from itertools import chain
+from types import FunctionType
 from typing import Dict, Tuple, Union
 
+import brightway2 as bw
 import pandas as pd
-from bw2data.backends.peewee import ExchangeDataset
+from bw2data.backends.peewee import Activity, ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
-from bw2data.meta import databases as dbmeta
-from sympy import Basic, Expr, Piecewise, simplify, symbols
+from sympy import Basic, symbols
 
-from .base_utils import (
-    Activity,
-    _actDesc,
-    _actName,
-    _getDb,
-    _isOutputExch,
-    bw,
-    error,
-    interpolate,
-    one,
+from lca_algebraic.base_utils import _actName, _getDb, _isOutputExch
+from lca_algebraic.database import (
+    _find_biosphere_db,
+    _isForeground,
+    _listTechBackgroundDbs,
+    with_db_context,
 )
-from .params import (
+from lca_algebraic.params import (
     DbContext,
     EnumParam,
     ParamDef,
@@ -33,113 +26,12 @@ from .params import (
     _param_registry,
 )
 
-BIOSPHERE_PREFIX = "biosphere"
+from .log import warn
 
-_metaCache = defaultdict(lambda: {})
+# Can be used in expression of amount for updateExchanges, in order to reference the previous value
+old_amount = symbols("old_amount")
 
-# param_manager = ParameterManager()
-
-
-def _setMeta(dbname, key, value):
-    """Set meta param on DB"""
-    _metaCache[dbname][key] = value
-
-    data = dbmeta[dbname]
-    data[key] = value
-    dbmeta[dbname] = data
-    dbmeta.flush()
-
-
-def _getMeta(db_name, key):
-    if key in _metaCache[db_name]:
-        return _metaCache[db_name][key]
-
-    val = dbmeta[db_name].get(key)
-    _metaCache[db_name][key] = val
-    return val
-
-
-FOREGROUND_KEY = "fg"
-
-
-def _isForeground(db_name):
-    """Check is db is marked as foreground DB : which means activities may be parametrized / should be developped."""
-    return _getMeta(db_name, FOREGROUND_KEY)
-
-
-def setForeground(db_name):
-    """Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities"""
-    return _setMeta(db_name, FOREGROUND_KEY, True)
-
-
-def setBackground(db_name):
-    """Set a db as being a foreground database, meaning it should be considred as static"""
-    return _setMeta(db_name, FOREGROUND_KEY, False)
-
-
-def _listTechBackgroundDbs():
-    """List all background databases technosphere (non biosphere) batabases"""
-    return list(name for name in bw.databases if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
-
-
-def _find_biosphere_db():
-    """List all background databases technosphere (non biosphere) batabases"""
-    return one(name for name in bw.databases if BIOSPHERE_PREFIX in name)
-
-
-old_amount = symbols(
-    "old_amount"
-)  # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 NumOrExpression = Union[float, Basic]
-
-
-def list_databases():
-    """List of databases and their status"""
-    data = list(
-        dict(
-            name=name,
-            backend=_getMeta(name, "backend"),
-            nb_activities=len(bw.Database(name)),
-            type="biosphere" if BIOSPHERE_PREFIX in name else "foreground" if _isForeground(name) else "background",
-        )
-        for name in bw.databases
-    )
-
-    res = pd.DataFrame(data)
-    return res.set_index("name")
-
-
-def with_db_context(func=None, arg="self"):
-    """Internal decorator wrapping function into DbContext, using its first parameters (either Activity, Db or Db name)"""
-
-    if func is None:
-        return functools.partial(with_db_context, arg=arg)
-
-    param_specs = inspect.signature(func).parameters
-
-    if arg not in param_specs:
-        raise Exception("No param %s in signature of %s" % (arg, func))
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        # Transform all parameters (positionnal and named) to named ones
-        all_param = {k: args[n] if n < len(args) else v.default for n, (k, v) in enumerate(param_specs.items()) if k != "kwargs"}
-        all_param.update(kwargs)
-
-        val = all_param[arg]
-        if hasattr(val, "key"):
-            # value is an activity
-            dbname = val.key[0]
-        elif isinstance(val, str):
-            # Value is directly a  db_name
-            dbname = val
-        else:
-            raise Exception("Param %s is neither an Activity or a db_name : %s" % (arg, val))
-
-        with DbContext(dbname):
-            return func(*args, **kwargs)
-
-    return wrapper
 
 
 def _exch_name(exch):
@@ -382,12 +274,6 @@ class ActivityExtended(Activity):
         self.save()
 
 
-# Backport new methods to vanilla Activity class in order to benefit from it for all existing instances
-for name, item in ActivityExtended.__dict__.items():
-    if isinstance(item, types.FunctionType):
-        setattr(Activity, name, item)
-
-
 def getActByCode(db_name, code):
     """Get activity by code"""
     return _getDb(db_name).get(code)
@@ -530,7 +416,7 @@ def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
 
 def _newAct(db_name, code):
     if not _isForeground(db_name):
-        error(
+        warn(
             "WARNING: You are creating activity in background DB. You should only do it in your foreground / user DB : ",
             db_name,
         )
@@ -539,7 +425,7 @@ def _newAct(db_name, code):
     # Already present : delete it ?
     for act in db:
         if act["code"] == code:
-            error("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
+            warn("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
             act.delete()
 
     return db.new_activity(code)
@@ -597,90 +483,6 @@ def newActivity(
     return act
 
 
-def _segments_to_piecewise(param, segments):
-    conds = []
-    for start, end, val in segments:
-        cond = True
-        if start is not None:
-            cond = cond & (param >= start)
-        if end is not None:
-            cond = cond & (param < end)
-        conds.append((val, simplify(cond)))
-
-    return Piecewise(*conds, (0, True))
-
-
-def interpolate_activities(
-    db_name,
-    act_name,
-    param: ParamDef,
-    act_per_value: Dict,
-    add_zero=False,
-):
-    """
-     Creates a linear virtual activity being a linear interpolation between several activities,
-     based on the values of a given parameter.
-
-     This is useful to produce a continuous parametrized activity based on the scale of the system,
-     given that you have dicrete activities coresponding to
-     discrete values of the parameter.
-
-    :param db_name: Name of user DB (string)
-    :param act_name: Name of the new activity
-    :param param: Parameter to use [ParamDef]
-    :param act_per_value : Dictionnary of value => activitiy [Dict]
-    :param add_zero: If True add the "Zero" point to the data. Usefull for linear interoplation of a single activity / point
-    :return: the new activity
-    """
-
-    # Add "Zero" to the list
-    act_per_value = act_per_value.copy()
-
-    if add_zero:
-        act_per_value[0.0] = None
-
-    # List of segments : triplet of (start, end, expression)
-    segments = defaultdict(list)
-
-    # Transform to sorted list of value => activity
-    sorted_points = sorted(act_per_value.items(), key=lambda item: item[0])
-    for i, (curr_val, curr_act) in enumerate(sorted_points):
-        if i >= len(sorted_points) - 1:
-            continue
-
-        # Next val and act
-        next_val, next_act = sorted_points[i + 1]
-
-        # Boundaries of segment : none if first / last point
-        start = curr_val if i > 0 else None
-        end = next_val if i < (len(sorted_points) - 2) else None
-
-        # Add segment for current activity
-        segments[curr_act].append(
-            [start, end, (param - next_val) / (curr_val - next_val)]
-        )  # Will equal 1 at current point and 0 at next point
-
-        # Add segment for next activity
-        segments[next_act].append(
-            [start, end, (param - curr_val) / (next_val - curr_val)]
-        )  # Will equal 0 at current point and 1 at next point
-
-    # Transform segments into piecewize expressions
-    exchanges = {act: _segments_to_piecewise(param, segs) for act, segs in segments.items() if act is not None}
-
-    # Find unit
-    units = list(act["unit"] for act in exchanges.keys())
-    same_unit = all(x == units[0] for x in units)
-
-    if not same_unit:
-        error("Warning : units of activities should be the same : %s" % str(units))
-
-    # Create act
-    new_act = newActivity(db_name=db_name, name=act_name, unit=units[0], exchanges=exchanges)
-
-    return new_act
-
-
 def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy activity into a new DB"""
 
@@ -708,8 +510,6 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
 
     return res
 
-
-ValueOrExpression = Union[int, float, Expr]
 
 ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
 
@@ -756,13 +556,12 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
     return res
 
 
-def switchValue(param: EnumParam, **values: Dict[str, ValueOrExpression]):
-    """Defines different formulas for each value of an eum"""
+def _actDesc(act: ActivityExtended):
+    """Generate pretty name for activity + basic information"""
+    name = _actName(act)
+    amount = act.getOutputAmount()
 
-    res = 0
-    for key, val in values.items():
-        res += param.symbol(key) * val
-    return res
+    return "%s (%f %s)" % (name, amount, act["unit"])
 
 
 def printAct(*args, **params):
@@ -851,75 +650,7 @@ def printAct(*args, **params):
     return full
 
 
-def newInterpolatedAct(
-    dbname: str,
-    name: str,
-    act1: ActivityExtended,
-    act2: ActivityExtended,
-    x1,
-    x2,
-    x,
-    alpha1=1,
-    alpha2=1,
-    **kwargs,
-):
-    """Creates a new activity made of interpolation of two similar activities.
-    For each exchange :
-    amount = alpha1 * a1 + (x - X1) * (alpha2 * a2 - alpha1 * a1) / (x2 - x1)
-
-    Parameters
-    ----------
-    name : Name of new activity
-    act1 : Activity 1
-    act2 : Activity 2
-    x1 : X for act1
-    x2 : X for act 2
-    x : Should be a parameter symbol
-    alpha1 : Ratio for act1 (Default value = 1)
-    alpha2 : Ratio for act2 (Default value = 1)
-    kwargs : Any other param will be added as attributes of new activity
-    """
-    res = copyActivity(dbname, act1, name, withExchanges=False, **kwargs)
-
-    exch1_by_input = dict({exch["input"]: exch for exch in act1.exchangesNp()})
-    exch2_by_input = dict({exch["input"]: exch for exch in act2.exchangesNp()})
-
-    inputs = set(chain(exch1_by_input.keys(), exch2_by_input.keys()))
-
-    for input in inputs:
-        exch1 = exch1_by_input.get(input)
-        exch2 = exch2_by_input.get(input)
-        exch = exch1 if exch1 else exch2
-
-        amount1 = exch1["amount"] if exch1 else 0
-        amount2 = exch2["amount"] if exch2 else 0
-
-        if exch1 and exch2 and exch1["name"] != exch2["name"]:
-            raise Exception("Input %s refer two different names : %s, %s" % (input, exch1["name"], exch2["name"]))
-
-        amount = interpolate(x, x1, x2, amount1 * alpha1, amount2 * alpha2)
-        act = getActByCode(*input)
-        res.addExchanges({act: dict(amount=amount, name=exch["name"])})
-    return res
-
-
-def findMethods(search=None, mainCat=None):
-    """
-    Find impact method. Search in all methods against a list of match strings.
-    Each parameter can be either an exact match match, or case insenstive search, if suffixed by '*'
-
-    Parameters
-    ----------
-    search : String to search
-    mainCat : if specified, limits the research for method[0] == mainCat.
-    """
-    res = []
-    search = search.lower()
-    for method in bw.methods:
-        text = str(method).lower()
-        match = search in text
-        if mainCat:
-            match = match and (mainCat == method[0])
-        if match:
-            res.append(method)
-    return res
+# Backport new methods to vanilla Activity class in order to benefit from it for all existing instances
+for name, item in ActivityExtended.__dict__.items():
+    if isinstance(item, FunctionType):
+        setattr(Activity, name, item)
