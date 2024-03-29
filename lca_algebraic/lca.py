@@ -7,6 +7,7 @@ from typing import Dict, List, Union
 
 import brightway2 as bw
 import numpy as np
+import xarray
 import pandas as pd
 from peewee import DoesNotExist
 from sympy import Basic, Symbol, lambdify, parse_expr, simplify, symbols
@@ -472,6 +473,46 @@ def compute_value(formula, **params):
     value_context = lambd.compute(**params)
 
     return value_context.value
+
+
+def multiLCAAlgebraicRaw(models, methods, params):
+    """
+    Main parametric LCIA method : Computes LCA by expressing the foreground
+    model as symbolic expression of background activities and parameters.
+    Then, compute 'static' inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters,
+    useful for stochastic evaluation of parametrized model
+
+    Parameters
+    ----------
+    models : List of Activities, i.e. models activities
+    methods : List of methods, i.e. impacts to consider
+    params : Dict[str,ListOrScalar]
+             You should provide named values of all the parameters declared
+             in the model. Values can be single value or list of samples, all of the same size
+    Return
+    ------
+    lca : 3 dimension xarray of lca results, with dims=("models", "methods", "instances"]
+    """
+    param_length = _compute_param_length(params)
+    out = np.full((len(models), len(methods), param_length), np.nan, float)
+    for imodel, model in enumerate(models):
+        dbname = model.key[0]
+        with DbContext(dbname):
+            # Check no params are passed for FixedParams
+            for key in params:
+                if key in _fixed_params() :
+                    error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
+            lambdas = _preMultiLCAAlgebric(model, methods)
+            for imethod, lambd_with_params in enumerate(lambdas):
+                out[imodel, imethod, :] = lambd_with_params.compute(**params).value
+    # WARNING: using list of tuple as index does not work AS-IS, this is why
+    # we use numpy.fromiter, to avoid to create 2-D array from list of tuple.
+    return xarray.DataArray(out, coords=[
+        ("model", np.fromiter((m.key for m in models), dtype='O')),
+        ("method", np.fromiter(methods, dtype='O')),
+        ("params", list(range(param_length)))
+    ])
 
 
 def multiLCAAlgebric(*args, **kwargs):
