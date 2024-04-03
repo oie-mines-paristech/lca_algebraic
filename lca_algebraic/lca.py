@@ -212,7 +212,7 @@ def _free_symbols(expr: Basic):
 def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
     if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, "numpy")
+        lambd = lambdify(expanded_params, expr, "numpy", cse=LambdaWithParamNames._use_sympy_cse)
 
         def func(*arg, **kwargs):
             res = lambd(*arg, **kwargs)
@@ -250,6 +250,7 @@ class LambdaWithParamNames:
     This class represents a compiled (lambdified) expression together
     with the list of requirement parameters and the source expression
     """
+    _use_sympy_cse = False
 
     def __init__(self, exprOrDict, expanded_params=None, params=None, sobols=None):
         """Computes a lamdda function from expression and list of expected parameters.
@@ -320,6 +321,10 @@ class LambdaWithParamNames:
     def serialize(self):
         expr = str(self.expr)
         return dict(params=self.params, expr=expr, sobols=self.sobols)
+
+    @staticmethod
+    def use_sympy_cse(b=True):
+        LambdaWithParamNames._use_sympy_cse = b
 
     def __repr__(self):
         return repr(self.expr)
