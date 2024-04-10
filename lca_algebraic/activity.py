@@ -19,7 +19,6 @@ from lca_algebraic.database import (
 )
 from lca_algebraic.params import (
     DbContext,
-    EnumParam,
     ParamDef,
     _complete_and_expand_params,
     _getAmountOrFormula,
@@ -104,7 +103,7 @@ class ActivityExtended(Activity):
             if input:
                 return input == exch["input"]
 
-        exchs = list(exch for exch in self.exchangesNp() if match(exch))
+        exchs = list(exch for exch in self.non_production_exchanges() if match(exch))
         if len(exchs) == 0:
             raise Exception("Found no exchange matching name : %s" % name)
 
@@ -175,37 +174,6 @@ class ActivityExtended(Activity):
         self.save()
 
     @with_db_context
-    def substituteWithDefault(
-        self,
-        exchange_name: str,
-        switch_act: Activity,
-        paramSwitch: EnumParam,
-        amount=None,
-    ):
-        """Substitutes one exchange with a switch on other activities,
-        or fallback to the current one as default (parameter set to None)
-        For this purpose, we create a new exchange referencing the activity switch,
-        and we multiply current activity by '<param_name>_default',
-        making it null as soon as one enum value is set.
-
-        This is useful for changing electricty mix, leaving the default one if needed
-
-        Parameters
-        ----------
-        act : Activity to update
-        exchange_name : Name of the exchange to update
-        switch_act : Activity to substitue as input
-        amount : Amount of the input (uses previous amount by default)
-        """
-
-        current_exch = self.getExchange(exchange_name)
-
-        prev_amount = amount if amount else _getAmountOrFormula(current_exch)
-
-        self.addExchanges({switch_act: prev_amount})
-        self.updateExchanges({exchange_name: paramSwitch.symbol(None) * prev_amount})
-
-    @with_db_context
     def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
         """Add exchanges to an existing activity, with a compact syntax :
 
@@ -261,7 +229,7 @@ class ActivityExtended(Activity):
                 break
         return res
 
-    def exchangesNp(self):
+    def non_production_exchanges(self):
         """List of exchange, except production (output) one."""
         for exch in self.exchanges():
             if exch["input"] != exch["output"]:
@@ -379,7 +347,7 @@ def findBioAct(name=None, loc=None, **kwargs):
 
 def findTechAct(name=None, loc=None, single=True, **kwargs):
     """
-    Search activities in technosphere. This function try to guess which database is your background database.
+    Search activities in technosphere. This function tries to guess which database is your background database.
     See also doc for #findActivity"""
     dbs = _listTechBackgroundDbs()
     if len(dbs) > 1:
@@ -470,7 +438,7 @@ def newActivity(
             name=act["name"],
             unit=act["unit"],
             type="production",
-            amount=1,
+            amount=amount,
         )
         ex.save()
 
@@ -484,7 +452,7 @@ def newActivity(
 
 
 def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
-    """Copy activity into a new DB"""
+    """Copy activity into a new database"""
 
     res = _newAct(db_name, code)
 
@@ -564,18 +532,18 @@ def _actDesc(act: ActivityExtended):
     return "%s (%f %s)" % (name, amount, act["unit"])
 
 
-def printAct(*args, **params):
+def printAct(*activities, **params):
     """
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
-    If impact is provided it will be computed.
+
+    :param activities One or two activities. If two activities are provided, diffrences are highlighted.
+    :param params If provided, the formulas are evaluated accordingly and the result amount is shown instead of formula
 
     :return A Dataframe.
     """
     tables = []
     names = []
-
-    activities = args
 
     for act in activities:
         with DbContext(act.key[0]):

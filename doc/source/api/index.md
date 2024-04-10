@@ -2,8 +2,7 @@
 
 ```{toctree}
 ---
-hidden:
 maxdepth: 1
 ---
-impacts
+activities
 ```

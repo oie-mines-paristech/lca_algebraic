@@ -1,61 +1,60 @@
 # Introduction
 
-[**libinsitu**](http://libinsitu.org) is a library to transform in situ data time series) into a standard *NetCDF* format.
+This library is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
+with fast computation of LCA impacts, suitable for **monte-carlo** analyis.
 
-It was primilary developed for solar in situ data, but is also adapted to other usages. 
+It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order 
+to write parametric formulas as regular Python expressions.
 
-The aim is to improve **standardization** and **interoperability**, to leverage development of new tools.  
+**lca-algebraic** provides a set of  **helper functions** for : 
+* **compact** & **human readable** definition of activites :  
+    * search background (tech and biosphere) activities 
+    * create new foreground activites with parametrized amounts
+    * parametrize / update existing background activities (extending the class **Activity**)
+* Definition of parameters
+* Fast computation of LCAs
+* Computation of monte carlo method and global sensitivity analysis (Sobol indices) 
 
-It provides :
-* A set of [CLI utilities](cli/index) and [Python functions](api/index) to :
-  * Transform **raw input files** into **NetCDF** format
-  * **Explore & query** NetCDF files, and transform it to various formats (*CSV*, *JSON*, *text*, *pandas Dataframes*)
-  * Flag data with **quality checks** and produce graphs for **visual quality control**
-* A set of {gitref}`formatted and enriched metadata<libinsitu/res/station-info>` for several networks and their stations.
-* A [proposed convention](conventions.md) for in-situ data, on top of CF conventions.
+# Installation
 
-In addition, we process input data for many networks of solar data and [make them available](data) 
-through a [Thredds data server](http://tds.webservice-energy.org/thredds/catalog.html) and 
-a [web interface](http://viewer.webservice-energy.org/in-situ/). For more details, see the [data](data) section.
+We don't provide conda package anymore.
+Please use pip for installation
 
-```{image} _static/img/web-interface.png
----
-target: http://viewer.webservice-energy.org/in-situ/
-alt: Preview of web interface
----
-```
+## 1) Setup separate environement
 
-## Installation
+First create a python environment, with **Python** [>=3.9] :
 
-libinsitu is available via *pip* :
+**With Conda or mamba**
+
 ```bash
-pip install libinsitu
+conda env create -n lca python==3.10
+conda activate lca
 ```
 
-## Main website 
+**With virtual env**
 
-*libinsitu* has its dedicated website : [libinsitu.org](libinsitu.org)
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+```
 
-## Authors
 
-*libinsitu* is developped and maintained by Raphaël Jolivet and Yves Marie Saint-Drenan, 
-from the research center [O.I.E of Mines-Paristech](https://www.oie.minesparis.psl.eu/Accueil/) 
+## 2) Install lca_algebraic
 
-## Contact and discussion 
-
-Please subscribe to the mailing list :<br/>
-[solar-insitu@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/solar-insitu)
-
-## Licence
-
-*libinsitu* is distributed under the {gitref}`BSD 2-Clause License <LICENSE>`
+> pip install lca_algebraic
 
 ## Source code
 
-The source code is available of our {gitref}`gitlab </>`
+The source code is available of our {gitref}`github </>`
 
+# Licence & Copyright
 
-## Summary 
+This library has been developed by [OIE - MinesParistech](http://www.oie.mines-paristech.fr), for the project *INCER-ACV*, 
+lead by [ADEME](https://www.ademe.fr/). 
+
+It is distributed under the {gitref}`BSD License </LICENSE>`.
+
+# Summary 
 
 ```{toctree}
 ---

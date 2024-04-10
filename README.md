@@ -1,8 +1,11 @@
 
 # Introduction
 
-This library is a small layer above [**brightway2**](https://brightway.dev/), designed for the definition of **parametric inventories** 
+This library is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
 with fast computation of LCA impacts, suitable for **monte-carlo** analyis.
+
+It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order 
+to write parametric formulas as regular Python expressions.
 
 **lca-algebraic** provides a set of  **helper functions** for : 
 * **compact** & **human readable** definition of activites :  
@@ -11,37 +14,47 @@ with fast computation of LCA impacts, suitable for **monte-carlo** analyis.
     * parametrize / update existing background activities (extending the class **Activity**)
 * Definition of parameters
 * Fast computation of LCAs
-* Computation of monte carlo method and global sensivity analysis (Sobol indices) 
+* Computation of monte carlo method and global sensitivity analysis (Sobol indices) 
 
-# Installation 
+# Installation
 
-If you already have Anaconda & Jupyter installed, you can install the library with either **pip** or **conda** :
+We don't provide conda package anymore.
+Please use pip for installation
 
-## Conda
+## 1) Setup separate environement
 
-> conda install -c oie-minesparistech lca_algebraic
+First create a python environment, with **Python** [>=3.9] :
 
-## PIP
+**With Conda or mamba**
+
+```bash
+conda env create -n lca python==3.10
+conda activate lca
+```
+
+**With virtual env**
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate
+```
+
+
+## 2) Install lca_algebraic
 
 > pip install lca_algebraic
 
-## Pre-packaged installer for Windows
-
-Alternatively, you can download and execute [this installer](https://github.com/oie-mines-paristech/lca_algebraic/releases/download/1.0.0/incer-acv-model-installer.exe). It will setup a full anaconda environment with **Jupyter**, 
-**Brightway2** and **LCA Algebraic**.
 
 # Usage & documentation 
 
-Please refer to the [sample notebook (Markdown)](./example-notebook.md) [(or here as ipynb)](./example-notebook.ipynb). 
-
-The full API is [documented here](https://oie-mines-paristech.github.io/lca_algebraic/doc/).
+Please refer to the [online documentation](https://lca_algebraic.readthedocs.org/)
 
 # Licence & Copyright
 
 This library has been developed by [OIE - MinesParistech](http://www.oie.mines-paristech.fr), for the project *INCER-ACV*, 
 lead by [ADEME](https://www.ademe.fr/). 
 
-It is distributed under the **BSD licence**.
+It is distributed under the **[BSD licence](/LICENSE)**.
 
   
 # Principles 
@@ -65,7 +78,6 @@ When computing LCA for foreground models, the library develops the model as a co
 
 By providing **large vectors** of **parameter values** to those numpy functions, we can compute LCA for **thousands of values** at a time.
 
-![](https://oie-mines-paristech.github.io/lca_algebraic/doc/lca-algebraic.png)
 
 # Compatibility with brightway2 
 

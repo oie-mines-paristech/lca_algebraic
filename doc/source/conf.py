@@ -19,7 +19,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx.ext.autodoc", "myst_parser", "sphinxarg.ext", "gitrep2"]
+extensions = ["sphinx.ext.autodoc", "sphinx.ext.viewcode", "myst_parser", "sphinxarg.ext", "gitrep2"]
 
 myst_enable_extensions = ["attrs_block", "attrs_inline"]
 
@@ -37,7 +37,7 @@ exclude_patterns = []
 source_suffix = [".rst", ".md"]
 
 gitref_remote_url = "https://github.com/oie-mines-paristech/lca_algebraic.git"
-gitref_branch = "main"
+gitref_branch = "master"
 
 
 # -- Options for HTML output -------------------------------------------------
