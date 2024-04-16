@@ -1,40 +1,25 @@
 import builtins
 import concurrent.futures
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List
-from warnings import warn
+from types import FunctionType
+from typing import Dict, List
 
+import brightway2 as bw
 import numpy as np
 import pandas as pd
 from peewee import DoesNotExist
-from sympy import Symbol, lambdify, parse_expr
+from sympy import Basic, Symbol, lambdify, parse_expr, simplify, symbols
 from sympy.printing.numpy import NumPyPrinter
 
-from . import TabbedDataframe
+from .activity import ActivityExtended, DbContext, newActivity, with_db_context
 from .axis_dict import AxisDict
-from .base_utils import _actName, _getDb, _method_unit, _user_functions
+from .base_utils import TabbedDataframe, _actName, _getDb, _user_functions
 from .cache import ExprCache, LCIACache
-from .helpers import (
-    BIOSPHERE_PREFIX,
-    Activity,
-    ActivityExtended,
-    Basic,
-    DbContext,
-    Dict,
-    _actDesc,
-    _getAmountOrFormula,
-    _isForeground,
-    bw,
-    error,
-    newActivity,
-    re,
-    simplify,
-    symbols,
-    types,
-    with_db_context,
-)
-from .log import logger
+from .database import BIOSPHERE_PREFIX, _isForeground
+from .log import logger, warn
+from .methods import method_unit
 from .params import (
     FixedParamMode,
     _complete_params,
@@ -43,10 +28,10 @@ from .params import (
     _expand_params,
     _expanded_names_to_names,
     _fixed_params,
+    _getAmountOrFormula,
     _param_registry,
     _toSymbolDict,
     all_params,
-    compute_expr_value,
     freezeParams,
 )
 
@@ -58,8 +43,8 @@ def register_user_function(sym, func):
     sym : the sympy function expression
     func : the implementation of the function
 
-    Usage
-    -----
+    Examples
+    --------
     >>> def func_add(*args):
             returm sum(*args)
     >>>
@@ -251,14 +236,11 @@ def _free_symbols(expr: Basic):
 def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
 
-    printer = NumPyPrinter({
-                           'fully_qualified_modules': False,
-                           'inline': True,
-                           'allow_unknown_functions': True,
-                           'user_functions': dict()
-                           })
+    printer = NumPyPrinter(
+        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
+    )
 
-    modules = [{x[0].name: x[1] for x in _user_functions.values()}, 'numpy']
+    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
 
     if isinstance(expr, Basic):
         lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
@@ -299,6 +281,7 @@ class LambdaWithParamNames:
     This class represents a compiled (lambdified) expression together
     with the list of requirement parameters and the source expression
     """
+
     _use_sympy_cse = False
 
     def __init__(self, exprOrDict, expanded_params=None, params=None, sobols=None):
@@ -474,7 +457,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
 
     result = pd.DataFrame(
         res,
-        index=[method_name(method) + "[%s]" % _method_unit(method) for method in methods],
+        index=[method_name(method) + "[%s]" % method_unit(method) for method in methods],
     ).transpose()
 
     if with_params:
@@ -492,13 +475,13 @@ def _filter_params(params, expected_names, model):
         if expected_name not in params:
             default = _param_registry()[expected_name].default
             res[expected_name] = default
-            error("Missing parameter %s, replaced by default value %s" % (expected_name, default))
+            warn("Missing parameter %s, replaced by default value %s" % (expected_name, default))
 
     for key, value in params.items():
         if key not in expected_params_names:
             del res[key]
             if model:
-                error("Param %s not required for model %s" % (key, model))
+                warn("Param %s not required for model %s" % (key, model))
     return res
 
 
@@ -516,7 +499,7 @@ def compute_value(formula, **params):
 
 def multiLCAAlgebric(*args, **kwargs):
     """deprecated. `compute_impacts()` instead"""
-    warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
+    logger.warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
     return compute_impacts(*args, **kwargs)
 
 
@@ -615,7 +598,7 @@ def compute_impacts(
             # Check no params are passed for FixedParams
             for key in params:
                 if key in _fixed_params():
-                    error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
+                    warn("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
             if functional_unit != 1:
                 alpha = alpha / functional_unit
@@ -753,7 +736,7 @@ def _tag_expr(expr, act, axis):
 
 
 @with_db_context(arg="act")
-def actToExpression(act: Activity, axis=None):
+def actToExpression(act: ActivityExtended, axis=None):
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -797,7 +780,7 @@ def actToExpression(act: Activity, axis=None):
         for exch in act.exchanges():
             formula = _getAmountOrFormula(exch)
 
-            if isinstance(formula, types.FunctionType):
+            if isinstance(formula, FunctionType):
                 # Some amounts in EIDB are functions ... we ignore them
                 continue
 
@@ -848,96 +831,3 @@ def actToExpression(act: Activity, axis=None):
 
 def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
-
-
-def exploreImpacts(impact, *activities: ActivityExtended, **params):
-    """
-    Advanced version of #printAct()
-
-    Displays all exchanges of one or several activities and their impacts.
-    If parameter values are provided, formulas will be evaluated accordingly.
-    If two activities are provided, they will be shown side by side and compared.
-    """
-    tables = []
-    names = []
-
-    diffOnly = params.pop("diffOnly", False)
-    withImpactPerUnit = params.pop("withImpactPerUnit", False)
-
-    for main_act in activities:
-        inputs_by_ex_name = dict()
-        data = dict()
-
-        for i, (name, input, amount) in enumerate(main_act.listExchanges()):
-            # Params provided ? Evaluate formulas
-            if len(params) > 0 and isinstance(amount, Basic):
-                amount = compute_expr_value(amount, params)
-
-            i = 1
-            ex_name = name
-            while ex_name in data:
-                ex_name = "%s#%d" % (name, i)
-                i += 1
-
-            inputs_by_ex_name[ex_name] = _createTechProxyForBio(input.key, main_act.key[0])
-
-            input_name = _actName(input)
-
-            if _isForeground(input.key[0]):
-                input_name += "{user-db}"
-
-            data[ex_name] = dict(input=input_name, amount=amount)
-
-        # Provide impact calculation if impact provided
-        all_acts = list(set(inputs_by_ex_name.values()))
-        res = multiLCAAlgebric(all_acts, [impact], **params)
-        impacts = res[res.columns.tolist()[0]].to_list()
-
-        impact_by_act = {act: value for act, value in zip(all_acts, impacts)}
-
-        # Add impacts to data
-        for key, vals in data.items():
-            amount = vals["amount"]
-            act = inputs_by_ex_name[key]
-            impact = impact_by_act[act]
-
-            if withImpactPerUnit:
-                vals["impact_per_unit"] = impact
-            vals["impact"] = amount * impact
-
-        # To dataframe
-        df = pd.DataFrame(data)
-
-        tables.append(df.T)
-        names.append(_actDesc(main_act))
-
-    full = pd.concat(tables, axis=1, keys=names, sort=True)
-
-    # Highlight differences in case two activites are provided
-    if len(activities) == 2:
-        YELLOW = "background-color:NavajoWhite"
-        diff_cols = ["amount", "input", "impact"]
-        cols1 = dict()
-        cols2 = dict()
-        for col_name in diff_cols:
-            cols1[col_name] = full.columns.get_loc((names[0], col_name))
-            cols2[col_name] = full.columns.get_loc((names[1], col_name))
-
-        if diffOnly:
-
-            def isDiff(row):
-                return row[cols1["impact"]] != row[cols2["impact"]]
-
-            full = full.loc[isDiff]
-
-        def same_amount(row):
-            res = [""] * len(row)
-            for col_name in diff_cols:
-                if row[cols1[col_name]] != row[cols2[col_name]]:
-                    res[cols1[col_name]] = YELLOW
-                    res[cols2[col_name]] = YELLOW
-            return res
-
-        full = full.style.apply(same_amount, axis=1)
-
-    return full

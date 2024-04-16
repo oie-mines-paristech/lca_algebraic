@@ -10,9 +10,7 @@ zip:
 	zip lca-algebraic.zip algebraic_model.ipynb lca_algebraic.py doc/*
 
 doc:
-	pdoc3 --html lca_algebraic --force
-	mv html/lca_algebraic/* doc/
-	rm -r html
+	cd doc && $(MAKE) html
 
 clean:
 	rm -r dist

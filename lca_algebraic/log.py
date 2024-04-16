@@ -12,3 +12,13 @@ ch.setLevel(LOGLEVEL)
 ch.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
 
 logger.addHandler(ch)
+
+
+def debug(*args):
+    msg = " ".join(str(item) for item in args)
+    logger.debug(msg)
+
+
+def warn(*args):
+    msg = " ".join(str(item) for item in args)
+    logger.warning(msg)

@@ -7,19 +7,32 @@ from typing import List, Tuple, Type
 
 import numpy as np
 import seaborn as sns
+from bw2data.backends.peewee import Activity
 from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from SALib.analyze import sobol as analyse_sobol
 from SALib.sample import sobol, sobol_sequence
-from sympy import Abs, Add, AtomicExpr, Eq, Expr, Float, Mul, Number, Piecewise, Sum
+from sympy import (
+    Abs,
+    Add,
+    AtomicExpr,
+    Eq,
+    Expr,
+    Float,
+    Mul,
+    Number,
+    Piecewise,
+    Sum,
+    simplify,
+    symbols,
+)
 from sympy.core.operations import AssocOp
 
-from .base_utils import _display_tabs, _method_unit, displayWithExportButton, r_squared
+from .base_utils import _display_tabs, displayWithExportButton, r_squared
+from .database import DbContext, with_db_context
 from .lca import (
-    Activity,
-    DbContext,
     Dict,
     LambdaWithParamNames,
     Symbol,
@@ -31,14 +44,12 @@ from .lca import (
     _replace_fixed_params,
     compute_impacts,
     concurrent,
-    error,
     lambdify,
     method_name,
     pd,
-    simplify,
-    symbols,
-    with_db_context,
 )
+from .log import warn
+from .methods import method_unit
 from .params import (
     FixedParamMode,
     NameType,
@@ -202,7 +213,7 @@ def oat_dasboard(
 
             for ax, impact in zip(axes, impacts):
                 ax.set_ylim(ymin=0)
-                unit = _method_unit(impact) + " / " + func_unit
+                unit = method_unit(impact) + " / " + func_unit
                 ax.set_ylabel(unit, fontsize=15)
                 ax.set_xlabel(pname, fontsize=15)
 
@@ -359,7 +370,7 @@ def _sobols(methods, problem, Y) -> SobolResults:
             st_conf[:, imethod] = res["ST_conf"]
 
         except Exception as e:
-            error("Sobol failed on %s" % imethod[2], e)
+            warn("Sobol failed on %s" % imethod[2], e)
 
     return SobolResults(s1, s2, st, s1_conf, s2_conf, st_conf)
 
@@ -452,7 +463,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
         ax.violinplot(data, showmedians=True)
         ax.title.set_text(method_name(method))
         ax.set_ylim(ymin=0)
-        ax.set_ylabel(_method_unit(method))
+        ax.set_ylabel(method_unit(method))
         ax.set_xticklabels([])
 
         # Add text
@@ -1102,7 +1113,7 @@ def graphs(
         if unit_overrides and method in unit_overrides:
             unit = unit_overrides[method]
         else:
-            unit = _method_unit(method)
+            unit = method_unit(method)
 
         unit += " / " + func_unit
 
@@ -1183,7 +1194,7 @@ def compare_simplified(
         if unit_overrides and method in unit_overrides:
             unit = unit_overrides[method]
         else:
-            unit = _method_unit(method)
+            unit = method_unit(method)
 
         unit += " / " + func_unit
 
