@@ -15,6 +15,8 @@ DEBUG = False
 LANG = "fr"
 UNIT_OVERRIDE = dict()
 
+_user_functions = dict()
+
 
 def set_debug(value=True):
     """Activate debug logs"""

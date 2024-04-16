@@ -23,7 +23,7 @@ from tabulate import tabulate
 from lca_algebraic.base_utils import ExceptionContext
 from lca_algebraic.log import logger
 
-from .base_utils import LANG, _snake2camel, as_np_array, error
+from .base_utils import LANG, _snake2camel, as_np_array, error, _user_functions
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -1037,7 +1037,8 @@ def _expanded_names_to_names(param_names):
 
 
 def _parse_formula(formula):
-    return parse_expr(formula, local_dict=_param_registry().as_dict())
+    local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+    return parse_expr(formula, local_dict=local_dict | _param_registry().as_dict())
 
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
