@@ -166,4 +166,4 @@ def one(it: Iterable):
 
 
 # Custom types
-ValueOrExpression = Union[int, float, Expr]
+ValueOrExpression = Union[float, Expr]

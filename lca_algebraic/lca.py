@@ -1,10 +1,9 @@
-import builtins
 import concurrent.futures
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from types import FunctionType
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import brightway2 as bw
 import numpy as np
@@ -13,13 +12,14 @@ from peewee import DoesNotExist
 from sympy import Basic, Symbol, lambdify, parse_expr, simplify, symbols
 from sympy.printing.numpy import NumPyPrinter
 
+from . import ValueOrExpression
 from .activity import ActivityExtended, DbContext, newActivity, with_db_context
 from .axis_dict import AxisDict
-from .base_utils import TabbedDataframe, _actName, _getDb, _user_functions
+from .base_utils import TabbedDataframe, _actName, _getDb
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, _isForeground
 from .log import logger, warn
-from .methods import method_unit
+from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
     _complete_params,
@@ -72,22 +72,6 @@ def user_function(sym):
     "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
     """
     return lambda func: register_user_function(sym, func)
-
-
-def _impact_labels():
-    """Dictionnary of custom impact names
-    Dict of "method tuple" => string
-    """
-    # Prevent reset upon auto reload in jupyter notebook
-    if "_impact_labels" not in builtins.__dict__:
-        builtins._impact_labels = dict()
-
-    return builtins._impact_labels
-
-
-def set_custom_impact_labels(impact_labels: Dict):
-    """Global function to override name of impact method in graphs"""
-    _impact_labels().update(impact_labels)
 
 
 def _multiLCA(activities, methods):
@@ -384,13 +368,6 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha=1, axis=None):
         return [LambdaWithParamNames(expr) for expr in exprs]
 
 
-def method_name(method):
-    """Return name of method, taking into account custom label set via set_custom_impact_labels(...)"""
-    if method in _impact_labels():
-        return _impact_labels()[method]
-    return method[1] + " - " + method[2]
-
-
 def _slugify(str):
     return re.sub("[^0-9a-zA-Z]+", "_", str)
 
@@ -537,14 +514,17 @@ def _params_dataframe(param_values: Dict[str, float]):
     return df
 
 
+SingleOrMultipleFloat = Union[float, List[float], np.ndarray]
+
+
 def compute_impacts(
     models,
     methods,
     axis=None,
-    functional_unit=1,
-    return_params=False,
-    description=None,
-    **params,
+    functional_unit: ValueOrExpression = 1,
+    return_params: bool = False,
+    description: str = None,
+    **params: Dict[str, SingleOrMultipleFloat],
 ):
     """
     Main parametric LCIA method :
@@ -561,14 +541,51 @@ def compute_impacts(
         List of (model, alpha)
         or Dict of model:amount
         In case of several models, you cannot use list of parameters
-    methods : List of methods / impacts to consider
-    params : You should provide named values of all the parameters declared in the model. \
-             Values can be single value or list of samples, all of the same size
-    axis: Designates the name of an attribute of user activities to split impacts by their value. \
-        This is useful to get impact by phase or sub modules
-    functional_unit: quantity (static or Sypy formula) by which to divide impacts
-    return_params: If true, also returns the value of all parameters in as tabbed DataFrame
-    description: Optional description/metadata to be added in output when using "return params" Dataframe
+
+    methods :
+        List of methods / impacts to consider
+
+    axis:
+        Designates the name of a custom attribute of foreground activities.
+        You may set this attribute using the method `myActivity.updateMeta(your_custom_attr="some_value")`
+
+        The impacts will be ventilated by this attribute.
+        This is useful to get impact by phase or sub-modules.
+
+    params:
+        Any other argument passed to this function is considered as a value of a parameter of the model :
+        Values can be either single float values, list or ndarray of values.
+        In the later case, all parameters should have the same number of values.
+        Paremeters that are not provided will have their default value set.
+
+    functional_unit:
+        Quantity (static or Sympy formula) by which to divide impacts. Optional, 1 by default.
+
+    return_params:
+        If true, also returns the value of all parameters in as tabbed DataFrame
+
+    description:
+        Optional description/metadata to be added in output when using "return params" Dataframe
+
+    Returns
+    -------
+    A dataframe with the results. If *return_params* is true, it returns `TabbedDataframe`,
+    including all parameters values, that can be saved as a multi sheet excel file.
+
+    Examples
+    --------
+    >>> compute_impacts(
+    >>>    mainAct1, # The root activity of the foreground model
+    >>>    [climate_change], # climate_change is the key (tuple) of the impact method
+    >>>    functional_unit=energy_expression, # energy expression is a Sympy expression computing the energy in kWh
+    >>>    axis="phase", # Split results by phase
+    >>>    return_params=True, # Return all parameter values
+    >>>
+    >>>    # Parameter values
+    >>>    p1=2.0,
+    >>>    p2=3.0)
+
+
     """
     dfs = dict()
 

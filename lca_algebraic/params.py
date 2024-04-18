@@ -111,11 +111,13 @@ class FixedParamMode:
 
 
 class ParamDef(Symbol):
-    """Generic definition of a parameter, with name, bound, type, distribution
+    """
+    Generic definition of a parameter, with name, bound, type, distribution
     This definition will serve both to generate brightway2 parameters and to evaluate.
-
     This class inherits sympy Symbol, making it possible to use in standard arithmetic python
     while keeping it as a symbolic expression (delayed evaluation).
+
+    Don't instantiate it directly. Use the function **newXXXParam() instead.
     """
 
     def __new__(cls, name, *karg, **kargs):
@@ -138,7 +140,6 @@ class ParamDef(Symbol):
         unit="",
         description="",
         label=None,
-        label_fr=None,
         group=None,
         distrib: DistributionType = None,
         dbname=None,
@@ -153,7 +154,6 @@ class ParamDef(Symbol):
         self.max = max
         self.unit = unit
         self.label = label
-        self.label_fr = label_fr
         self.group = group
         self.distrib = distrib
         self.dbname = dbname
@@ -191,7 +191,8 @@ class ParamDef(Symbol):
             self.std = kwargs["std"]
 
     def stat_value(self, mode: FixedParamMode):
-        """Compute a fixed value for this parameter, according to the requested FixedParamMode"""
+        """Computes a fixed value for this parameter, either median or mean, according to the requested FixedParamMode and its
+        statistical distribution."""
         if mode == FixedParamMode.DEFAULT:
             return self.default
         else:
@@ -219,7 +220,14 @@ class ParamDef(Symbol):
 
     def rand(self, alpha):
         """Transforms a random number between 0 and 1 to valid value according
-        to the distribution of probability of the parameter"""
+        to the distribution of probability of the parameter
+
+        Parameters
+        ----------
+
+        alpha:
+            Can be a *float* or numpy array of floats, between 0 and 1.
+        """
 
         if self.distrib == DistributionType.FIXED:
             return self.default
@@ -269,14 +277,14 @@ class ParamDef(Symbol):
         else:
             return Symbol.__eq__(self, other)
 
-    # Expand parameter (useful for enum param)
     def expandParams(self, value=None) -> Dict[str, float]:
+        """Abstract function to represent a parameter as a dict : useful to be consistent with Enum params"""
         if value is None:
             value = self.default
         return {self.name: value}
 
-    # Useful for enum param, having several names
     def names(self, use_label=False):
+        """Generic method usefull to be consistent with Enum parameters"""
         if use_label:
             return [self.get_label()]
         else:
@@ -287,7 +295,7 @@ class ParamDef(Symbol):
 
 
 class BooleanDef(ParamDef):
-    """Parameter with discrete value 0 or 1"""
+    """Parameter with discrete value 0 or 1. Use **newBoolParam()** to instantiate it."""
 
     def __init__(self, name, **argv):
         if "min" not in argv:
@@ -302,7 +310,8 @@ class BooleanDef(ParamDef):
 
 
 class EnumParam(ParamDef):
-    """Enum param is a facility wrapping a choice / switch as many boolean parameters.
+    """
+    Enum param is a facility wrapping a choice / switch as many boolean parameters.
     It is not itself a Sympy symbol. use #symbol("value") to access it.
     Statistics weight can be attached to values by providing a dict.
     """
@@ -347,13 +356,13 @@ class EnumParam(ParamDef):
             res[var_name] = 1.0 if enum_val == currValue else 0.0
         return res
 
-    def symbol(self, enumValue):
-        """Return the invididual symbol for a given enum value : <paramName>_<paramValue>"""
-        if enumValue is None:
+    def symbol(self, choice):
+        """Returns the invididual Sympy symbol for a given choice : <paramName>_<choice>"""
+        if choice is None:
             return Symbol(self.name + "_default")
-        if enumValue not in self.values:
-            raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), enumValue))
-        return Symbol(self.name + "_" + enumValue)
+        if choice not in self.values:
+            raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), choice))
+        return Symbol(self.name + "_" + choice)
 
     def names(self, use_label=False):
         if use_label:
@@ -396,12 +405,14 @@ def newParamDef(name, type, dbname=None, save=True, **kwargs):
 
     Parameters
     ----------
-
-    type : Type of the parameter (From ParamType)
-    save : Boolean, persist this into Brightway2 project (True by default)
-    dbname : Optional name of db. If None, the parameter is a project parameter
-    other arguments : Refer to the documentation of BooleanDef ParamDef and EnumParam
-
+    type :
+        Type of the parameter (From ParamType)
+    save :
+        Boolean, persist this into Brightway2 project (True by default)
+    dbname :
+        Optional name of db. If None, the parameter is a project parameter
+    other arguments :
+        Refer to the documentation of BooleanDef ParamDef and EnumParam
     """
     if type == ParamType.ENUM:
         param = EnumParam(name, dbname=dbname, **kwargs)
@@ -427,8 +438,15 @@ _BOOLEAN_UNCERTAINTY_ATTRIBUTES = {
 
 
 def persistParams():
-    """Persist parameters into Brightway project, as per :
-    https://stats-arrays.readthedocs.io/en/latest/
+    """
+    Persist parameters into Brightway project, as per : https://stats-arrays.readthedocs.io/en/latest/.
+
+    This is important only in case you want t o:
+    - Use parameters outside lca_algebraic (Activity Browser for instance)
+    - Use *loadParams()* to init your parameters instead of deleting them and creating them programmaically each time.
+
+    This function is automatically run when creating new parameters. However, it should be called manually after **updating**
+    manually some properties of a parameter.
     """
     for param in _param_registry().all():
         _persistParam(param)
@@ -513,10 +531,20 @@ def loadParams(global_variable=True, dbname=None):
     """
     Load parameters from Brightway database, as per : https://stats-arrays.readthedocs.io/en/latest/
 
+    The recommended way is to delete parameters at the start of your session and to define them programmically each time.
+
+    However, it can be useful if your parameters come from an import or where defined in **Activity Browser**.
+
     Parameters
     ----------
-    global_variable If true, loaded parameters are made available as global variable.
-    dbname : None. By default load all project and database parameters. If provided, only load DB params
+    global_variable:
+        If true, loaded parameters are made available as global variable.
+    dbname:
+        If provided, load only database parameters for the given db
+
+    Returns
+    -------
+    A dictionary of parameters
     """
 
     enumParams = defaultdict(lambda: dict())
@@ -625,20 +653,182 @@ def loadParams(global_variable=True, dbname=None):
             if isinstance(param.formula, str):
                 param.formula = _parse_formula(param.formula)
 
-
-def newFloatParam(name, default, dbname=None, **kwargs):
-    """Create a FLOAT parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.FLOAT, dbname=dbname, default=default, **kwargs)
+    return _param_registry()
 
 
-def newBoolParam(name, default, dbname=None, **kwargs):
-    """Create a BOOL parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.BOOL, dbname=dbname, default=default, **kwargs)
+def newFloatParam(
+    name,
+    default,
+    min: float = None,
+    max: float = None,
+    unit: str = None,
+    description: str = None,
+    label: str = None,
+    group: str = None,
+    distrib: DistributionType = DistributionType.LINEAR,
+    formula=None,
+    save=True,
+    **kwargs,
+):
+    """
+    Creates a float (decimal) parameter.
+
+    Parameters
+    ----------
+    name:
+        Name of the parameter
+    default:
+        Default value
+    min:
+        Minimum value
+    max:
+        Maximum value
+    unit:
+        Unit of the parameter
+    description:
+        Long description (optional)
+    label:
+        Extended name (optional)
+    group:
+        Name of the group (optional). Used to organize parameters.
+    distrib:
+        Type of the distribution (optional) Linear (uniform) by default
+    formula:
+        Sympy expression. Optional. If provided the default value of this parameter (if not provided at runtime) will be computed
+        from other parameter values.
+    kwargs:
+        Extra parameters required for advanced distribution types.
 
 
-def newEnumParam(name, default, values: Union[List[str], Dict[str, float]], dbname=None, **kwargs):
-    """Create a ENUM parameter. See the documentation of arguments for #newParamDef()."""
-    return newParamDef(name, ParamType.ENUM, dbname=dbname, default=default, values=values, **kwargs)
+    Examples
+    --------
+
+    The following code defines a float parameter *p1* of unit *kg*, with a triangle distribution.
+
+    >>> p1 = newFloatParam("p1", min=1.0, max=3.0, default=2.0, distrib=DistributionType.TRIANGLE, unit="kg")
+
+    Returns
+    -------
+    The newly created parameter
+
+    """
+    return newParamDef(
+        name=name,
+        type=ParamType.FLOAT,
+        dbname=None,
+        default=default,
+        min=min,
+        max=max,
+        unit=unit,
+        description=description,
+        label=label,
+        group=group,
+        distrib=distrib,
+        formula=formula,
+        save=save,
+        **kwargs,
+    )
+
+
+def newBoolParam(name, default, description: str = None, label: str = None, group: str = None, formula=None, save=True):
+    """
+    Creates a boolean parameter.
+
+    Parameters
+    ----------
+    name:
+        Name of the parameter
+    default:
+        Default value
+    description:
+        Long description (optional)
+    label:
+        Extended name (optional)
+    group:
+        Name of the group (optional). Used to organize parameters.
+    formula:
+        Sympy expression. Optional. If provided the default value of this parameter (if not provided at runtime) will be computed
+        from other parameter values.
+
+
+    Examples
+    --------
+
+    >>> p1 = newBoolParam("p1", default=0, group="param group")
+
+    Returns
+    -------
+    The newly created parameter
+
+    """
+    return newParamDef(
+        name,
+        ParamType.BOOL,
+        dbname=None,
+        default=default,
+        description=description,
+        label=label,
+        group=group,
+        formula=formula,
+        save=save,
+    )
+
+
+def newEnumParam(
+    name: str,
+    default: str,
+    values: Union[List[str], Dict[str, float]],
+    description: str = None,
+    label: str = None,
+    group: str = None,
+    save=True,
+):
+    """
+    Creates an enum parameter : a set of mutually exclusive boolean choices.
+    Enum parameters themselves are *not* Sympy symbols. Each of the choice is represented internally
+    as a boolean sympy symbol, that can be accessed via **param.symbol("choice_name")**
+
+    Parameters
+    ----------
+
+    name:
+        Name of the parameter
+    default:
+        Default
+    values:
+        Possible choices. The values can be provided as a list of strings, in which case every choice is equiprobable.
+        They can also be provided as a python dictionnary of "choice" => value. The proability to be picked is then the
+        pro-rata of the value.
+    description:
+        Long description (optional)
+    label:
+        Extended name (optional)
+    group:
+        Name of the group (optional). Used to organize parameters.
+
+    Examples
+    --------
+
+    *p1* is an enum param with equiprobable choices "choice_a", "choice_b" and "choice_c"
+
+    >>> p1 = newEnumParam("p1", default="choice_a", values=["choice_a", "choice_b", "choice_c"])
+
+    *p2* is an anum param with "choice_a" and "choice_b" of probability 25% and "choice_c" of probability 50%.
+
+    >>> p2 = newEnumParam("p2", default="choice_a", values={"choice_a":1, "choice_b":1, "choice_c":2})
+
+    """
+    return newParamDef(
+        name,
+        ParamType.ENUM,
+        dbname=None,
+        default=default,
+        values=values,
+        description=description,
+        label=label,
+        group=group,
+        save=save,
+    )
 
 
 def _variable_params(param_names=None):
@@ -750,7 +940,7 @@ def _param_registry() -> ParamRegistry:
 
 
 def all_params() -> Dict[str, ParamDef]:
-    """Return the dict of all parameters defined in ParamRegistry"""
+    """Return the dict of all parameters defined in memory"""
     return {param.name: param for param in _param_registry().all()}
 
 
@@ -837,8 +1027,15 @@ def _complete_and_expand_params(params: Dict[str, ParamValues], required_params:
 
 
 def resetParams(db_name=None):
-    """Clear parameters in live memory (registry) and on disk.
-    Clear either all params (project and all db params) or db params from a single database (if db_name provided)"""
+    """
+    Clear parameters in live memory (registry) and on disk.
+    Clear either all params (project and all db params) or db params from a single database (if db_name provided).
+
+    This is a good practice in your code to start fresh, cleaning your foreground database and parameters and redefine all
+    programmatically at the start. This ensures the state of the projet / database is always in sync your code and your session
+    / in memory.
+
+    """
     _param_registry().clear(db_name)
 
     if db_name is None:
@@ -867,7 +1064,13 @@ def _param_name(param, name_type: NameType):
 
 
 def list_parameters(name_type=NameType.NAME, as_dataframe=False):
-    """Print a pretty list of all defined parameters"""
+    """Prints a pretty list of all defined parameters
+
+    Parameters
+    ----------
+    as_dataframe:
+        If true, a pandas *Dataframe* is returned. Otherwise, an HTML table is generated.
+    """
     params = [
         dict(
             group=param.group or "",
@@ -915,11 +1118,26 @@ def compute_expr_value(expr: Expr, param_values: Dict):
     # return expr.evalf(subs=_completeParamValues(param_values, required_params=required_params))
 
 
-def freezeParams(db_name, **params):
+def freezeParams(db_name, **params: Dict[str, float]):
     """
-    Freeze parameters values in all exchanges amounts of a DB.
+    Freezes amounts in all exchanges for a given set of parameter values.
     The formulas are computed and the 'amount' attributes are set with the result.
-    This enables parametric datasets to be used by standard, non parametric tools of Brightway2.
+
+    This enables parametric datasets to be used by standard, non-parametric tools of Brightway2 (like Activities browser).
+
+    Parameters
+    ----------
+    db_name :
+        Name of the database for freeze (your foreground db usually)
+
+    params:
+        All other parameters of this function are threated as the values of *lca_algebraic* parameters
+
+    Examples
+    --------
+
+    >>> freezeParams("USER_DB", p1=0.1, p2=3.0)
+
     """
 
     db = bw.Database(db_name)
@@ -1010,7 +1228,31 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
 
 
 def switchValue(param: EnumParam, **values: Dict[str, ValueOrExpression]):
-    """Defines different formulas for each value of an eum"""
+    """
+
+    Helper method defining an expression that returns a different value / formula for each possible choice of an anum param.
+
+    Parameters
+    ----------
+    param: EnumParam
+        The enum param
+
+    values: Dict[str, ValueOrExpression]
+        Each param should correspond to a valid choice of the num parameter.
+
+
+    Examples
+    --------
+
+    Given the enum parameter *p1* :
+
+    >>> p1 = newEnumParam("p1", values=["choice1", "choice2", "choice3"])
+
+    The following code defines an expression worth 0.1 for *choice1*, 0.2 for *choice2*  and *4 x p2* for *choice3*
+
+    >>> amount = switchValue(p1, choice1=0.1, choice2=0.2, choice3=4*p2)
+
+    """
 
     res = 0
     for key, val in values.items():

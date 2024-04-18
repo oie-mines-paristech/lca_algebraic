@@ -1,57 +1,58 @@
 # Activities
 
-**lca_algebraic** extends add some methods to the **Brightway2** `Activity` class.
+**lca_algebraic** extends **Brightway2** and adds methods to the `Activity` class.
 
-It also provides some helpers functions to search, create  and copy activities.
+It also provides some helpers functions to search, create and copy activities.
 
-## ActivityExtended
+## class ActivityExtended
 
 The new methods implemented in this class are automatically added to vanialla *Activity* objects coming from
 brightway.
 
 ```{eval-rst} 
-.. autoclass:: lca_algebraic.activity.ActivityExtended
+.. autoclass:: lca_algebraic.ActivityExtended
+   :members:
 ```
 
-## findActivity
+## findActivity()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.findActivity
+.. autofunction:: lca_algebraic.findActivity
 ```
 
-## findBioAct
+## findBioAct()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.findBioAct
+.. autofunction:: lca_algebraic.findBioAct
 ```
 
-## findTechAct
+## findTechAct()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.findTechAct
+.. autofunction:: lca_algebraic.findTechAct
 ```
 
 
-## newActivity
+## newActivity()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.newActivity
+.. autofunction:: lca_algebraic.newActivity
 ```
 
-## copyActivity
+## copyActivity()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.copyActivity
+.. autofunction:: lca_algebraic.copyActivity
 ```
 
-## newSwitchAct
+## newSwitchAct()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.newSwitchAct
+.. autofunction:: lca_algebraic.newSwitchAct
 ```
 
-## printAct
+## printAct()
 
 ```{eval-rst} 
-.. autofunction:: lca_algebraic.activity.printAct
+.. autofunction:: lca_algebraic.printAct
 ```

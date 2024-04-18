@@ -19,7 +19,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.viewcode", "myst_parser", "sphinxarg.ext", "gitrep2"]
+extensions = ["sphinx.ext.autodoc", "sphinx.ext.viewcode", "myst_parser", "sphinxarg.ext", "gitrep2", "nbsphinx"]
 
 myst_enable_extensions = ["attrs_block", "attrs_inline"]
 
@@ -43,4 +43,5 @@ gitref_branch = "master"
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "pydata_sphinx_theme"
+# html_theme = "pydata_sphinx_theme"
+html_theme = "furo"

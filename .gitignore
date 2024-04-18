@@ -20,3 +20,4 @@ dist
 settings.env
 .env
 doc/build
+doc/**/*.ipynb

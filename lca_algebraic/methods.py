@@ -1,15 +1,43 @@
+import builtins
+from typing import Dict, Tuple
+
 import brightway2 as bw
+
+
+def _impact_labels():
+    """Dictionnary of custom impact names
+    Dict of "method tuple" => string
+    """
+    # Prevent reset upon auto reload in jupyter notebook
+    if "_impact_labels" not in builtins.__dict__:
+        builtins._impact_labels = dict()
+
+    return builtins._impact_labels
+
+
+def set_custom_impact_labels(impact_labels: Dict):
+    """Global function to override name of impact method in graphs"""
+    _impact_labels().update(impact_labels)
 
 
 def findMethods(search=None, mainCat=None):
     """
     Find impact method. Search in all methods against a list of match strings.
-    Each parameter can be either an exact match match, or case insenstive search, if suffixed by '*'
+    Each parameter can be either an exact match, or case-insensitive search, if suffixed by '*'
 
     Parameters
     ----------
-    search : String to search
-    mainCat : if specified, limits the research for method[0] == mainCat.
+    search :
+        String to search
+    mainCat :
+        If specified, limits the research for method[0] == mainCat.
+
+
+    Returns
+    -------
+    A list of tuples, identifying the methods.
+
+
     """
     res = []
     search = search.lower()
@@ -23,6 +51,13 @@ def findMethods(search=None, mainCat=None):
     return res
 
 
-def method_unit(method):
+def method_unit(method: Tuple):
     """Get the unit of an impact method"""
     return bw.Method(method).metadata["unit"]
+
+
+def method_name(method):
+    """Return name of method, taking into account custom label set via set_custom_impact_labels(...)"""
+    if method in _impact_labels():
+        return _impact_labels()[method]
+    return method[1] + " - " + method[2]

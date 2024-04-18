@@ -17,9 +17,11 @@ from lca_algebraic.params import _param_registry
 def test_load_params():
     _p1 = newEnumParam("p1", values={"v1": 0.6, "v2": 0.3}, default="v1")
     _p2 = newFloatParam("p2", min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
-    _p3 = newBoolParam("p3", default=1, min=1, max=2, formula=_p2 + 4)
+    _p3 = newBoolParam("p3", default=1, formula=_p2 + 4)
     _p3_fg = newBoolParam(
-        "p3", default=1, distrib=DistributionType.FIXED, dbname=USER_DB
+        "p3",
+        default=1,
+        distrib=DistributionType.FIXED,
     )  # Param with same name linked to a user DB
 
     _param_registry().clear()
@@ -38,7 +40,7 @@ def test_load_params():
 
 def test_export(data):
     p1 = newFloatParam("p1", default=0.5, distrib=DistributionType.FIXED)
-    p3_fg = newBoolParam("p3", default=1, dbname=USER_DB)  # Param with same name linked to a user DB
+    p3_fg = newBoolParam("p3", default=1)  # Param with same name linked to a user DB
 
     act1 = newActivity(
         USER_DB,
@@ -197,31 +199,10 @@ def test_setforeground():
     assert _isForeground(USER_DB) == False
 
 
-def test_db_params_low_level():
-    # Define 3 variables with same name, attached to project or db (user or bg)
-    p1_bg = newBoolParam("p1", False, dbname=BG_DB)
-    p1_fg = newBoolParam("p1", False, dbname=USER_DB)
-    p1_project = newBoolParam("p1", False, dbname=USER_DB)
-
-    # No context provided  ? => should fail : we can't know what param we refer to
-    with pytest.raises(DuplicateParamsAndNoContextException) as exc:
-        p1 = _param_registry()["p1"]
-
-    assert "context" in str(exc.value)
-
-    with DbContext(USER_DB):
-        p1 = _param_registry()["p1"]
-        assert p1 == p1_fg
-
-    with DbContext(BG_DB):
-        p1 = _param_registry()["p1"]
-        assert p1 == p1_bg
-
-
 def test_reset_params():
     # Define 3 variables with same name, attached to project or db (user or bg)
-    newBoolParam("p1", False, dbname=BG_DB)
-    newBoolParam("p2", False, dbname=USER_DB)
+    newBoolParam("p1", False)
+    newBoolParam("p2", False)
     newBoolParam("p3", False)  # Project param
 
     # Should only delete p2

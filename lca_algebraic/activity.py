@@ -57,21 +57,27 @@ class ActivityExtended(Activity):
         return res
 
     @with_db_context
-    def getExchange(self, name=None, input=None, single=True):
+    def getExchange(self, name: str = None, input: Activity = None, single=True):
         """Get exchange by name or input
 
         Parameters
         ----------
-        name : name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
+        name :
+            name of the exchange. Name can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
             It can also be suffised by '*' to match an exchange starting with this name. Location can be a negative match '!'
-            Exampple : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
+            Example  "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
 
-        single :True if a single match is expected. Otherwize, a list of result is returned
+        input :
+            input activity
+
+        single :
+            True if a single match is expected. Otherwize, a list of result is returned
 
         Returns
         -------
-            Single exchange or list of exchanges (if _single is False or "name" contains a '*')
-            raise Exception if not matching exchange found
+        Single exchange or list of exchanges (if _single is False or "name" contains a '*')
+        raise Exception if not matching exchange found
+
         """
 
         def single_match(name, exch):
@@ -128,7 +134,7 @@ class ActivityExtended(Activity):
 
             <exchange name> can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
             It can also be suffixed by '*' to match an exchange starting with this name. Location can be a negative match '!'
-            Exampple : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
+            Example : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
 
             <New Value>  : either single value (float or SympPy expression) for updating only amount, \
                 or activity for updating only input,
@@ -162,7 +168,16 @@ class ActivityExtended(Activity):
                 exch.save()
 
     def deleteExchanges(self, name, single=True):
-        """Remove matching exchanges"""
+        """Remove matching exchanges
+
+        Parameters
+        ----------
+        name:
+            Name of the exchange to delete. Can contain wildcards. See #getExchange for more details.
+
+        single:
+            If true (default) expect to only delete a single exchange
+        """
         exchs = self.getExchange(name, single=single)
         if not isinstance(exchs, list):
             exchs = [exchs]
@@ -179,7 +194,8 @@ class ActivityExtended(Activity):
 
         Parameters
         ----------
-        exchanges : Dict of activity => amount or activity => attributes_dict. \
+        exchanges :
+            Dict of activity => amount or activity => attributes_dict. \
             Amount being either a fixed value or Sympy expression (arithmetic expression of Sympy symbols)
         """
 
@@ -236,7 +252,7 @@ class ActivityExtended(Activity):
                 yield exch
 
     def updateMeta(self, **kwargs):
-        """Update any property. Useful to update axis"""
+        """Update any property. Useful to update axes"""
         for key, val in kwargs.items():
             self._data[key] = val
         self.save()
@@ -250,7 +266,6 @@ def getActByCode(db_name, code):
 def findActivity(
     name=None,
     loc=None,
-    in_name=None,
     code=None,
     categories=None,
     category=None,
@@ -266,7 +281,6 @@ def findActivity(
 
     :param name: Name of the activity. Can contain '*' for searching partial chain
     :param loc: optional location
-    :param in_name: Same as using name="something*"
     :param code: Unique code. If provided alone, returns the activity for this code
     :param categories: Optional : exact list of catagories
     :param category: Optional : single category that should be part of the list of categories of the selected activities
@@ -276,6 +290,8 @@ def findActivity(
     :param unit: If provided, only match activities with provided unit
     :return: Either a single activity (if single is True) or a list of activities, possibly empty.
     """
+
+    in_name = None
 
     if name and "*" in name:
         in_name = name.replace("*", "")
@@ -348,6 +364,7 @@ def findBioAct(name=None, loc=None, **kwargs):
 def findTechAct(name=None, loc=None, single=True, **kwargs):
     """
     Search activities in technosphere. This function tries to guess which database is your background database.
+    If you have more than one background technosphere, you should use findActivity() and specify the **db_name** directly.
     See also doc for #findActivity"""
     dbs = _listTechBackgroundDbs()
     if len(dbs) > 1:
@@ -413,14 +430,24 @@ def newActivity(
 
     Parameters
     ----------
-    name : Name of the new activity
-    db_name : Destination DB : ACV DB by default
-    unit: Unit of the process
+    name :
+        Name of the new activity
+    db_name :
+        Destination DB : ACV DB by default
+    unit:
+        Unit of the process
 
-    code: Unique code in the Db. Optional. If not provided, Name is used
-    exchanges : Dict of activity => amount. If amount is a string, is it considered as a formula with parameters
-    argv : extra params passed as properties of the new activity
-    amount: Production amount. 1 by default
+    code:
+        Unique code in the Db. Optional. If not provided, the name is used
+
+    exchanges :
+        Dict of activity => amount. See the doc for @addExchanges()
+
+    argv :
+        Any extra params passed as properties of the new activity
+
+    amount:
+        Production amount. 1 by default
     """
 
     code = code if code else name
@@ -451,8 +478,25 @@ def newActivity(
     return act
 
 
-def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
-    """Copy activity into a new database"""
+def copyActivity(db_name, activity: ActivityExtended, code, withExchanges=True, **kwargs) -> ActivityExtended:
+    """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
+    your foreground DB to update them, keeping your background DB clean.
+
+    Parameters
+    ----------
+    db_name:
+        Name of the target database
+    activity:
+        Source activity
+    code:
+        Code of the target activity. Also used as its name
+
+
+    Returns
+    -------
+        The new activity. note that is is flagged with the custom property **inherited_from**, providing the full key of the
+        initial activity.
+    """
 
     res = _newAct(db_name, code)
 
@@ -483,7 +527,7 @@ ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
 
 
 def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
-    """Create a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
+    """Creates a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
     Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
 
@@ -492,10 +536,14 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
 
     Parameters
     ----------
-    dbname: name of the target DB
-    name: Name of the new activity
-    paramDef : parameter definition of type enum
-    acts_dict : dict of "enumValue" => activity or "enumValue" => (activity, amount)
+    dbname:
+        name of the target DB
+    name:
+        Name of the new activity
+    paramDef :
+        parameter definition of type enum
+    acts_dict :
+        dict of "enumValue" => activity or "enumValue" => (activity, amount)
 
     Examples
     --------
@@ -537,10 +585,17 @@ def printAct(*activities, **params):
     Print activities and their exchanges.
     If parameter values are provided, formulas will be evaluated accordingly.
 
-    :param activities One or two activities. If two activities are provided, diffrences are highlighted.
-    :param params If provided, the formulas are evaluated accordingly and the result amount is shown instead of formula
+    Parameters
+    ----------
+    activities:
+        One or two activities. If two activities are provided, differences are highlighted.
 
-    :return A Dataframe.
+    params:
+        If provided, the formulas are evaluated accordingly and the result amount is shown instead of formula
+
+    Returns
+    -------
+        A Dataframe is returned, containing all information, exchange by exchange
     """
     tables = []
     names = []

@@ -61,7 +61,18 @@ def deleteDb(db_name):
 
 
 def resetDb(db_name, foreground=True):
-    """Create or cleanup a user DB. This database is set to *foreground*"""
+    """
+    Creates and/or cleanup a database.
+
+    Parameters
+    ----------
+
+    db_name : str
+        Name of the database
+
+    foreground:
+        If true (default), the database is set as foreground.
+    """
     if db_name in bw.databases:
         logger.warning("Db %s was here. Reseting it" % db_name)
         del bw.databases[db_name]
@@ -124,12 +135,20 @@ def _isForeground(db_name):
 
 
 def setForeground(db_name):
-    """Set a db as being a foreground database, meaning it is parametrized and lca_algebraic should develop its activities"""
+    """Set a db as being a foreground database. Foreground databases are considered to be parametric by *lca_algebraic*.
+    Internally, their activities are developped as Sympy formulas."""
     return _setMeta(db_name, FOREGROUND_KEY, True)
 
 
 def setBackground(db_name):
-    """Set a db as being a foreground database, meaning it should be considred as static"""
+    """
+    Set a db as being a background database.
+
+    *lca_algebraic* considers background databases as bring static / non parametric.
+    It does not perform the algebraic expansion meccanism on them and just call **Brightway** to compute the impacts for
+    their activities.
+
+    """
     return _setMeta(db_name, FOREGROUND_KEY, False)
 
 
@@ -144,7 +163,7 @@ def _find_biosphere_db():
 
 
 def list_databases():
-    """List of databases and their status"""
+    """Returns a pandas dataframe listing all database, their status (foreground/background) and numer of activities"""
     data = list(
         dict(
             name=name,

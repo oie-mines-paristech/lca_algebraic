@@ -18,7 +18,7 @@ def _param_data(param):
 
 
 def export_db(db_name, filename):
-    """Export Db as BW2Package, attaching parameters"""
+    """This function exports a database to the **BW2Package** format, including the definition of parameters"""
     db = bw.Database(db_name)
     db_params = DatabaseParameter.select().where(DatabaseParameter.database == db_name)
 
@@ -43,7 +43,7 @@ def export_db(db_name, filename):
 
 
 def import_db(filename):
-    """Import Db from BW2Package with linked parameters"""
+    """Import Db from BW2Package with linked parameters (as produced by **export_db**)"""
 
     db = BW2Package.import_file(filename)[0]
     if "database_parameters" in db.metadata:
