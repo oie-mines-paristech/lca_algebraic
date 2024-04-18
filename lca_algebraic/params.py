@@ -642,7 +642,7 @@ def loadParams(global_variable=True, dbname=None):
             default = None
             warn("No default enum value found for ", param_name, defaults)
 
-        param = newEnumParam(param_name, default, save=False, **args)
+        param = newEnumParam(name=param_name, default=default, save=False, **args)
 
         # Save it in shared dict
         register(param)
@@ -715,7 +715,6 @@ def newFloatParam(
     return newParamDef(
         name=name,
         type=ParamType.FLOAT,
-        dbname=None,
         default=default,
         min=min,
         max=max,
@@ -730,7 +729,7 @@ def newFloatParam(
     )
 
 
-def newBoolParam(name, default, description: str = None, label: str = None, group: str = None, formula=None, save=True):
+def newBoolParam(name, default, description: str = None, label: str = None, group: str = None, formula=None, save=True, **kwargs):
     """
     Creates a boolean parameter.
 
@@ -764,13 +763,13 @@ def newBoolParam(name, default, description: str = None, label: str = None, grou
     return newParamDef(
         name,
         ParamType.BOOL,
-        dbname=None,
         default=default,
         description=description,
         label=label,
         group=group,
         formula=formula,
         save=save,
+        **kwargs,
     )
 
 
@@ -782,6 +781,7 @@ def newEnumParam(
     label: str = None,
     group: str = None,
     save=True,
+    **kwargs,
 ):
     """
     Creates an enum parameter : a set of mutually exclusive boolean choices.
@@ -821,13 +821,13 @@ def newEnumParam(
     return newParamDef(
         name,
         ParamType.ENUM,
-        dbname=None,
         default=default,
         values=values,
         description=description,
         label=label,
         group=group,
         save=save,
+        **kwargs,
     )
 
 

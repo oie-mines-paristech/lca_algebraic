@@ -15,7 +15,7 @@ from sympy.printing.numpy import NumPyPrinter
 from . import ValueOrExpression
 from .activity import ActivityExtended, DbContext, newActivity, with_db_context
 from .axis_dict import AxisDict
-from .base_utils import TabbedDataframe, _actName, _getDb
+from .base_utils import TabbedDataframe, _actName, _getDb, _user_functions
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, _isForeground
 from .log import logger, warn

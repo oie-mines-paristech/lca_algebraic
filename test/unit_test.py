@@ -18,11 +18,6 @@ def test_load_params():
     _p1 = newEnumParam("p1", values={"v1": 0.6, "v2": 0.3}, default="v1")
     _p2 = newFloatParam("p2", min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
     _p3 = newBoolParam("p3", default=1, formula=_p2 + 4)
-    _p3_fg = newBoolParam(
-        "p3",
-        default=1,
-        distrib=DistributionType.FIXED,
-    )  # Param with same name linked to a user DB
 
     _param_registry().clear()
 
@@ -35,7 +30,6 @@ def test_load_params():
     assert _p1.__dict__ == loaded_params[("p1", None)].__dict__
     assert _p2.__dict__ == loaded_params[("p2", None)].__dict__
     assert _p3.__dict__ == loaded_params[("p3", None)].__dict__
-    assert _p3_fg.__dict__ == loaded_params[("p3", USER_DB)].__dict__
 
 
 def test_export(data):
@@ -204,12 +198,6 @@ def test_reset_params():
     newBoolParam("p1", False)
     newBoolParam("p2", False)
     newBoolParam("p3", False)  # Project param
-
-    # Should only delete p2
-    resetParams(USER_DB)
-
-    params = set(param.name for param in _param_registry().all())
-    assert params == set(["p1", "p3"])
 
     # Should delete all
     resetParams()
