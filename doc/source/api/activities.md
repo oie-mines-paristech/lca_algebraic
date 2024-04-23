@@ -56,3 +56,9 @@ brightway.
 ```{eval-rst} 
 .. autofunction:: lca_algebraic.printAct
 ```
+
+## interpolate_activities()
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.interpolate_activities
+```

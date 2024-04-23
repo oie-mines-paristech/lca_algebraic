@@ -50,6 +50,13 @@ lead by [ADEME](https://www.ademe.fr/).
 
 It is distributed under the [BSD License](./LICENSE)
 
+# Mailing list
+
+Please register to this dedicated mailing list to discuss the evolutions of this library and be informed of future releases :
+
+[lca_algebraic@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/lca_algebraic)
+
+
 # Documentation
 
 Full documentation and example notebooks are [hosted on **readthedocs**](https://lca-algebraic.readthedocs.io/)

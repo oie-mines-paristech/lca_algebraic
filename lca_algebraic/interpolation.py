@@ -27,19 +27,45 @@ def interpolate_activities(
     add_zero=False,
 ):
     """
-     Creates a linear virtual activity being a linear interpolation between several activities,
-     based on the values of a given parameter.
+    Creates a virtual activity being a linear interpolation between several activities,
+    based on the value of a parameter.
 
-     This is useful to produce a continuous parametrized activity based on the scale of the system,
-     given that you have dicrete activities coresponding to
-     discrete values of the parameter.
+    The result activity is a piecewize linear function of input activities.
 
-    :param db_name: Name of user DB (string)
-    :param act_name: Name of the new activity
-    :param param: Parameter to use [ParamDef]
-    :param act_per_value : Dictionnary of value => activitiy [Dict]
-    :param add_zero: If True add the "Zero" point to the data. Usefull for linear interoplation of a single activity / point
-    :return: the new activity
+    This is useful to produce a continuous parametrized activity based on the scale of the system,
+    Given that you have discrete activities corresponding to discrete values of the parameter.
+
+    Parameters
+    ----------
+    db_name:
+        Name of user DB (string)
+    act_name:
+        Name of the new activity
+    param:
+        Parameter controlling the interpolation
+    act_per_value:
+        Dictionnary of value => activitiy [Dict]
+
+    add_zero:
+        If True add the "Zero" point to the data.
+        Useful for linear interpolation of a single activity / point
+
+    Returns
+    -------
+    The new activity
+
+    Examples
+    --------
+    >>> interpolated_inverter = interpolate_activities(
+    >>>     db_name=USER_DB,
+    >>>     act_name="interpolated_inverter",
+    >>>     param=power_param, #power parameter, in kW
+    >>>     act_per_value={ # Those are activities found in the background database
+    >>>         .5: inverter_500W,
+    >>>         2: inverter_2KW,
+    >>>         50:inverter_50KW,
+    >>>         100:inverter_100KW},
+    >>>     add_zero=True):
     """
 
     # Add "Zero" to the list
