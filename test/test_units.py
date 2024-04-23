@@ -87,10 +87,10 @@ def test_compute_impact_with_functional_unit(data):
     # Create activity with units
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_kg})
 
-    fonctional_unit = 2 * p1_m
+    functional_unit = 2 * p1_m
 
     # Ask with fonctional units of unit "meter
-    res = compute_impacts(act1, data.ibio1, functional_unit=fonctional_unit)
+    res = compute_impacts(act1, data.ibio1, functional_unit=functional_unit)
 
     # Result should contain physical units in method names
     assert res.to_dict() == {"bio1 - total[MJ-Eq / meter]": {"act1": 2.0}}

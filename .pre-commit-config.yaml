@@ -3,7 +3,7 @@ repos:
     rev: "1.5"
     hooks:
         - id: removestar
-          exclude: ^(test/.*)$
+          exclude: ^(test/.*)$, ^(doc/.*)$
           args: [ -i ] # See docs for all args (-i edits file in-place)
           additional_dependencies: # The libraries or packages your code imports
             - . # Should be . if running inside a library (to install the library itself in the environment)
@@ -13,7 +13,7 @@ repos:
       - id: black
         name: black
         entry: black
-        exclude: ^(test/.*)$
+        exclude: ^((test|doc)/.*)$
         files: \.py$
         args: [ "--line-length", "130", "." ]
         language_version: python3.9
@@ -21,7 +21,7 @@ repos:
     rev: v1.2.3
     hooks:
       - id: flake8
-        exclude: ^(test/.*)$
+        exclude: ^((test|doc)/.*)$
         name: flake8
         files: \.py$
   - repo: https://github.com/PyCQA/isort
@@ -30,5 +30,5 @@ repos:
       - id: isort
         args: ["--profile=black"]
         name: isort
-        exclude: ^(test/.*)$
+        exclude: ^((test|doc)/.*)$
         files: \.py$

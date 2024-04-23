@@ -10,31 +10,20 @@ zip:
 	zip lca-algebraic.zip algebraic_model.ipynb lca_algebraic.py doc/*
 
 doc:
-	pdoc3 --html lca_algebraic --force
-	mv html/lca_algebraic/* doc/
-	rm -r html
+	cd doc && $(MAKE) html
 
 clean:
 	rm -r dist
 
-package-pip:
+package:
 	python setup.py sdist bdist_wheel --universal
 
-package-conda :
-	conda build --py 3.9 conda-recipe
-
-package : package-pip package-conda
-
-tst-upload-pip:
+tst-upload:
 	twine upload --repository-url https://test.pypi.org/legacy/ dist/lca_algebraic*
 
-upload-pip:
+upload:
 	twine upload dist/lca_algebraic*
 
-upload-conda:
-	anaconda upload --force ~/mambaforge/conda-bld/noarch/lca_algebraic-$(VERSION)-py_0.tar.bz2
-
-upload : upload-pip upload-conda
 
 pytest:
 	pytest test

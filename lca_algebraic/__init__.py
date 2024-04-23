@@ -2,12 +2,14 @@
 # This file defines several utility functions above brightway2 to be used by notebooks
 #
 
+from .activity import *
 from .base_utils import *
-from .db import *
-from .helpers import *
+from .database import *
+from .interpolation import *
 from .io import *
 from .lca import *
 from .log import *
+from .methods import *
 from .params import *
 from .settings import Settings
 from .stats import *

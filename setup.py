@@ -70,5 +70,6 @@ setup(
         "pypardiso",
         "SALib",
         "pint",
+        "typing-extensions",
     ],
 )

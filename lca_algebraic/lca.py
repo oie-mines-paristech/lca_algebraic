@@ -1,40 +1,33 @@
-import builtins
 import concurrent.futures
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List, Optional
+from types import FunctionType
+from typing import Dict, List, Optional, Union
 
+import brightway2 as bw
 import numpy as np
 import pandas as pd
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Symbol, lambdify, parse_expr
+from sympy import Basic, Symbol, lambdify, parse_expr, simplify, symbols
+from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
-from . import MethodKey, OneOrList, TabbedDataframe
+from . import newActivity
+from .activity import ActivityExtended
 from .axis_dict import AxisDict
-from .base_utils import Amount, _actName, _getDb, _method_unit
-from .cache import ExprCache, LCIACache
-from .helpers import (
-    BIOSPHERE_PREFIX,
-    Activity,
-    ActivityExtended,
-    Basic,
-    DbContext,
-    Dict,
-    _actDesc,
-    _getAmountOrFormula,
-    _isForeground,
-    bw,
-    error,
-    newActivity,
-    re,
-    simplify,
-    symbols,
-    types,
-    with_db_context,
+from .base_utils import (
+    TabbedDataframe,
+    ValueOrExpression,
+    _actName,
+    _getDb,
+    _user_functions,
 )
-from .log import logger
+from .cache import ExprCache, LCIACache
+from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, with_db_context
+from .log import logger, warn
+from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
     _complete_params,
@@ -43,28 +36,50 @@ from .params import (
     _expand_params,
     _expanded_names_to_names,
     _fixed_params,
+    _getAmountOrFormula,
     _param_registry,
     _toSymbolDict,
     all_params,
-    compute_expr_value,
     freezeParams,
 )
 
 
-def _impact_labels():
-    """Dictionnary of custom impact names
-    Dict of "method tuple" => string
+def register_user_function(sym, func):
+    """Register a custom function with is python implementation
+    Parameters
+    ----------
+    sym : the sympy function expression
+    func : the implementation of the function
+
+    Examples
+    --------
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> func_add_sym = register_user_function(sympy.Function('func_add', real=True, imaginary=False), func_add)
+    >>> e = sympy.Symbol('a') * func_add_sym(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
     """
-    # Prevent reset upon auto reload in jupyter notebook
-    if "_impact_labels" not in builtins.__dict__:
-        builtins._impact_labels = dict()
-
-    return builtins._impact_labels
+    global _user_functions
+    _user_functions[sym.name] = (sym, func)
+    return sym
 
 
-def set_custom_impact_labels(impact_labels: Dict):
-    """Global function to override name of impact method in graphs"""
-    _impact_labels().update(impact_labels)
+def user_function(sym):
+    """Function decorator to register user function
+
+    Usage
+    -----
+    >>> @user_function(sympy.Function('func_add', real=True, imaginary=False))
+    >>> def func_add(*args):
+            returm sum(*args)
+    >>>
+    >>> e = sympy.Symbol('a') * func_add(sympy.Symbol('b'), sympy.Symbol('c'))
+    >>> sympy.srepr(e)
+    "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
+    """
+    return lambda func: register_user_function(sym, func)
 
 
 def _multiLCA(activities, methods):
@@ -212,8 +227,15 @@ def _free_symbols(expr: Basic):
 
 def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
+
+    printer = NumPyPrinter(
+        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
+    )
+
+    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
+
     if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, "numpy")
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
 
         def func(*arg, **kwargs):
             res = lambd(*arg, **kwargs)
@@ -233,11 +255,6 @@ def _lambdify(expr: Basic, expanded_params):
         return static_func
 
 
-def compute_param_formulas(param_values: Dict, required_params: List[str]):
-    # Compute the values params computed from formulas (and not specified in input)
-    pass
-
-
 @dataclass
 class ValueContext:
     """Represents a result value, with all parameters values used in context"""
@@ -252,6 +269,8 @@ class LambdaWithParamNames:
     with the list of requirement parameters and the source expression
     """
 
+    _use_sympy_cse = False
+
     def __init__(self, exprOrDict, expanded_params=None, params=None, sobols=None):
         """Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
@@ -265,7 +284,8 @@ class LambdaWithParamNames:
 
             # Full names
             self.expanded_params = _expand_param_names(self.params)
-            self.expr = parse_expr(obj["expr"])
+            local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+            self.expr = parse_expr(obj["expr"], local_dict=local_dict)
             self.lambd = _lambdify(self.expr, self.expanded_params)
             self.sobols = obj["sobols"]
 
@@ -322,6 +342,10 @@ class LambdaWithParamNames:
         expr = str(self.expr)
         return dict(params=self.params, expr=expr, sobols=self.sobols)
 
+    @staticmethod
+    def use_sympy_cse(b=True):
+        LambdaWithParamNames._use_sympy_cse = b
+
     def __repr__(self):
         return repr(self.expr)
 
@@ -329,7 +353,11 @@ class LambdaWithParamNames:
         return self.expr._repr_latex_()
 
 
-def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: Amount = 1, axis=None):
+def lambdify_expr(expr):
+    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
+
+
+def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: ValueOrExpression = 1, axis=None):
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -346,13 +374,6 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: Amount = 1, ax
 
         # Lambdify (compile) expressions
         return [LambdaWithParamNames(expr) for expr in exprs]
-
-
-def method_name(method):
-    """Return name of method, taking into account custom label set via set_custom_impact_labels(...)"""
-    if method in _impact_labels():
-        return _impact_labels()[method]
-    return method[1] + " - " + method[2]
 
 
 def _slugify(str):
@@ -409,7 +430,8 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
 
         # Expand axis values as a list, to fit into the result numpy array
         if isinstance(value, dict):
-            value = list(float(val) for val in value.values())
+            # Ensure the values are in the same order as the value
+            value = list(float(value[axis]) if axis in value else 0.0 for axis in lambd.axis_keys)
 
         return (imethod, value)
 
@@ -420,7 +442,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
 
     result = pd.DataFrame(
         res,
-        index=[method_name(method) + f"[{_method_unit(method, fu_unit=unit)}]" for method in methods],
+        index=[method_name(method) + "[%s]" % method_unit(method, fu_unit=unit) for method in methods],
     ).transpose()
 
     if with_params:
@@ -438,13 +460,13 @@ def _filter_params(params, expected_names, model):
         if expected_name not in params:
             default = _param_registry()[expected_name].default
             res[expected_name] = default
-            error("Missing parameter %s, replaced by default value %s" % (expected_name, default))
+            warn("Missing parameter %s, replaced by default value %s" % (expected_name, default))
 
     for key, value in params.items():
         if key not in expected_params_names:
             del res[key]
             if model:
-                error("Param %s not required for model %s" % (key, model))
+                warn("Param %s not required for model %s" % (key, model))
     return res
 
 
@@ -463,6 +485,7 @@ def compute_value(formula, **params):
 @deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
 def multiLCAAlgebric(*args, **kwargs):
     """deprecated. `compute_impacts()` instead"""
+    warn("multiLCAAlgebric is deprecated, use compute_impacts instead")
     return compute_impacts(*args, **kwargs)
 
 
@@ -500,13 +523,16 @@ def _params_dataframe(param_values: Dict[str, float]):
     return df
 
 
+SingleOrMultipleFloat = Union[float, List[float], np.ndarray]
+
+
 def compute_impacts(
-    models: OneOrList[ActivityExtended],
-    methods: OneOrList[MethodKey],
-    axis: str = None,
-    functional_unit: Amount = 1,
-    return_params: bool = False,
-    description: Optional[str] = None,
+    models,
+    methods,
+    axis=None,
+    functional_unit=1,
+    return_params=False,
+    description=None,
     **params,
 ):
     """
@@ -524,14 +550,51 @@ def compute_impacts(
         List of (model, alpha)
         or Dict of model:amount
         In case of several models, you cannot use list of parameters
-    methods : List of methods / impacts to consider
-    params : You should provide named values of all the parameters declared in the model. \
-             Values can be single value or list of samples, all of the same size
-    axis: Designates the name of an attribute of user activities to split impacts by their value. \
-        This is useful to get impact by phase or sub modules
-    functional_unit: quantity (static or Sypy formula) by which to divide impacts
-    return_params: If true, also returns the value of all parameters in as tabbed DataFrame
-    description: Optional description/metadata to be added in output when using "return params" Dataframe
+
+    methods :
+        List of methods / impacts to consider
+
+    axis:
+        Designates the name of a custom attribute of foreground activities.
+        You may set this attribute using the method `myActivity.updateMeta(your_custom_attr="some_value")`
+
+        The impacts will be ventilated by this attribute.
+        This is useful to get impact by phase or sub-modules.
+
+    params:
+        Any other argument passed to this function is considered as a value of a parameter of the model :
+        Values can be either single float values, list or ndarray of values.
+        In the later case, all parameters should have the same number of values.
+        Paremeters that are not provided will have their default value set.
+
+    functional_unit:
+        Quantity (static or Sympy formula) by which to divide impacts. Optional, 1 by default.
+
+    return_params:
+        If true, also returns the value of all parameters in as tabbed DataFrame
+
+    description:
+        Optional description/metadata to be added in output when using "return params" Dataframe
+
+    Returns
+    -------
+    A dataframe with the results. If *return_params* is true, it returns `TabbedDataframe`,
+    including all parameters values, that can be saved as a multi sheet excel file.
+
+    Examples
+    --------
+    >>> compute_impacts(
+    >>>    mainAct1, # The root activity of the foreground model
+    >>>    [climate_change], # climate_change is the key (tuple) of the impact method
+    >>>    functional_unit=energy_expression, # energy expression is a Sympy expression computing the energy in kWh
+    >>>    axis="phase", # Split results by phase
+    >>>    return_params=True, # Return all parameter values
+    >>>
+    >>>    # Parameter values
+    >>>    p1=2.0,
+    >>>    p2=3.0)
+
+
     """
     dfs = dict()
 
@@ -565,7 +628,7 @@ def compute_impacts(
             # Check no params are passed for FixedParams
             for key in params:
                 if key in _fixed_params():
-                    error("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
+                    warn("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
             if functional_unit != 1:
                 alpha = alpha / functional_unit
@@ -604,7 +667,7 @@ def compute_impacts(
                 ]
 
                 # Rename "None" to others
-                df = df.rename(index={None: "*other*"})
+                df = df.rename(index={None: "_other_"})
 
                 # Sort index
                 df.sort_index(inplace=True)
@@ -706,7 +769,7 @@ def _tag_expr(expr, act, axis):
 
 
 @with_db_context(arg="act")
-def actToExpression(act: Activity, axis=None):
+def actToExpression(act: ActivityExtended, axis=None):
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -750,7 +813,7 @@ def actToExpression(act: Activity, axis=None):
         for exch in act.exchanges():
             formula = _getAmountOrFormula(exch)
 
-            if isinstance(formula, types.FunctionType):
+            if isinstance(formula, FunctionType):
                 # Some amounts in EIDB are functions ... we ignore them
                 continue
 
@@ -792,6 +855,7 @@ def actToExpression(act: Activity, axis=None):
 
     if isinstance(expr, float):
         expr = simplify(expr)
+
     else:
         # Replace fixed params with their default value
         expr = _replace_fixed_params(expr, _fixed_params().values())
@@ -801,96 +865,3 @@ def actToExpression(act: Activity, axis=None):
 
 def _reverse_dict(dic):
     return {v: k for k, v in dic.items()}
-
-
-def exploreImpacts(impact, *activities: ActivityExtended, **params):
-    """
-    Advanced version of #printAct()
-
-    Displays all exchanges of one or several activities and their impacts.
-    If parameter values are provided, formulas will be evaluated accordingly.
-    If two activities are provided, they will be shown side by side and compared.
-    """
-    tables = []
-    names = []
-
-    diffOnly = params.pop("diffOnly", False)
-    withImpactPerUnit = params.pop("withImpactPerUnit", False)
-
-    for main_act in activities:
-        inputs_by_ex_name = dict()
-        data = dict()
-
-        for i, (name, input, amount) in enumerate(main_act.listExchanges()):
-            # Params provided ? Evaluate formulas
-            if len(params) > 0 and isinstance(amount, Basic):
-                amount = compute_expr_value(amount, params)
-
-            i = 1
-            ex_name = name
-            while ex_name in data:
-                ex_name = "%s#%d" % (name, i)
-                i += 1
-
-            inputs_by_ex_name[ex_name] = _createTechProxyForBio(input.key, main_act.key[0])
-
-            input_name = _actName(input)
-
-            if _isForeground(input.key[0]):
-                input_name += "{user-db}"
-
-            data[ex_name] = dict(input=input_name, amount=amount)
-
-        # Provide impact calculation if impact provided
-        all_acts = list(set(inputs_by_ex_name.values()))
-        res = multiLCAAlgebric(all_acts, [impact], **params)
-        impacts = res[res.columns.tolist()[0]].to_list()
-
-        impact_by_act = {act: value for act, value in zip(all_acts, impacts)}
-
-        # Add impacts to data
-        for key, vals in data.items():
-            amount = vals["amount"]
-            act = inputs_by_ex_name[key]
-            impact = impact_by_act[act]
-
-            if withImpactPerUnit:
-                vals["impact_per_unit"] = impact
-            vals["impact"] = amount * impact
-
-        # To dataframe
-        df = pd.DataFrame(data)
-
-        tables.append(df.T)
-        names.append(_actDesc(main_act))
-
-    full = pd.concat(tables, axis=1, keys=names, sort=True)
-
-    # Highlight differences in case two activites are provided
-    if len(activities) == 2:
-        YELLOW = "background-color:NavajoWhite"
-        diff_cols = ["amount", "input", "impact"]
-        cols1 = dict()
-        cols2 = dict()
-        for col_name in diff_cols:
-            cols1[col_name] = full.columns.get_loc((names[0], col_name))
-            cols2[col_name] = full.columns.get_loc((names[1], col_name))
-
-        if diffOnly:
-
-            def isDiff(row):
-                return row[cols1["impact"]] != row[cols2["impact"]]
-
-            full = full.loc[isDiff]
-
-        def same_amount(row):
-            res = [""] * len(row)
-            for col_name in diff_cols:
-                if row[cols1[col_name]] != row[cols2[col_name]]:
-                    res[cols1[col_name]] = YELLOW
-                    res[cols2[col_name]] = YELLOW
-            return res
-
-        full = full.style.apply(same_amount, axis=1)
-
-    return full

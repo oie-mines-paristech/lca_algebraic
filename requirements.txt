@@ -16,3 +16,4 @@ python-dotenv
 pypardiso
 pyarrow
 pint
+typing-extensions

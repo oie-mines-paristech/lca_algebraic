@@ -19,3 +19,5 @@ dist
 *.bash
 settings.env
 .env
+doc/build
+doc/**/*.ipynb

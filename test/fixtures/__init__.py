@@ -1,6 +1,6 @@
 # Defines basic activities and methods for test
 from lca_algebraic import *
-from lca_algebraic import getActByCode
+from lca_algebraic import getActByCode, newActivity
 
 
 def init_acts(db):

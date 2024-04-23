@@ -11,6 +11,18 @@ LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
 
 
+# Overide the behaviour for pickling sympy.UndefineFunction
+class Pickler(pickle.Pickler):
+    from sympy.core.function import UndefinedFunction
+
+    def reducer_override(self, obj):
+        # FIXME: maybe too gready, we may check if obj is an instance of
+        #        registered functions instead.
+        if obj.__class__ is Pickler.UndefinedFunction:
+            return type, (obj.__name__, obj.__bases__, dict(obj.__dict__))
+        return NotImplemented
+
+
 def last_db_update():
     """Get the last update of current database project"""
     filename = path.join(bw.projects.dir, "lci", "databases.db")
@@ -67,7 +79,7 @@ class _CacheDict:
         # Save data on exit
         if Settings.cache_enabled and self.data:
             with open(_CacheDict.filename(self.name), "wb") as pickleFile:
-                self.data = pickle.dump(self.data, pickleFile)
+                self.data = Pickler(pickleFile).dump(self.data)
 
     @classmethod
     def filename(cls, name):

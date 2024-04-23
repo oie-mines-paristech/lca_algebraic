@@ -42,21 +42,24 @@ source .venv/bin/activate
 
 > pip install lca_algebraic
 
+## Source code
+
+The source code is available of our {gitref}`github </>`
 
 # Licence & Copyright
 
 This library has been developed by [OIE - MinesParistech](http://www.oie.mines-paristech.fr), for the project [*INCER-ACV*](https://librairie.ademe.fr/energies-renouvelables-reseaux-et-stockage/4448-incer-acv.html), 
 lead by [ADEME](https://www.ademe.fr/). 
 
-It is distributed under the [BSD License](./LICENSE)
+It is distributed under the {gitref}`BSD License </LICENSE>`.
 
-# Mailing list
+# Summary 
 
-Please register to this dedicated mailing list to discuss the evolutions of this library and be informed of future releases :
-
-[lca_algebraic@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/lca_algebraic)
-
-
-# Documentation
-
-Full documentation and example notebooks are [hosted on **readthedocs**](https://lca-algebraic.readthedocs.io/)
+```{toctree}
+---
+maxdepth: 2
+---
+Introduction <self>
+api/index
+notebooks/index
+```

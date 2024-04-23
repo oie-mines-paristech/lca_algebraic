@@ -1,7 +1,7 @@
 import brightway2 as bw
 from pint import DimensionalityError, UnitRegistry
 
-from . import getActByCode
+from .base_utils import getActByCode
 
 NEW_UNITS = {"person"}
 
@@ -9,7 +9,7 @@ UNIT_ALIASES = {
     "ratio": "count",
     "fraction": "count",
     "unit": "count",
-    "ton": "metric_ton",  # Override silly US ton to metric ton (fck imperial unit system ...)
+    "ton": "metric_ton",  # Override silly US ton to metric ton (f*ck imperial unit system ...)
 }
 
 
@@ -36,15 +36,15 @@ def check_unit_consistency(db_name: str):
 
 
 def define_separate_unit(unit_name):
-    """Define completely new units / dimention that cannot be added to anything else : like 'kwp' 'panel'"""
+    """Define completely new units / dimension that cannot be added to anything else : like 'kwp' 'panel'"""
     unit_registry.define(f"{unit_name} = [{unit_name}]")
 
 
 def define_alias_unit(unit_name, expression):
     """Define alias / shortcut for exiting units
     Examples:
-         >>> define_alias_unit("square_meter", u*meter * u.meter)
-         >>> define_alias_unit("tkm", u*ton * u.kilometer)
+         >>> define_alias_unit("square_meter", u.meter * u.meter)
+         >>> define_alias_unit("tkm", u.ton * u.kilometer)
     """
     unit_registry.define(f"{unit_name} = {expression}")
 
@@ -64,7 +64,7 @@ def is_dimensionless(unit):
         return False
 
 
-# Add addition units
+# Add some additional units
 
 for unit in NEW_UNITS:
     define_separate_unit(unit)

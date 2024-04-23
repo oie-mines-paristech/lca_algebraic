@@ -3,24 +3,41 @@ import random
 import warnings
 from collections import defaultdict
 from time import time
-from typing import List, Tuple, Type
+from typing import Dict, List, Tuple, Type
 
 import numpy as np
 import seaborn as sns
+from bw2data.backends.peewee import Activity
 from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from SALib.analyze import sobol as analyse_sobol
 from SALib.sample import sobol, sobol_sequence
-from sympy import Abs, Add, AtomicExpr, Eq, Expr, Float, Mul, Number, Piecewise, Sum
+from sympy import (
+    Abs,
+    Add,
+    AtomicExpr,
+    Eq,
+    Expr,
+    Float,
+    Mul,
+    Number,
+    Piecewise,
+    Sum,
+    simplify,
+    symbols,
+)
 from sympy.core.operations import AssocOp
 
-from .base_utils import _display_tabs, _method_unit, displayWithExportButton, r_squared
+from .base_utils import (
+    ValueOrExpression,
+    _display_tabs,
+    displayWithExportButton,
+    r_squared,
+)
+from .database import DbContext, with_db_context
 from .lca import (
-    Activity,
-    DbContext,
-    Dict,
     LambdaWithParamNames,
     Symbol,
     _expanded_names_to_names,
@@ -31,14 +48,11 @@ from .lca import (
     _replace_fixed_params,
     compute_impacts,
     concurrent,
-    error,
     lambdify,
-    method_name,
     pd,
-    simplify,
-    symbols,
-    with_db_context,
 )
+from .log import warn
+from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
     NameType,
@@ -89,14 +103,29 @@ def _extract_var_params(lambdas):
 
 @with_db_context(arg="model")
 def oat_matrix(
-    model,
+    model: Activity,
     impacts,
-    functional_unit=1,
+    functional_unit: ValueOrExpression = 1,
     n=10,
     title="Impact variability (% of mean)",
     name_type=NameType.LABEL,
 ):
-    """Generates a heatmap of the incertitude of the model, varying input parameters one a a time."""
+    """
+
+    This function generates a heat map of relative the variance of impacts
+    for each parameter varying along its min/max values.
+
+    Parameters
+    ----------
+    model:
+        Root activity of the inventory
+
+    impacts:
+        Impact variabilityList of impact methods keys (tuples)
+
+    functional_unit:
+        Float value of expression by which to divide each impact.
+    """
 
     # Compile model into lambda functions for fast LCA
     lambdas = _preMultiLCAAlgebric(model, impacts, alpha=1 / functional_unit)
@@ -127,33 +156,18 @@ def oat_matrix(
     _heatmap(change.transpose(), title, 100, ints=True)
 
 
-def oat_dasboard(
-    modelOrLambdas,
+def _oat_dasboard(
+    model,
     impacts,
-    varying_param: ParamDef,
+    varying_param: ParamDef = None,
     n=10,
     all_param_names=None,
     figsize=(15, 15),
     figspace=(0.5, 0.5),
     sharex=True,
     cols=3,
-    func_unit="kWh",
+    func_unit_name="kWh",
 ):
-    """
-    Analyse the evolution of impacts for a single parameter. The other parameters are set to their default values.
-    The result heatmap shows percentage of variation relative to median value.
-
-    Parameters
-    ----------
-    model : activity, or lambdas as precomputed by preMultiLCAAlgebric, for faster computation
-    impacts : set of methods
-    param: parameter to analyse
-    n: number of samples of the parameter
-    figsize: Size of figure fro graphs : (15, 15 by default)
-    figspace: Space between figures for graphs : (0.5, 0.5) by default
-    sharex: Shared X axes ? True by default
-    """
-
     if all_param_names is None:
         all_param_names = _param_registry().keys()
 
@@ -164,11 +178,11 @@ def oat_dasboard(
 
     # print("Params: ", params)
 
-    if isinstance(modelOrLambdas, Activity):
-        with DbContext(modelOrLambdas):
-            df = compute_impacts(modelOrLambdas, impacts, **params)
+    if isinstance(model, Activity):
+        with DbContext(model):
+            df = compute_impacts(model, impacts, **params)
     else:
-        df = _postMultiLCAAlgebric(impacts, modelOrLambdas, **params)
+        df = _postMultiLCAAlgebric(impacts, model, **params)
 
     # Add X values in the table
     pname = varying_param.name
@@ -202,7 +216,7 @@ def oat_dasboard(
 
             for ax, impact in zip(axes, impacts):
                 ax.set_ylim(ymin=0)
-                unit = _method_unit(impact) + " / " + func_unit
+                unit = method_unit(impact) + " / " + func_unit_name
                 ax.set_ylabel(unit, fontsize=15)
                 ax.set_xlabel(pname, fontsize=15)
 
@@ -221,21 +235,50 @@ def oat_dasboard(
 
 
 @with_db_context(arg="model")
-def oat_dashboard_interact(model, methods, functional_unit=1, **kwparams):
-    """Interactive dashboard, with a dropdown for selecting parameter
+def oat_dashboard(model, impacts, functional_unit: ValueOrExpression = 1, func_unit_name="kWh", **kwparams):
+    """
+    This function runs a "one at a time" analysis on the selected param.
+
+    It makes each parameter vary on its min:max range, while keeping other parameters at their default values.
+
+    It returns an interactive dashboard.
 
     Parameters
     ----------
-    figsize: Size of figure fro graphs : (15, 15 by default)
-    figspace: Space between figures for graphs : (0.5, 0.5) by default
-    sharex: Shared X axes ? True by default
+
+    model :
+        Root activity of the inventory
+
+    methods :
+        List of methods keys (tuple)
+
+    functional_unit:
+        Value of sympy expression by which to divide the impacts
+
+    func_unit_name:
+        Name of the physical unit of the functional unit, for display
+
+    figsize:
+        Size of figure fro graphs : (15, 15 by default)
+    figspace:
+        Space between figures for graphs : (0.5, 0.5) by default
+    sharex:
+        Shared X axes ? True by default
+
+    Returns
+    -------
+
+    An interactive dashboard with selection of a parameter and graphs of impacts.
+
     """
 
-    lambdas = _preMultiLCAAlgebric(model, methods, alpha=1 / functional_unit)
+    lambdas = _preMultiLCAAlgebric(model, impacts, alpha=1 / functional_unit)
 
     def process_func(param):
         with DbContext(model):
-            oat_dasboard(lambdas, methods, _param_registry()[param], **kwparams)
+            _oat_dasboard(
+                model=lambdas, impacts=impacts, varying_param=_param_registry()[param], func_unit_name=func_unit_name, **kwparams
+            )
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
     param_list = list(_variable_params(param_list).keys())
@@ -359,7 +402,7 @@ def _sobols(methods, problem, Y) -> SobolResults:
             st_conf[:, imethod] = res["ST_conf"]
 
         except Exception as e:
-            error("Sobol failed on %s" % imethod[2], e)
+            warn("Sobol failed on %s" % imethod[2], e)
 
     return SobolResults(s1, s2, st, s1_conf, s2_conf, st_conf)
 
@@ -452,7 +495,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
         ax.violinplot(data, showmedians=True)
         ax.title.set_text(method_name(method))
         ax.set_ylim(ymin=0)
-        ax.set_ylabel(_method_unit(method))
+        ax.set_ylabel(method_unit(method))
         ax.set_xticklabels([])
 
         # Add text
@@ -562,16 +605,46 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
 
 @with_db_context(arg="model")
-def incer_stochastic_dashboard(model, methods, n=DEFAULT_N, var_params=None, functional_unit=1, **kwparams):
-    """Generates a dashboard with several statistics : matrix of parameter incertitude, violin diagrams, ...
+def incer_stochastic_dashboard(
+    model: Activity, methods, n=DEFAULT_N, var_params=None, functional_unit=ValueOrExpression, **kwparams
+):
+    """
+    This function runs a monte carlo & Sobol analysis (GSA) on a parametric model and displays a dashboard with results.
 
-    parameters
+    Parameters
     ----------
-    var_params: Optional list of parameters to vary.
-    By default use all the parameters with distribution not FIXED
-    figsize: Size of figure for violin plots : (15, 15) by default
-    figspace: Space between violin graphs (0.5, 0.5) by default
-    sharex: Share X axe for violin graph : True by default
+    model:
+        The root activity of your inventory
+
+    methods:
+        List of impact methods keys (tuples)
+
+    var_params:
+        Optional list of parameters to vary.
+        By default, all the parameters that are not marked as *FIXED* will be varyed.
+
+    functional_unit:
+        Float value or Sympy expression by which to divide the impacts
+
+    figsize:
+        Size of figure for violin plots : (15, 15) by default
+
+    figspace:
+        Space between violin graphs (0.5, 0.5) by default
+
+    sharex:
+        Share X axe for violin graph : True by default
+
+
+    Returns
+    -------
+    An interactive dashboard with 4 tabs :
+
+    * Violin graphs with distributions of impacts
+    * Bar graph with relative variance of impacts
+    * A heatmap amtrix of Sobol indices for each paramter x impact method
+    * A detailed table with all values
+
     """
 
     problem, _, Y = _stochastics(model, methods, n, var_params=var_params, functional_unit=functional_unit)
@@ -727,33 +800,71 @@ def _replace_abs(exp):
 
 @with_db_context(arg="model")
 def sobol_simplify_model(
-    model,
+    model: Activity,
     methods,
     min_ratio=0.8,
+    functional_unit=1,
     n=DEFAULT_N * 2,
     var_params=None,
     fixed_mode=FixedParamMode.MEDIAN,
     num_digits=3,
     simple_sums=True,
-    functional_unit=1,
     simple_products=True,
 ) -> List[LambdaWithParamNames]:
     """
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
     Then generates simplified models for those parameters.
 
-    parameters
+    The other parameters are replaced by their mean or median values.
+
+    Also the term contributing to less than 1% of variation in sums and products are removed.
+
+    Decimal numbers are rounded to 3 digits.
+
+    Parameters
     ----------
-    min_ratio: [0, 1] minimum amount of first order variation (sum of S1) to explain
-    var_params: Optional list of parameters to vary.
-    fixed_mode : What to replace minor parameters with : MEDIAN by default
-    simple_sums: If true (default) remove terms in sums that are lower than 1%
+    model:
+        Root activity of the inventory
 
-    returns
-    _______
+    methods:
+        List of impact methods to consider
 
-    List of LambdaWithParamNames, one per impact : with wraps the simplified expression together with the
-    list of required parameters and a fast complied lambda function for fast evaluation.
+    min_ratio:
+        [0, 1] minimum amount of first order variation (sum of S1) to explain; 0.8 (80%) by default.
+
+    var_params:
+        Optional list of parameters to vary. If not provided, all parameters vary.
+
+    fixed_mode :
+        What to replace minor parameters with : MEDIAN by default
+
+    simple_sums:
+        If true (default) remove terms in sums that are lower than 1%
+
+    simple_products:
+        If true (default) remove terms in products that contribute to less than 1% to variation
+
+    num_digits:
+        Number of decimal places to round decimal number to (default 3)
+
+    Returns
+    -------
+    List of *LambdaWithParamNames*, one per impact.
+    The class *LambdaWithParamNames* wraps the simplified expression together with the
+    list of required parameters and compiled lambda functions for fast evaluation.
+
+    The core simplified expresion may be access with **res[i].expr**
+
+
+    Examples
+    --------
+
+    >>> res = sobol_simplify_model(
+    >>>     model=total_inventory,
+    >>>     methods=[climate_change],
+    >>>     functional_unit=total_energy) # Holds a sympy expression computing the total energy
+
+    >>> print(res[0].expr) # Dispalt the simplified expression
     """
 
     # Default var param names
@@ -1019,32 +1130,11 @@ def _graph(
     return dict(median=median, std=std, p=pvals, mean=mean, var=variability)
 
 
-def distrib(*args, **kwargs):
-    """
-    Show distributions together with statistical outcomes
-
-    Synonym of #graphs()
-
-    parameters
-    ----------
-    model: normalized model
-    methods: List of impacts
-    Y: output of processing. If None, monte carlo will be processed again
-    nb_cols : number of colons to display graphs on
-    invert : list of methods for which result should be inverted (1/X). None by default
-    scales : Dict of method => scale, for multiplying results. To be used with unit overrides
-    unit_overrides : Dict of method => string for overriding unit, in respect to custom scales
-    height: Height of graph : 10 inches be default
-    width : Width of graphs : 15 inches by default
-    """
-    return graphs(*args, **kwargs)
-
-
-@with_db_context(arg="model")
-def graphs(
+def distrib(
     model,
     methods,
     functional_unit=1,
+    func_unit_name="",
     Y=None,
     nb_cols=1,
     axes=None,
@@ -1054,23 +1144,43 @@ def graphs(
     unit_overrides=None,
     height=10,
     width=15,
-    func_unit="kWh",
     **kwargs,
 ):
     """
     Show distributions together with statistical outcomes
 
+    Synonym of #graphs()
+
     parameters
     ----------
-    model: normalized model
-    methods: List of impacts
-    Y: output of processing. If None, monte carlo will be processed again
-    nb_cols : number of colons to display graphs on
-    invert : list of methods for which result should be inverted (1/X). None by default
-    scales : Dict of method => scale, for multiplying results. To be used with unit overrides
-    unit_overrides : Dict of method => string for overriding unit, in respect to custom scales
-    height: Height of graph : 10 inches be default
-    width : Width of graphs : 15 inches by default
+    model:
+        Root activity of the onventory
+
+    methods:
+        List of impact methods keys (tuples)
+
+    functional_unit:
+        Value of expression by which to divide the impacts
+
+    func_unit_name:
+        Physical unit name of the fonctional unit
+
+    nb_cols :
+        number of colons to display graphs on
+
+    invert :
+        list of methods for which result should be inverted (1/X). None by default
+
+    scales :
+        Dict of method => scale, for multiplying results. To be used with unit overrides
+
+    unit_overrides :
+        Dict of method => string for overriding unit, in respect to custom scales
+
+    height:
+        Height of graph : 10 inches be default
+    width :
+        Width of graphs : 15 inches by default
     """
 
     if Y is None:
@@ -1102,9 +1212,9 @@ def graphs(
         if unit_overrides and method in unit_overrides:
             unit = unit_overrides[method]
         else:
-            unit = _method_unit(method)
+            unit = method_unit(method)
 
-        unit += " / " + func_unit
+        unit += " / " + func_unit_name
 
         stats = _graph(data, unit, graph_title, ax=ax, **kwargs)
 
@@ -1119,10 +1229,11 @@ def graphs(
 
 @with_db_context(arg="model")
 def compare_simplified(
-    model,
+    model: Activity,
     methods,
     simpl_lambdas,
     functional_unit=1,
+    func_unit_name="",
     scales=None,  # Dict of method => scale
     unit_overrides=None,
     nb_cols=2,
@@ -1130,21 +1241,40 @@ def compare_simplified(
     width=15,
     textboxright=0.6,
     r2_height=0.65,
-    func_unit="kWh",
     residuals=False,
     **kwargs,
 ):
     """
-    Compare distribution of simplified model with full model
+    Compare distribution of simplified model with full model.
+
+    This functions runs the same monte caarlo random sample as input and feed it to oboth simplified models and full
+    model. It displays graphs and metrics comparing the two.
 
     Parameters
     ----------
-    model: Model
-    residuals : If true, draw heat map of residuals, instead of distributions
-    methods : Impact methods
-    simpl_lambdas : Simplified lambdas, as returned by sobol_simplify_model(...)
-    nb_cols: number of columns for displaying graphs
-    percentiles: List of percentiles to compute [5, 95] by default
+    model:
+        Root activity of the inventory
+
+    methods :
+        List of impact methods
+
+    functional_unit:
+        Float value or sympy expression by whicxh to devide the impacts
+
+    func_unit_name:
+        Name of the physical functional unit
+
+    simpl_lambdas :
+        Simplified lambdas, as returned by **sobol_simplify_model(...)**
+
+    residuals :
+        If true, draw heat map of residuals, rather than distributions
+
+    nb_cols:
+        number of columns for displaying graphs
+
+    percentiles:
+        List of percentiles to compute [5, 95] by default
     """
 
     # Raw model
@@ -1183,9 +1313,9 @@ def compare_simplified(
         if unit_overrides and method in unit_overrides:
             unit = unit_overrides[method]
         else:
-            unit = _method_unit(method)
+            unit = method_unit(method)
 
-        unit += " / " + func_unit
+        unit += " / " + func_unit_name
 
         if residuals:
             hb = ax.hexbin(d1, d2, gridsize=(200, 200), mincnt=1)

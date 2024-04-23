@@ -1,7 +1,6 @@
 from contextlib import AbstractContextManager
 from inspect import isfunction
-from sys import stderr
-from typing import Dict, Iterable, List, Tuple, TypeVar, Union
+from typing import Dict, Iterable, Union
 
 import brightway2 as bw
 import ipywidgets as widgets
@@ -9,35 +8,10 @@ import numpy as np
 import pandas as pd
 from bw2data.backends.peewee import Activity
 from IPython.display import display
-from pint import Quantity
 from six import raise_from
 from sympy import Basic
 
-DEBUG = False
-LANG = "fr"
-UNIT_OVERRIDE = dict()
-
-
-def set_debug(value=True):
-    """Activate debug logs"""
-    global DEBUG
-    DEBUG = value
-
-
-def set_lang(lang):
-    """Set language"""
-    global LANG
-    LANG = lang
-
-
-def debug(*args, **kwargs):
-    if DEBUG:
-        print(*args, **kwargs)
-
-
-def error(*args, **kwargs):
-    """Print message on stderr"""
-    print(*args, **kwargs, file=stderr)
+_user_functions = dict()
 
 
 def _isOutputExch(exc):
@@ -58,13 +32,6 @@ def _getDb(dbname) -> bw.Database:
     return dbs[dbname]
 
 
-def interpolate(x, x1, x2, y1, y2):
-    """Build an expression for linear interpolation between two points.
-    If x is not within [x1, x2] the corresponding bound Y values are returned"""
-    x = Min(Max(x, x1), x2)
-    return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
-
-
 def Max(a, b):
     """Max define as algrebraic forumal with 'abs' for proper computation on vectors"""
     return (a + b + abs(a - b)) / 2
@@ -81,18 +48,6 @@ def _actDesc(act: Activity):
     amount = act.getOutputAmount()
 
     return "%s (%f %s)" % (name, amount, act["unit"])
-
-
-def _method_unit(method, fu_unit=None):
-    if method in UNIT_OVERRIDE:
-        res = UNIT_OVERRIDE[method]
-    else:
-        res = bw.Method(method).metadata["unit"]
-
-    if fu_unit is not None:
-        res += f" / {fu_unit}"
-
-    return res
 
 
 def _actName(act: Activity):
@@ -218,14 +173,9 @@ def one(it: Iterable):
     return it[0]
 
 
+ValueOrExpression = Union[float, Basic]
+
+
 def getActByCode(db_name, code):
     """Get activity by code"""
     return _getDb(db_name).get(code)
-
-
-# Type definition
-Amount = Union[Basic, Quantity, float]
-
-T = TypeVar("T")
-OneOrList = Union[T, List[T]]
-MethodKey = Union[Tuple[str, str], Tuple[str, str, str]]
