@@ -11,6 +11,7 @@ from test.conftest import USER_DB
 def enable_units():
     # Enable units
     Settings.units_enabled = True
+    u.auto_scale = False
 
     yield
 
@@ -34,7 +35,15 @@ def test_new_alias_unit():
     define_alias_unit("biton", 1000 * u.ton)
 
     assert 1 * u.tkm == 1 * u.ton * u.km
-    assert (1000 * u.ton + 1 * u.kton) == 2000.0 * u.ton
+    assert (1000 * u.ton + (1 * u.kton).to(u.ton)) == 2000.0 * u.ton
+
+
+def test_auto_scale():
+
+    u.auto_scale = True
+
+    # Should scale autoamtically quantities of compatible units
+    assert 1 * u.m + 1 * u.km == 1001 * u.meter
 
 
 def test_newp_param():
