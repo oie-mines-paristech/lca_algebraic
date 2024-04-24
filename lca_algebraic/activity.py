@@ -9,7 +9,7 @@ import pandas as pd
 from bw2data.backends.peewee import Activity, ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from pint import Quantity
-from sympy import Basic, symbols
+from sympy import Basic, simplify, symbols
 
 from lca_algebraic.base_utils import _actName, _getDb, _isOutputExch
 from lca_algebraic.database import (
@@ -34,6 +34,7 @@ from .units import unit_registry as u
 
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 old_amount = symbols("old_amount")
+old_amount_with_unit = symbols("old_amount") * u.old_unit
 
 
 def _exch_name(exch):
@@ -146,29 +147,38 @@ class ActivityExtended(Activity):
         """
 
         # Update exchanges
-        for name, attrs in updates.items():
+        for name, update in updates.items():
+            # Build inout / amount
+            if update is not None and not isinstance(update, dict):
+                if isinstance(update, Activity):
+                    update = dict(input=update)
+                else:
+                    update = dict(amount=update)
+
             exchs = self.getExchange(name, single="*" not in name)
             if not isinstance(exchs, list):
                 exchs = [exchs]
 
             for exch in exchs:
-                if attrs is None:
+                # Delete exchange
+                if update is None:
                     exch.delete()
                     exch.save()
                     continue
 
-                # Single value ? => amount
-                if not isinstance(attrs, dict):
-                    if isinstance(attrs, Activity):
-                        attrs = dict(input=attrs)
-                    else:
-                        attrs = dict(amount=attrs)
+                # Attributes to update
+                ex_attrs = update.copy()
 
-                if "amount" in attrs:
-                    attrs.update(_amountToFormula(attrs["amount"], exch["amount"], unit=exch["unit"]))
+                # Parse formula / check units
+                if "amount" in ex_attrs:
+                    ex_attrs.update(
+                        _amountToFormula(ex_attrs["amount"], exch["amount"], unit=exch["unit"], switchAct=self.isSwitch())
+                    )
 
-                exch.update(attrs)
+                exch.update(ex_attrs)
                 exch.save()
+
+                self._check_unit(exch)
 
     def deleteExchanges(self, name, single=True):
         """Remove matching exchanges
@@ -217,10 +227,26 @@ class ActivityExtended(Activity):
                     type="production" if self == sub_act else "technosphere" if sub_act.get("type") == "process" else "biosphere",
                 )
 
+                self._check_unit(exch)
+
                 exch.update(attrs)
-                exch.update(_amountToFormula(amount, unit=exch["unit"]))
+                exch.update(_amountToFormula(amount, unit=exch["unit"], switchAct=self.isSwitch()))
                 exch.save()
             self.save()
+
+    def _check_unit(self, exchange):
+        """Check the units of an exchange : only valid for switch activities, for which units should be the same"""
+        if not Settings.units_enabled or not self.isSwitch():
+            return
+
+        ex_unit = parse_db_unit(exchange["unit"])
+        unit = parse_db_unit(self["unit"])
+
+        if unit != ex_unit:
+            raise Exception(f"Units should be the same in a switch activity {unit} != {ex_unit} for {exchange}")
+
+    def isSwitch(self):
+        return self.get("switch", False)
 
     @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
@@ -373,7 +399,16 @@ def findTechAct(name=None, loc=None, single=True, **kwargs):
     return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
 
 
-def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None, unit=None):
+def _equals(val1: ValueOrExpression, val2: ValueOrExpression):
+    """Compare float of Sympy values"""
+    if val1 == val2:
+        return True
+    if isinstance(val1, Basic) != isinstance(val2, Basic):
+        return False
+    return simplify(val1) == simplify(val2)
+
+
+def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None, unit=None, switchAct=False):
     """Transform amount in exchange to either simple amount or formula"""
     res = dict()
 
@@ -385,11 +420,20 @@ def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None, unit=
             unit = parse_db_unit(unit)
 
         if isinstance(amount, Quantity):
-            # Try to transform the unit, and take only its
-            amount = amount.to(unit).magnitude
+            # Using 'old_amount' ? => replace with requested unit
+            if amount.units == u.old_unit:
+                amount = u.Quantity(amount.magnitude, unit)
 
-        elif not is_dimensionless(unit):
-            raise Exception(f"Unit mode enabled, unit '{unit}' expected, and dimensionless amount provided : {amount}")
+            new_amount = amount.to(unit).magnitude
+
+            if not _equals(amount.magnitude, new_amount) and not u.auto_scale:
+                raise Exception(f"auto_scale is disabled. '{amount}' should be explicity transformed to {unit}")
+
+            # Transform the unit, and take only its
+            amount = new_amount
+
+        elif not is_dimensionless(unit) and not switchAct:
+            raise Exception(f"Unit '{unit}' expected, and dimensionless amount provided in a non-switch Activity: {amount}")
 
     if isinstance(amount, Basic):
         if currentAmount is not None:
@@ -437,6 +481,7 @@ def newActivity(
     amount=1,
     code=None,
     type="process",
+    switchActivity=False,
     **argv,
 ) -> ActivityExtended:
     """Creates a new activity
@@ -459,6 +504,10 @@ def newActivity(
     argv :
         Any extra params passed as properties of the new activity
 
+    switch:
+        Activities marked as *switch* are expected to be linear combination of activities of same unit.
+        This option changes how physical units are checked.
+
     amount:
         Production amount. 1 by default
     """
@@ -469,6 +518,9 @@ def newActivity(
     act["name"] = name
     act["type"] = type
     act["unit"] = unit
+    if switchActivity:
+        act["switch"] = True
+
     act.update(argv)
 
     # Add single production exchange
@@ -584,7 +636,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
         exch[act] += amount * paramDef.symbol(key)
         unit = act["unit"]
 
-    res = newActivity(dbname, name, unit=unit, exchanges=exch)
+    res = newActivity(dbname, name, unit=unit, exchanges=exch, switch=True)
 
     return res
 

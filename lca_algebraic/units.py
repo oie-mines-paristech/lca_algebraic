@@ -7,14 +7,16 @@ from pint.facets.plain import PlainQuantity
 
 from .base_utils import getActByCode
 
-NEW_UNITS = {"person"}
+NEW_UNITS = {"person", "old_unit"}  # Used with 'old_amount'
 
-UNIT_ALIASES = {
+CORE_ALIASES = {
     "ratio": "count",
     "fraction": "count",
     "unit": "count",
     "ton": "metric_ton",  # Override silly US ton to metric ton (f*ck imperial unit system ...)
 }
+
+ALIASES = {"square_meter": "m²"}
 
 
 # The global Unit registry
@@ -73,8 +75,11 @@ def is_dimensionless(unit):
 for unit in NEW_UNITS:
     define_separate_unit(unit)
 
-for key, val in UNIT_ALIASES.items():
+for key, val in CORE_ALIASES.items():
     unit_registry.define(f"@alias {val} = {key}")
+
+for key, val in ALIASES.items():
+    define_alias_unit(key, val)
 
 # Hack of Pint unit to fail when autoscale is false
 unit_registry.auto_scale = False
@@ -111,6 +116,12 @@ def _add_sub_modified(self: PlainQuantity, other, op):
             )
         elif self.dimensionless:
             units = self.UnitsContainer()
+
+            other_magnitude = self.to(units)._magnitude
+
+            if other_magnitude != self.magnitude and not self._REGISTRY.auto_scale:
+                raise (Exception(f"Auto scale disabled : explicit convertion of '{self}' to {units} required"))
+
             magnitude = op(
                 self.to(units)._magnitude,
                 _to_magnitude(other, self.force_ndarray, self.force_ndarray_like),

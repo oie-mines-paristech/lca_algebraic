@@ -11,12 +11,17 @@ from test.conftest import USER_DB
 def enable_units():
     # Enable units
     Settings.units_enabled = True
-    u.auto_scale = False
 
     yield
 
     # Enable units
     Settings.units_enabled = False
+
+
+@pytest.fixture(scope="function", autouse=True)
+def disable_autoscale():
+    u.auto_scale = False
+    yield
 
 
 def test_dimensionless_units():
@@ -39,7 +44,6 @@ def test_new_alias_unit():
 
 
 def test_auto_scale():
-
     u.auto_scale = True
 
     # Should scale autoamtically quantities of compatible units
@@ -60,6 +64,9 @@ def test_newp_param():
 def test_add_exchanges(data):
     p1_meter = newFloatParam("p1", default=0, min=0, max=1, unit="m")
     p2_kg = newFloatParam("p2", default=0, min=0, max=1, unit="kg")
+    p3_ton = newFloatParam("p3", default=0, min=0, max=1, unit="ton")
+
+    unit_registry.auto_scale = True
 
     # Should fail : BG activities are all in kg
     with pytest.raises(DimensionalityError):
@@ -68,8 +75,17 @@ def test_add_exchanges(data):
     # Should pass
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_kg})
 
+    unit_registry.auto_scale = False
+
+    # Should fail (autoscale disabled)
+    with pytest.raises(Exception) as e:
+        act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p3_ton})
+    assert "auto_scale" in str(e.value)
+
 
 def test_update_exchanges(data):
+    unit_registry.auto_scale = True
+
     p1_meter = newFloatParam("p1", default=0, min=0, max=1, unit="m")
     p2_ton = newFloatParam("p2", default=0, min=0, max=1, unit="ton")
     p2 = p2_ton.magnitude
