@@ -8,7 +8,7 @@ import brightway2 as bw
 import pandas as pd
 from bw2data.backends.peewee import Activity, ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
-from pint import Quantity
+from pint import DimensionalityError, Quantity
 from sympy import Basic, simplify, symbols
 
 from lca_algebraic.base_utils import _actName, _getDb, _isOutputExch
@@ -29,7 +29,7 @@ from lca_algebraic.params import (
 from .base_utils import ValueOrExpression, getActByCode
 from .log import logger, warn
 from .settings import Settings
-from .units import is_dimensionless, parse_db_unit
+from .units import is_dimensionless, is_equivalent, parse_db_unit
 from .units import unit_registry as u
 
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
@@ -147,38 +147,28 @@ class ActivityExtended(Activity):
         """
 
         # Update exchanges
-        for name, update in updates.items():
-            # Build inout / amount
-            if update is not None and not isinstance(update, dict):
-                if isinstance(update, Activity):
-                    update = dict(input=update)
+        for ex_name, updates in updates.items():
+            # Build input & amount
+            if updates is not None and not isinstance(updates, dict):
+                if isinstance(updates, Activity):
+                    updates = dict(input=updates)
                 else:
-                    update = dict(amount=update)
+                    updates = dict(amount=updates)
 
-            exchs = self.getExchange(name, single="*" not in name)
-            if not isinstance(exchs, list):
-                exchs = [exchs]
+            # Find echzanges matching name
+            matching_exchanges = self.getExchange(ex_name, single="*" not in name)
+            if not isinstance(matching_exchanges, list):
+                matching_exchanges = [matching_exchanges]
 
-            for exch in exchs:
+            # Loop on matching echanges to update
+            for exch in matching_exchanges:
                 # Delete exchange
-                if update is None:
+                if updates is None:
                     exch.delete()
                     exch.save()
                     continue
-
-                # Attributes to update
-                ex_attrs = update.copy()
-
-                # Parse formula / check units
-                if "amount" in ex_attrs:
-                    ex_attrs.update(
-                        _amountToFormula(ex_attrs["amount"], exch["amount"], unit=exch["unit"], switchAct=self.isSwitch())
-                    )
-
-                exch.update(ex_attrs)
-                exch.save()
-
-                self._check_unit(exch)
+                else:
+                    self._update_exchange(exch, updates)
 
     def deleteExchanges(self, name, single=True):
         """Remove matching exchanges
@@ -213,12 +203,9 @@ class ActivityExtended(Activity):
         """
 
         with DbContext(self.key[0]):
-            for sub_act, attrs in exchanges.items():
-                if isinstance(attrs, dict):
-                    amount = attrs.pop("amount")
-                else:
-                    amount = attrs
-                    attrs = dict()
+            for sub_act, updates in exchanges.items():
+                if not isinstance(updates, dict):
+                    updates = dict(amount=updates)
 
                 exch = self.new_exchange(
                     input=sub_act.key,
@@ -227,23 +214,102 @@ class ActivityExtended(Activity):
                     type="production" if self == sub_act else "technosphere" if sub_act.get("type") == "process" else "biosphere",
                 )
 
-                self._check_unit(exch)
+                self._update_exchange(exch, updates)
 
-                exch.update(attrs)
-                exch.update(_amountToFormula(amount, unit=exch["unit"], switchAct=self.isSwitch()))
-                exch.save()
             self.save()
 
-    def _check_unit(self, exchange):
-        """Check the units of an exchange : only valid for switch activities, for which units should be the same"""
-        if not Settings.units_enabled or not self.isSwitch():
-            return
+    def _transform_unit(self, amount: ValueOrExpression, exchange_unit: str):
+        if not Settings.units_enabled:
+            return amount
 
-        ex_unit = parse_db_unit(exchange["unit"])
-        unit = parse_db_unit(self["unit"])
+        # Parse unit
+        if exchange_unit is None:
+            logger.warn("Missing unit for target activity; Assuming dimensionless")
+            exchange_unit = u.dimensionless
+        else:
+            exchange_unit = parse_db_unit(exchange_unit)
 
-        if unit != ex_unit:
-            raise Exception(f"Units should be the same in a switch activity {unit} != {ex_unit} for {exchange}")
+        if not isinstance(amount, Quantity):
+            if not is_dimensionless(exchange_unit) and not self.isSwitch() and amount != 0:
+                raise Exception(
+                    f"Unit '{exchange_unit}' expected, and dimensionless amount provided in a non-switch Activity: {amount}"
+                )
+            else:
+                return amount
+
+        # Help the compiler
+        amount: Quantity
+
+        act_unit = parse_db_unit(self["unit"])
+
+        if self.isSwitch() and (exchange_unit != act_unit):
+            raise Exception(f"Units should be the same in a switch activity {exchange_unit} != {act_unit}")
+
+        # Using 'old_amount' ? => replace with requested unit
+        if amount.units == u.old_unit:
+            amount = u.Quantity(amount.magnitude, exchange_unit)
+
+        # We try to transform either to the exchange unit, or ex_unit/act_unit
+        for target_unit in [exchange_unit, exchange_unit / act_unit]:
+            # We'll catch error at the end if none of the target units worked
+            if not is_equivalent(target_unit, amount.units):
+                continue
+
+            # Try to convert
+            new_amount = amount.to(target_unit).magnitude
+
+            # Auto scale disabld ?
+            if not _equals(amount.magnitude, new_amount) and not u.auto_scale:
+                raise Exception(f"auto_scale is disabled. '{amount}' should be explicity transformed to {target_unit}")
+
+            return new_amount
+
+        # At this point, no convertion worked :
+        raise DimensionalityError(
+            amount.units,
+            exchange_unit,
+            f"Unit of amount '{amount}' is not compatible with physical unit of exchange '{exchange_unit}' or the "
+            f"unit of exchange divided by the unit of the activity : '{exchange_unit / act_unit}'",
+        )
+
+    def _amount_to_formula(self, amount: ValueOrExpression, exchange: ExchangeDataset):
+        res = dict()
+        if isinstance(amount, Basic):
+            current_amount = exchange.get("amount", None)
+            if current_amount is not None:
+                amount = amount.subs(old_amount, current_amount)
+
+            # Check the expression does not reference undefined params
+            all_symbols = list([key for param in _param_registry().values() for key, val in param.expandParams().items()])
+            for symbol in amount.free_symbols:
+                if not str(symbol) in all_symbols:
+                    raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
+
+            res["formula"] = str(amount)
+            res["amount"] = 0
+        elif isinstance(amount, float) or isinstance(amount, int):
+            res["amount"] = amount
+        else:
+            raise Exception(
+                "Amount should be either a constant number or a Sympy expression (expression of ParamDef). Was : %s"
+                % type(amount)
+            )
+        return res
+
+    def _update_exchange(self, exchange: ExchangeDataset, updates):
+        """Update a single exchange. Take care of setting amount / formula accordingly"""
+        amount = updates.pop("amount") if "amount" in updates else None
+
+        if amount is not None:
+            # Update units
+            amount = self._transform_unit(amount, exchange["unit"])
+
+            # Extract formula if two separate field "amount" and "formula"
+            # Update the list of updates
+            updates.update(self._amount_to_formula(amount, exchange))
+
+        exchange.update(updates)
+        exchange.save()
 
     def isSwitch(self):
         return self.get("switch", False)
@@ -405,55 +471,7 @@ def _equals(val1: ValueOrExpression, val2: ValueOrExpression):
         return True
     if isinstance(val1, Basic) != isinstance(val2, Basic):
         return False
-    return simplify(val1) == simplify(val2)
-
-
-def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None, unit=None, switchAct=False):
-    """Transform amount in exchange to either simple amount or formula"""
-    res = dict()
-
-    if Settings.units_enabled:
-        if unit is None:
-            logger.warn("Missing unit for target activity; Assuming dimensionless")
-            unit = u.dimensionless
-        else:
-            unit = parse_db_unit(unit)
-
-        if isinstance(amount, Quantity):
-            # Using 'old_amount' ? => replace with requested unit
-            if amount.units == u.old_unit:
-                amount = u.Quantity(amount.magnitude, unit)
-
-            new_amount = amount.to(unit).magnitude
-
-            if not _equals(amount.magnitude, new_amount) and not u.auto_scale:
-                raise Exception(f"auto_scale is disabled. '{amount}' should be explicity transformed to {unit}")
-
-            # Transform the unit, and take only its
-            amount = new_amount
-
-        elif not is_dimensionless(unit) and not switchAct:
-            raise Exception(f"Unit '{unit}' expected, and dimensionless amount provided in a non-switch Activity: {amount}")
-
-    if isinstance(amount, Basic):
-        if currentAmount is not None:
-            amount = amount.subs(old_amount, currentAmount)
-
-        # Check the expression does not reference undefined params
-        all_symbols = list([key for param in _param_registry().values() for key, val in param.expandParams().items()])
-        for symbol in amount.free_symbols:
-            if not str(symbol) in all_symbols:
-                raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
-
-        res["formula"] = str(amount)
-        res["amount"] = 0
-    elif isinstance(amount, float) or isinstance(amount, int):
-        res["amount"] = amount
-    else:
-        raise Exception(
-            "Amount should be either a constant number or a Sympy expression (expression of ParamDef). Was : %s" % type(amount)
-        )
-    return res
+    return simplify(val1 / val2) == 1.0
 
 
 def _newAct(db_name, code):

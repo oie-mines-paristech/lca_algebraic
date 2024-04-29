@@ -10,6 +10,7 @@ from bw2data.backends.peewee import Activity
 from IPython.display import display
 from six import raise_from
 from sympy import Basic
+from sympy.physics.units import Quantity
 
 _user_functions = dict()
 
@@ -173,7 +174,7 @@ def one(it: Iterable):
     return it[0]
 
 
-ValueOrExpression = Union[float, Basic]
+ValueOrExpression = Union[float, Basic, Quantity]
 
 
 def getActByCode(db_name, code):

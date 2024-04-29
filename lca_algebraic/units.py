@@ -1,7 +1,7 @@
 import operator
 
 import brightway2 as bw
-from pint import DimensionalityError, OffsetUnitCalculusError, UnitRegistry
+from pint import DimensionalityError, OffsetUnitCalculusError, Unit, UnitRegistry
 from pint.compat import _to_magnitude, zero_or_nan
 from pint.facets.plain import PlainQuantity
 
@@ -65,6 +65,14 @@ def parse_db_unit(unit_str):
 def is_dimensionless(unit):
     try:
         unit_registry.convert(1, unit, unit_registry.dimensionless)
+        return True
+    except DimensionalityError:
+        return False
+
+
+def is_equivalent(first: Unit, second: Unit):
+    try:
+        unit_registry.convert(1, first, second)
         return True
     except DimensionalityError:
         return False
