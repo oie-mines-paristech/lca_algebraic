@@ -27,7 +27,7 @@ First create a python environment, with **Python** [>=3.9] :
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
 ```bash
-conda env create -n lca python==3.10
+conda create -n lca python==3.10
 conda activate lca
 ```
 
@@ -40,7 +40,19 @@ source .venv/bin/activate
 
 ## 2) Install lca_algebraic
 
-> pip install lca_algebraic
+> pip install lca_algebraic 
+
+## 3) [Optional] Install Jupyter & Activity Browser 
+
+You may also install Jupyter and [Activity Browser](https://github.com/LCA-ActivityBrowser/activity-browser) on the same 
+environment.
+
+**Jupyter** :
+> pip  install jupyter
+
+**Activity Browser** can only be installed via conda/mamba. Note that it can also be installed on a separate Python env and will 
+still be able to access and browse the projects created programmatically with *lca_algebraic* / *Brightway*.  
+> conda install activity-browser
 
 
 # Licence & Copyright

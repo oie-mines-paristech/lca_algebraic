@@ -27,7 +27,7 @@ First create a python environment, with **Python** [>=3.9] :
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
 ```bash
-conda env create -n lca python==3.10
+conda create -n lca python==3.10
 conda activate lca
 ```
 
@@ -42,9 +42,23 @@ source .venv/bin/activate
 
 > pip install lca_algebraic
 
-## Source code
+
+## 3) [Optional] Install Jupyter & Activity Browser 
+
+You may also install Jupyter and [Activity Browser](https://github.com/LCA-ActivityBrowser/activity-browser) on the same 
+environment.
+
+**Jupyter** :
+> pip  install jupyter
+
+**Activity Browser** can only be installed via conda/mamba. Note that it can also be installed on environment and will 
+still be able to access and browse the projects created programmatically with *lca_algebraic* / *Brightway*.  
+> conda install activity-browser
+
+# Source code
 
 The source code is available of our {gitref}`github </>`
+
 
 # Licence & Copyright
 
@@ -52,6 +66,13 @@ This library has been developed by [OIE - MinesParistech](http://www.oie.mines-p
 lead by [ADEME](https://www.ademe.fr/). 
 
 It is distributed under the {gitref}`BSD License </LICENSE>`.
+
+# Mailing list
+
+Please register to this dedicated mailing list to discuss the evolutions of this library and be informed of future releases :
+
+[lca_algebraic@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/lca_algebraic)
+
 
 # Summary 
 
