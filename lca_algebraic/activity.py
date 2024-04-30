@@ -156,7 +156,7 @@ class ActivityExtended(Activity):
                     updates = dict(amount=updates)
 
             # Find echzanges matching name
-            matching_exchanges = self.getExchange(ex_name, single="*" not in name)
+            matching_exchanges = self.getExchange(ex_name, single="*" not in ex_name)
             if not isinstance(matching_exchanges, list):
                 matching_exchanges = [matching_exchanges]
 
