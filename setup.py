@@ -1,8 +1,26 @@
 import os
+import platform
 import subprocess
 from datetime import datetime
 
 from setuptools import setup
+
+REQUIREMENTS = [
+    "tabulate",
+    "ipywidgets",
+    "pandas",
+    "pyarrow",
+    "seaborn",
+    "sympy",
+    "matplotlib",
+    "deprecation",
+    "brightway2",
+    "SALib",
+    "pint",
+    "typing-extensions",
+]
+
+PYPARDISO = "pypardiso"
 
 
 # Utility function to read the README file.
@@ -19,6 +37,9 @@ def run(args):
 
 version = read("VERSION")
 name = "lca_algebraic"
+
+if platform.processor() == "x86_64":
+    REQUIREMENTS.append(PYPARDISO)
 
 # Try to get branch from git
 try:
@@ -57,19 +78,5 @@ setup(
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
     classifiers=[],
-    install_requires=[
-        "tabulate",
-        "ipywidgets",
-        "pandas",
-        "pyarrow",
-        "seaborn",
-        "sympy",
-        "matplotlib",
-        "deprecation",
-        "brightway2",
-        "pypardiso",
-        "SALib",
-        "pint",
-        "typing-extensions",
-    ],
+    install_requires=REQUIREMENTS,
 )

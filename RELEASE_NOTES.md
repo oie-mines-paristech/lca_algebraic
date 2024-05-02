@@ -1,3 +1,7 @@
+# 1.2-UPCOMMING
+
+* Removed pypardisio from iOS/ARM build
+
 # 1.1
 
 * Fixed bug in ActivityExtended#getExchanges introduced by merge #14
