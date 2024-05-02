@@ -216,3 +216,20 @@ def _add_sub_modified(self: PlainQuantity, other, op):
 
 # Override the _add_sub method
 PlainQuantity._add_sub = _add_sub_modified
+
+
+def __quantity__or__(self: PlainQuantity, unit: Unit):
+    return self.to(unit)
+
+
+PlainQuantity.__or__ = __quantity__or__
+
+
+def __unit__ror__(self: Unit, value):
+    if isinstance(value, PlainQuantity):
+        return value.to(self)
+    else:
+        return self._REGISTRY.Quantity(value, self)
+
+
+Unit.__ror__ = __unit__ror__
