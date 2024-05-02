@@ -1,7 +1,11 @@
+# 
+* Fix bug in compare_simplified introduced since the release of *functional_unit* 
+
+
 # 1.1.2
 
 Bugfix release :
-* Fix major bug #58 with axis being in diffrent order when used with multiple methods
+* Fix major bug #58 with axis being in different order when used with multiple methods
 * Fix bug #54 : unexpected behaviour with '*' wildcard and 'old_amount' parameter
 
 # 1.1

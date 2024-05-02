@@ -309,7 +309,10 @@ def _stochastics(
     return problem, params, Y
 
 
-def _compute_stochastics(modelOrLambdas, methods, functional_unit=1, params=dict()):
+def _compute_stochastics(modelOrLambdas, methods, functional_unit=1, params=None):
+    if params is None:
+        params = {}
+
     if isinstance(modelOrLambdas, Activity):
         Y = compute_impacts(modelOrLambdas, methods, functional_unit=functional_unit, **params)
     else:
@@ -1292,11 +1295,11 @@ def compare_simplified(
         params, _ = _generate_random_params(100000, sample_method=StochasticMethod.RAND)
 
         # Run  Monte Carlo on full model
-        Y1 = _compute_stochastics([lambd], [method], params)
+        Y1 = _compute_stochastics([lambd], [method], params=params)
         d1 = Y1[Y1.columns[0]]
 
         # Run monte carlo of simplified model
-        Y2 = _compute_stochastics([simpl_lambd], [method], params)
+        Y2 = _compute_stochastics([simpl_lambd], [method], params=params)
         d2 = Y2[Y2.columns[0]]
 
         r_value = r_squared(Y1, Y2)
