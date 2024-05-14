@@ -24,7 +24,9 @@ unit_registry = UnitRegistry()
 
 
 def check_unit_consistency(db_name: str):
-    """Check units of exchanges VS units of target activities in a single database"""
+    """
+    Check units of exchanges VS units of target activities in a single database.
+    This check is done statically. The purpose is to run this on a background, non parametric, database."""
     db = bw.Database(db_name)
 
     errors = list()
