@@ -722,7 +722,7 @@ def _createTechProxyForBio(act_key, target_db):
 
             # Create biosphere proxy in User Db
             res = newActivity(
-                target_db, name, act["unit"], {act: 1}, code=code_to_find, isProxy=True
+                target_db, name, act["unit"], {act: 1}, code=code_to_find, switchActivity=True, isProxy=True
             )  # add a this flag to distinguish this dummy activity from others
             return res
     else:
