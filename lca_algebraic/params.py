@@ -885,6 +885,11 @@ class ParamRegistry:
     def __getitem__(self, key):
         try:
             params_per_db = self.params[key]
+
+            if len(params_per_db) == 0:
+                # Param not found
+                raise KeyError("Parameter %s not found" % key)
+
             if len(params_per_db) == 1:
                 return list(params_per_db.values())[0]
 
