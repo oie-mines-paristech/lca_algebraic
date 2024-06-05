@@ -106,6 +106,7 @@ def oat_matrix(
     n=10,
     title="Impact variability (% of mean)",
     name_type=NameType.LABEL,
+    as_dataframe=False,
 ):
     """
 
@@ -122,6 +123,9 @@ def oat_matrix(
 
     functional_unit:
         Float value of expression by which to divide each impact.
+
+    as_dataframe:
+        If true returns a raw dataframe instead of an image of heatmap
     """
 
     # Compile model into lambda functions for fast LCA
@@ -145,12 +149,15 @@ def oat_matrix(
         change[iparam] = (df.max() - df.min()) / df.median() * 100
 
     # Build final heatmap
-    change = pd.DataFrame(
+    df = pd.DataFrame(
         change,
         index=[_param_name(param, name_type) for param in sorted_params],
         columns=[method_name(imp) for imp in impacts],
     )
-    _heatmap(change.transpose(), title, 100, ints=True)
+    if as_dataframe:
+        return df
+
+    _heatmap(df.transpose(), title, 100, ints=True)
 
 
 def _oat_dasboard(
@@ -603,7 +610,7 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
 @with_db_context(arg="model")
 def incer_stochastic_dashboard(
-    model: Activity, methods, n=DEFAULT_N, var_params=None, functional_unit=ValueOrExpression, **kwparams
+    model: Activity, methods, n=DEFAULT_N, var_params=None, functional_unit: ValueOrExpression = 1, **kwparams
 ):
     """
     This function runs a monte carlo & Sobol analysis (GSA) on a parametric model and displays a dashboard with results.
