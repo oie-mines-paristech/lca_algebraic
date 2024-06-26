@@ -149,22 +149,23 @@ class ActivityExtended(Activity):
                 exchs = [exchs]
 
             for exch in exchs:
-                if attrs is None:
+                attrs_exch = attrs.copy()
+                if attrs_exch is None:
                     exch.delete()
                     exch.save()
                     continue
 
                 # Single value ? => amount
-                if not isinstance(attrs, dict):
-                    if isinstance(attrs, Activity):
-                        attrs = dict(input=attrs)
+                if not isinstance(attrs_exch, dict):
+                    if isinstance(attrs_exch, Activity):
+                        attrs_exch = dict(input=attrs_exch)
                     else:
-                        attrs = dict(amount=attrs)
+                        attrs_exch = dict(amount=attrs_exch)
 
-                if "amount" in attrs:
-                    attrs.update(_amountToFormula(attrs["amount"], exch["amount"]))
+                if "amount" in attrs_exch:
+                    attrs_exch.update(_amountToFormula(attrs_exch["amount"], exch["amount"]))
 
-                exch.update(attrs)
+                exch.update(attrs_exch)
                 exch.save()
 
     def deleteExchanges(self, name, single=True):

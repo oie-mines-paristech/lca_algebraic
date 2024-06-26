@@ -19,6 +19,14 @@ algebraic models.
 .. autofunction:: lca_algebraic.incer_stochastic_dashboard
 ```
 
+## Distribution of impacts
+
+You can display graphs of distributions of impacts :
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.distrib
+```
+
 ## Simplified models
 
 ```{eval-rst} 
