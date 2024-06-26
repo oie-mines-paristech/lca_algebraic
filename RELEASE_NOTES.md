@@ -1,7 +1,9 @@
-# 1.2-UPCOMMING
+# 1.1.2
 
+Bugfix release :
 * Removed pypardisio from iOS/ARM build
-* Fix major bug with axis being in diffrent order when used with multiple methods 
+* Fix major bug #58 with axis being in diffrent order when used with multiple methods
+* Fix bug #54 : unexpected behaviour with '*' wildcard and 'old_amount' parameter
 
 # 1.1
 
