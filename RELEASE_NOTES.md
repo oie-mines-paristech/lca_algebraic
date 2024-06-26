@@ -1,6 +1,7 @@
 # 1.2-UPCOMMING
 
 * Removed pypardisio from iOS/ARM build
+* Fix major bug with axis being in diffrent order when used with multiple methods 
 
 # 1.1
 

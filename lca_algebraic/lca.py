@@ -431,7 +431,10 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
         # Expand axis values as a list, to fit into the result numpy array
         if isinstance(value, dict):
             # Ensure the values are in the same order as the value
-            value = list(float(value[axis]) if axis in value else 0.0 for axis in lambd.axis_keys)
+
+            # XXX We use the order of the first lambda as each one might have different order
+            axes = lambdas[0].axis_keys
+            value = list(float(value[axis]) if axis in value else 0.0 for axis in axes)
 
         return (imethod, value)
 
