@@ -12,6 +12,7 @@ from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
+from pandas import DataFrame
 from SALib.analyze import sobol as analyse_sobol
 from SALib.sample import sobol, sobol_sequence
 from sympy import (
@@ -302,7 +303,7 @@ def _stochastics(
     n=DEFAULT_N,
     var_params=None,
     sample_method=StochasticMethod.SALTELLI,
-    functional_unit=1,
+    functional_unit: ValueOrExpression = 1,
     **extra_fixed_params,
 ):
     params, problem = _generate_random_params(n, sample_method, var_params)
@@ -583,29 +584,67 @@ def _incer_stochastic_variations(methods, param_names, Y, sob1):
     plt.show(fig)
 
 
-def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
-    """Show full stochastic output with sobol indices"""
-    data = np.zeros((len(param_names) * 2 + len(_percentiles) + 2, len(methods)))
-    data[0, :] = np.mean(Y, 0)
-    data[1, :] = np.std(Y, 0)
+def incer_stochastic_data(model: Activity, methods, n=DEFAULT_N, functional_unit: ValueOrExpression = 1):
+    """
+    This function runs a monte carlo & Sobol analysis (GSA) on a parametric model and displays a dashboard with results.
 
-    for i, percentile in enumerate(_percentiles):
-        data[2 + i, :] = np.percentile(Y, percentile, axis=0)
+    Parameters
+    ----------
+    model:
+        The root activity of your inventory
 
-    for i_param, param_name in enumerate(param_names):
-        s1 = sob1[i_param, :]
-        data[i_param + 2 + len(_percentiles), :] = s1
-        data[i_param + 2 + len(_percentiles) + len(param_names), :] = sobt[i_param, :]
+    methods:
+        List of impact methods keys (tuples)
 
-    rows = (
-        ["mean", "std"]
-        + ["p%d" % p for p in _percentiles]
-        + ["Sobol 1(%s)" % param for param in param_names]
-        + ["Sobol T(%s)" % param for param in param_names]
-    )
+    functional_unit:
+        Float value or Sympy expression by which to divide the impacts
 
-    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
-    displayWithExportButton(df)
+    Returns
+    -------
+    A dataframe containing statistics and sobol indices for each impact method
+    """
+
+    problem, _, Y = _stochastics(model, methods, n, functional_unit=functional_unit)
+
+    param_names = problem["names"]
+
+    print("Processing Sobol indices ...")
+    sob = _sobols(methods, problem, Y)
+
+    return _incer_stochastic_data(methods, param_names, Y, sob)
+
+
+def _incer_stochastic_data(methods, param_names, Y: DataFrame, sob):
+    res = dict()
+
+    for imethod, method in enumerate(methods):
+        method_data = dict()
+
+        # We use the method name as current method key
+        res[method_name(method)] = method_data
+
+        #  Select samples for this method
+        y = Y[Y.columns[imethod]].to_numpy()
+
+        method_data["mean"] = y.mean()
+        method_data["std"] = y.std()
+
+        for percentile in _percentiles:
+            method_data[f"p{percentile}"] = np.percentile(y, percentile)
+
+        method_data["sum(S1)"] = np.sum(sob.s1[:, imethod])
+        method_data["sum(S2)"] = np.sum(sob.s2[:, :, imethod]) / 2
+        method_data["sum(ST)"] = np.sum(sob.st[:, imethod])
+
+        for i_param, param_name in enumerate(param_names):
+            method_data[f"S1({param_name})"] = sob.s1[i_param, imethod]
+            method_data[f"S1_conf({param_name})"] = sob.s1_conf[i_param, imethod]
+            method_data[f"S2({param_name})"] = np.sum(sob.s2[i_param, :, imethod]) / 2
+            method_data[f"S2_conf({param_name})"] = np.sum(sob.s2_conf[i_param, :, imethod]) / 2
+            method_data[f"ST({param_name})"] = sob.st[i_param, imethod]
+            method_data[f"ST_conf({param_name})"] = sob.st_conf[i_param, imethod]
+
+    return pd.DataFrame(res)
 
 
 @with_db_context(arg="model")
@@ -668,7 +707,8 @@ def incer_stochastic_dashboard(
         _incer_stochastic_matrix(methods, problem["names"], Y, sob)
 
     def data():
-        _incer_stochastic_data(methods, problem["names"], Y, sob.s1, sob.st)
+        df = _incer_stochastic_data(methods, problem["names"], Y, sob)
+        displayWithExportButton(df)
 
     _display_tabs(
         {

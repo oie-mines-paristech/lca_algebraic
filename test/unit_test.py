@@ -239,6 +239,22 @@ def test_simplify_model(data):
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
+def test_stochastic_data(data):
+    # key param, varying from 1 to 2
+    p1 = newFloatParam("p1", 2, min=3, max=5)
+
+    # Minor param with constant value 0.001
+    p2 = newFloatParam("p2", 2, min=3, max=5)
+
+    # Model p1 + p1 * p2
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: p1 * p2, data.bio2: p1 + p2, data.bio3: p1**p2})
+
+    # Simplified model, removing minor sum terms (default)
+    df = incer_stochastic_data(m1, [data.ibio1, data.ibio2, data.ibio3])
+
+    print(df)
+
+
 def test_db_params_lca(data):
     """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
     USER_DB2 = "fg2"
