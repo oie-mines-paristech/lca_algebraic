@@ -491,7 +491,7 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
 
         ax.violinplot(data, showmedians=True)
         ax.title.set_text(method_name(method))
-        ax.set_ylim(ymin=0)
+        #ax.set_ylim(ymin=0)
         ax.set_ylabel(method_unit(method))
         ax.set_xticklabels([])
 
