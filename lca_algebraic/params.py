@@ -556,14 +556,19 @@ def loadParams(global_variable=True, dbname=None):
 
     enumParams = defaultdict(lambda: dict())
 
-    def register(param):
+    def register(param: ParamDef):
         _param_registry()[param.name] = param
 
         # Make it available as global var
         if global_variable:
             if param.name in builtins.__dict__:
                 warn("Variable '%s' was already defined : overidding it with param." % param.name)
-            builtins.__dict__[param.name] = param
+
+            # If units are activated store param with unit in global variables
+            if Settings.units_enabled and param.type == ParamType.FLOAT:
+                builtins.__dict__[param.name] = param.with_unit()
+            else:
+                builtins.__dict__[param.name] = param
 
     select = DatabaseParameter.select()
     if dbname:
@@ -627,7 +632,7 @@ def loadParams(global_variable=True, dbname=None):
                 args["a"] = data["loc"]
                 args["b"] = data["shape"]
 
-            param = newFloatParam(name, save=False, **args)
+            param = newParamDef(name=name, type=ParamType.FLOAT, save=False, **args)
 
         # Save it in shared dictionnary
         register(param)
@@ -1242,9 +1247,10 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
     if "formula" in ex:
         try:
+            # We don't want support for units there
             return _parse_formula(ex["formula"])
-        except Exception:
-            warn("Error while parsing formula '%s' : backing to amount" % ex["formula"])
+        except Exception as e:
+            warn(f"Error '{e}' while parsing formula {ex['formula']} : backing to amount")
 
     return ex["amount"]
 

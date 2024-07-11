@@ -1,11 +1,13 @@
 import operator
+from contextlib import contextmanager
 
 import brightway2 as bw
 from pint import DimensionalityError, OffsetUnitCalculusError, Unit, UnitRegistry
 from pint.compat import _to_magnitude, zero_or_nan
 from pint.facets.plain import PlainQuantity
 
-from .base_utils import getActByCode
+from lca_algebraic.base_utils import getActByCode
+from lca_algebraic.settings import Settings
 
 NEW_UNITS = {"person", "old_unit"}  # Used with 'old_amount'
 
@@ -235,3 +237,15 @@ def __unit__ror__(self: Unit, value):
 
 
 Unit.__ror__ = __unit__ror__
+
+
+@contextmanager
+def switch_units(value: bool):
+    """Temporary switch support of units off or on and then revert it back to preivous value"""
+    old_value = Settings.units_enabled
+
+    try:
+        Settings.units_enabled = value
+        yield None
+    finally:
+        Settings.units_enabled = old_value
