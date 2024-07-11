@@ -34,7 +34,7 @@ from .units import unit_registry as u
 
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 old_amount = symbols("old_amount")
-old_amount_with_unit = Quantity(old_amount, u.old_unit)
+old_amount_with_unit = old_amount * u.old_unit
 
 
 def _exch_name(exch):
