@@ -1295,11 +1295,12 @@ def compare_simplified(
         params, _ = _generate_random_params(100000, sample_method=StochasticMethod.RAND)
 
         # Run  Monte Carlo on full model
-        Y1 = _compute_stochastics([lambd], [method], params)
+        Y1 = _compute_stochastics([lambd], [method], functional_unit=functional_unit, params=params)
+
         d1 = Y1[Y1.columns[0]]
 
         # Run monte carlo of simplified model
-        Y2 = _compute_stochastics([simpl_lambd], [method], params)
+        Y2 = _compute_stochastics([simpl_lambd], [method], functional_unit=functional_unit, params=params)
         d2 = Y2[Y2.columns[0]]
 
         r_value = r_squared(Y1, Y2)
