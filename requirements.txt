@@ -15,5 +15,5 @@ tqdm
 python-dotenv
 pypardiso
 pyarrow
-pint
+pint==0.23
 typing-extensions
