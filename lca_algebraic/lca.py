@@ -3,20 +3,21 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from types import FunctionType
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import brightway2 as bw
 import numpy as np
 import pandas as pd
+from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Basic, Symbol, lambdify, parse_expr, simplify, symbols
+from sympy import Basic, Expr, Symbol, lambdify, parse_expr, simplify, symbols
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
 from . import newActivity
 from .activity import ActivityExtended
-from .axis_dict import AxisDict
+from .axis_dict import NO_AXIS_NAME, AxisDict
 from .base_utils import (
     TabbedDataframe,
     ValueOrExpression,
@@ -153,37 +154,23 @@ def _replace_symbols_with_params_in_exp(expr: Basic):
     return expr
 
 
-def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
-    """
-    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
-
-    Return
-    ------
-    <list of expressions (one per impact)>, <list of required param names>
-
-    """
-
+def _cachedActToExpression(
+    model: ActivityExtended, alpha=1.0, axis=None, for_inventory=False
+) -> Tuple[Expr, Dict[Symbol, ActivityExtended]]:
     # Try to load from cache
     with ExprCache() as cache:
-        key = (model, axis)
+        key = (model, axis, for_inventory)
 
         if key not in cache.data:
             logger.debug(f"{model} was not in exrepssion cache, computing...")
 
-            expr, actBySymbolName = actToExpression(model, axis=axis)
+            expr, actBySymbolName = actToExpression(model, axis=axis, for_inventory=for_inventory)
 
             cache.data[key] = (expr, actBySymbolName)
         else:
             logger.debug(f"{model} found in exrepssion cache")
 
         expr, actBySymbolName = cache.data[key]
-
-    logger.debug("Alpha passed %s", alpha)
-
-    # logger.debug("Raw expression for %s/%s : '%s'", model, str(methods), expr)
-    # logger.debug("Act by symbol : %s", actBySymbolName)
-    # if logger.isEnabledFor("DEBUG") :
-    # logger.debug(f"Length of expression : {len(str(expr))}")
 
     expr = expr * alpha
 
@@ -194,14 +181,29 @@ def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
     for act_name, act in actBySymbolName.items():
         pureTechActBySymbol[act_name] = _createTechProxyForBio(act, model.key[0])
 
+    return expr, pureTechActBySymbol
+
+
+def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
+    """
+    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
+
+    Return
+    ------
+    <list of expressions (one per impact)>, <list of required param names>
+
+    """
+
+    expr, act_by_symbol = _cachedActToExpression(model, alpha=alpha, axis=axis)
+
     # Compute LCA for background activities
-    lcas = _multiLCAWithCache(pureTechActBySymbol.values(), methods)
+    lcas = _multiLCAWithCache(act_by_symbol.values(), methods)
 
     # For each method, compute an algebric expression with activities replaced by their values
     exprs = []
     for method in methods:
         # Replace activities by their value in expression for this method
-        sub = dict({symbol: lcas[(act, method)] for symbol, act in pureTechActBySymbol.items()})
+        sub = dict({symbol: lcas[(act, method)] for symbol, act in act_by_symbol.items()})
 
         expr_curr = expr.xreplace(sub)
 
@@ -271,14 +273,14 @@ class LambdaWithParamNames:
 
     _use_sympy_cse = False
 
-    def __init__(self, exprOrDict, expanded_params=None, params=None, sobols=None):
+    def __init__(self, expr: Expr, expanded_params=None, params=None, sobols=None):
         """Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
 
-        if isinstance(exprOrDict, dict):
+        if isinstance(expr, dict):
             # Come from JSON serialization
-            obj = exprOrDict
+            obj = expr
             # LIst of required params for this lambda
             self.params: List[str] = obj["params"]
 
@@ -290,12 +292,12 @@ class LambdaWithParamNames:
             self.sobols = obj["sobols"]
 
         else:
-            self.expr = exprOrDict
+            self.expr = expr
             self.params = params
 
             if expanded_params is None:
                 if params is None:
-                    expanded_params = _free_symbols(exprOrDict)
+                    expanded_params = _free_symbols(expr)
                     params = _expanded_names_to_names(expanded_params)
                     self.params = params
 
@@ -307,7 +309,7 @@ class LambdaWithParamNames:
             elif self.params is None:
                 self.params = _expanded_names_to_names(expanded_params)
 
-            self.lambd = _lambdify(exprOrDict, expanded_params)
+            self.lambd = _lambdify(expr, expanded_params)
             self.expanded_params = expanded_params
             self.sobols = sobols
 
@@ -527,6 +529,77 @@ def _params_dataframe(param_values: Dict[str, float]):
 
 
 SingleOrMultipleFloat = Union[float, List[float], np.ndarray]
+
+
+def compute_inventory(
+    model: ActivityExtended, functional_unit=1, as_dict=False, fields=["database", "name", "location", "unit"], **params
+):
+    """
+
+    This method computes the inventory of background activities for a given scenario / values of parameters.
+
+    Parameters
+    ----------
+    model:
+        Root activity
+
+    functional_unit:
+        Quantitity to divide the inventory. 1 by default
+
+    as_dict:
+        If true, returns a dict of act => value. If false (default) returns a dataframe
+
+    fields:
+        List of fields to be added in the ouput dataframe
+
+    params:
+        All other attributes are treated as values of lca_algebraic parameters.
+        If not specified, each parameters takes its default value.
+
+    Returns
+    -------
+    Dataframe or Dict of act => value
+
+    """
+
+    expr, act_by_symbol = _cachedActToExpression(model, alpha=1 / functional_unit, for_inventory=True)
+
+    val_by_act_name = compute_value(expr, **params)
+
+    def get_act_by_name(act_name):
+        """Get activitiy. Possibly derefernce it (if is a bio proxy)"""
+        act = act_by_symbol[symbols(act_name)]
+        if "isProxy" in act:
+            exchanges = act.listExchanges()
+            assert len(exchanges) == 1
+            name, act, amount = exchanges[0]
+        return act
+
+    # Transform to dict of act => value
+    val_by_act = dict()
+    for act_name, value in val_by_act_name.items():
+        if act_name == NO_AXIS_NAME:
+            continue
+
+        act = get_act_by_name(act_name)
+        val_by_act[act] = value
+
+    if as_dict:
+        return val_by_act
+
+    # Transform to dataframe
+    items = []
+    for act, value in val_by_act.items():
+        item = dict()
+
+        for field in fields:
+            if field in act:
+                item[field] = act[field]
+
+        item["value"] = value
+        items.append(item)
+
+    return DataFrame(items)
 
 
 def compute_impacts(
@@ -772,7 +845,7 @@ def _tag_expr(expr, act, axis):
 
 
 @with_db_context(arg="act")
-def actToExpression(act: ActivityExtended, axis=None):
+def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
 
     Returns
@@ -801,7 +874,13 @@ def actToExpression(act: ActivityExtended, axis=None):
 
             act_symbols[(db_name, code)] = symbols(slug)
 
-        return act_symbols[(db_name, code)]
+        act_symbol = act_symbols[(db_name, code)]
+
+        if for_inventory:
+            # When computing inventories, we build Dict of {activity_id => amount_or_formula}
+            return AxisDict({str(act_symbol): 1})
+        else:
+            return act_symbol
 
     # Local cache of expressions
 

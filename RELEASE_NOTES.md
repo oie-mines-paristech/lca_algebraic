@@ -1,7 +1,8 @@
 # 1.2-UPCOMMING
 
 * Removed pypardisio from iOS/ARM build
-* Fix major bug with axis being in diffrent order when used with multiple methods 
+* Fix major bug with axis being in different order when used with multiple methods 
+* Added `compute_inventory()`
 
 # 1.1
 

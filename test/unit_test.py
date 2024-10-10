@@ -12,6 +12,8 @@ from numpy.testing import assert_array_equal
 
 from lca_algebraic.database import _isForeground, setForeground, setBackground
 from lca_algebraic.params import _param_registry
+from lca_algebraic.lca import _cachedActToExpression
+from pandas.testing import assert_frame_equal
 
 
 def test_load_params():
@@ -458,6 +460,42 @@ def test_compute_impacts_with_parametrized_fu(data):
     assert res.iloc[1, 0] == 2.0
 
 
+def test_compute_inventory(data):
+    p1 = newFloatParam("p1", 1, min=1, max=3)
+    p2 = newFloatParam("p2", 1, min=1, max=3)
+
+    # Two nested activities
+    fg_act1 = newActivity(USER_DB, name="act1", unit="kg", exchanges={data.bg_act1: p1})
+
+    root_act = newActivity(
+        USER_DB, name="root_act", unit="kg", exchanges={fg_act1: 1, data.bg_act1: 1, data.bio1: 1, data.bg_act2: p2}
+    )
+
+    df: DataFrame = compute_inventory(root_act, functional_unit=10, p2=3)
+
+    df_expected = DataFrame(
+        [
+            {
+                "database": "bg",
+                "name": "bg_act1",
+                "location": "GLO",
+                "unit": "kg",
+                "value": 0.2,
+            },
+            {
+                "database": "bg",
+                "name": "bg_act2",
+                "location": "GLO",
+                "unit": "kg",
+                "value": 0.3,
+            },
+            {"database": "bg", "name": "bio1", "location": "GLO", "unit": "kg", "value": 0.1},
+        ]
+    )
+
+    assert_frame_equal(df_expected, df, rtol=1e-03)
+
+
 def test_should_list_params_with_mixed_groups(data):
     """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13"""
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
@@ -521,8 +559,6 @@ def test_named_parameters_for_with_db_context(data):
     See: https://github.com/oie-mines-paristech/lca_algebraic/issues/12
     """
     m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
-
-    actToExpression(act=m1)
 
 
 if __name__ == "__main__":

@@ -30,9 +30,9 @@ def data():
     bio3 = newActivity(BG_DB, "bio3", type="emission", unit="kg")
 
     # Process activities
-    bg_act1 = newActivity(BG_DB, "bg_act1", "kg", {bio1: 1})
-    bg_act2 = newActivity(BG_DB, "bg_act2", "kg", {bio2: 1})
-    bg_act3 = newActivity(BG_DB, "bg_act3", "kg", {bio3: 1})
+    bg_act1 = newActivity(BG_DB, "bg_act1", "kg", {bio1: 1}, location="GLO")
+    bg_act2 = newActivity(BG_DB, "bg_act2", "kg", {bio2: 1}, location="GLO")
+    bg_act3 = newActivity(BG_DB, "bg_act3", "kg", {bio3: 1}, location="GLO")
 
     # Create one method per bio activity, plus 1 method with several
     ibio1, ibio2, ibio3, imulti = init_methods(BG_DB, METHOD_PREFIX)
