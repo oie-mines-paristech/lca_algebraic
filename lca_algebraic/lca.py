@@ -172,6 +172,10 @@ def _cachedActToExpression(
 
         expr, actBySymbolName = cache.data[key]
 
+    # Using units ? Only keep the magnitude, drop the units
+    if isinstance(alpha, Quantity):
+        alpha = alpha.magnitude
+
     expr = expr * alpha
 
     # Create dummy reference to biosphere
@@ -366,10 +370,6 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: ValueOrExpress
 
     This method is used by multiLCAAlgebric
     """
-
-    # Using units ? Only keep the magnitude, drop the units
-    if isinstance(alpha, Quantity):
-        alpha = alpha.magnitude
 
     with DbContext(model):
         exprs = _modelToExpr(model, methods, alpha=alpha, axis=axis)
@@ -864,7 +864,7 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
         if not (db_name, code) in act_symbols:
             act = _getDb(db_name).get(code)
             name = act["name"]
-            base_slug = _slugify(name)
+            base_slug = _slugify("_" + name)
 
             slug = base_slug
             i = 1
