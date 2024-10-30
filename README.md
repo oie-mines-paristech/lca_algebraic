@@ -14,7 +14,7 @@ It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order
 * Fast computation of LCAs
 * Computation of monte carlo method and global sensitivity analysis (Sobol indices) 
 
-# Installation
+# ⚙ Installation
 
 We don't provide conda package anymore.
 
@@ -55,20 +55,26 @@ still be able to access and browse the projects created programmatically with *l
 > conda install activity-browser
 
 
-# Licence & Copyright
+# 📚 Documentation & resources
 
-This library has been developed by [OIE - MinesParistech](http://www.oie.mines-paristech.fr), for the project [*INCER-ACV*](https://librairie.ademe.fr/energies-renouvelables-reseaux-et-stockage/4448-incer-acv.html), 
-lead by [ADEME](https://www.ademe.fr/). 
+Full documentation is [hosted on **readthedocs**](https://lca-algebraic.readthedocs.io/)
 
-It is distributed under the [BSD License](./LICENSE)
+We provides some notebooks :
+* [Example notebook](./notebooks/example-notebook.ipynb) : Basic functionalities  
+* [Handbook](./notebooks/handbook.ipynb) : More examples, also showing the usage of the Brightway functions.
+* [Workshop](https://git.sophia.mines-paristech.fr/oie/lca-algebraic-workshop) :
+  A "real life" exercise used as a short training on *lca_algebraic*
 
-# Mailing list
+# 📧 Mailing list
 
 Please register to this dedicated mailing list to discuss the evolutions of this library and be informed of future releases :
 
 [lca_algebraic@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/lca_algebraic)
 
 
-# Documentation
+# © Licence & Copyright
 
-Full documentation and example notebooks are [hosted on **readthedocs**](https://lca-algebraic.readthedocs.io/)
+This library has been developed by [OIE - MinesParistech](http://www.oie.mines-paristech.fr), for the project [*INCER-ACV*](https://librairie.ademe.fr/energies-renouvelables-reseaux-et-stockage/4448-incer-acv.html), 
+lead by [ADEME](https://www.ademe.fr/). 
+
+It is distributed under the [BSD License](./LICENSE)
