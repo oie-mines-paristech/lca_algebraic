@@ -52,7 +52,7 @@ setup(
     ),
     license="BSD",
     keywords="LCA brightway2 monte-carlo parametric",
-    url="https://github.com/oie-mines-paristech/lca_algebraic/",
+    url="https://lca-algebraic.readthedocs.io/en/stable/",
     packages=["lca_algebraic"],
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
