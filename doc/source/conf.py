@@ -45,3 +45,4 @@ gitref_branch = "master"
 
 # html_theme = "pydata_sphinx_theme"
 html_theme = "furo"
+nbsphinx_execute = "never"

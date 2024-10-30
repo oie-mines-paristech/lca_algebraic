@@ -55,6 +55,12 @@ environment.
 still be able to access and browse the projects created programmatically with *lca_algebraic* / *Brightway*.  
 > conda install activity-browser
 
+# Mailing list
+
+Please register to this dedicated mailing list to discuss the evolutions of this library and be informed of future releases :
+
+[lca_algebraic@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/lca_algebraic)
+
 # Source code
 
 The source code is available of our {gitref}`github </>`
@@ -66,12 +72,6 @@ This library has been developed by [OIE - MinesParistech](http://www.oie.mines-p
 lead by [ADEME](https://www.ademe.fr/). 
 
 It is distributed under the {gitref}`BSD License </LICENSE>`.
-
-# Mailing list
-
-Please register to this dedicated mailing list to discuss the evolutions of this library and be informed of future releases :
-
-[lca_algebraic@groupes.mines-paristech.fr](https://groupes.minesparis.psl.eu/wws/subscribe/lca_algebraic)
 
 
 # Summary 
