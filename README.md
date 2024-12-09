@@ -1,6 +1,9 @@
-# Introduction
 
-This library is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
+
+<img src="./doc/source/_static/img/logo_lca_algebraic.png" alt="logo" width="200" style="margin:auto;display:block"/>
+
+
+**lca_algebraic** is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
 with fast computation of LCA impacts, suitable for **monte-carlo** / global sensitivity analysis 
 
 It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order to write parametric formulas as regular Python expressions.
@@ -74,7 +77,12 @@ Please register to this dedicated mailing list to discuss the evolutions of this
 
 # © Licence & Copyright
 
-This library has been developed by [OIE - MinesParistech](http://www.oie.mines-paristech.fr), for the project [*INCER-ACV*](https://librairie.ademe.fr/energies-renouvelables-reseaux-et-stockage/4448-incer-acv.html), 
+This library has been developed by [MinesParis - PSL - O.I.E team](https://www.oie.minesparis.psl.eu/), for the project [*INCER-ACV*](https://librairie.ademe.fr/energies-renouvelables-reseaux-et-stockage/4448-incer-acv.html), 
 lead by [ADEME](https://www.ademe.fr/). 
 
 It is distributed under the [BSD License](./LICENSE)
+
+# Logo
+
+Please use the following logo to advertise about this librairy.
+![](./doc/source/_static/img/logo_lca_algebraic.png)

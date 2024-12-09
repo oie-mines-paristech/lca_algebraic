@@ -32,6 +32,9 @@ html_css_files = [
     "css/custom.css",
 ]
 
+html_logo = '_static/img/logo_lca_algebraic.png'
+logo_only = True
+
 templates_path = ["_templates"]
 exclude_patterns = []
 source_suffix = [".rst", ".md"]
