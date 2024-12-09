@@ -62,7 +62,7 @@ still be able to access and browse the projects created programmatically with *l
 
 Full documentation is [hosted on **readthedocs**](https://lca-algebraic.readthedocs.io/)
 
-We provides some notebooks :
+We provide some notebooks :
 * [Example notebook](./notebooks/example-notebook.ipynb) : Basic functionalities  
 * [Handbook](./notebooks/handbook.ipynb) : More examples, also showing the usage of the Brightway functions.
 * [Workshop](https://git.sophia.mines-paristech.fr/oie/lca-algebraic-workshop) :
