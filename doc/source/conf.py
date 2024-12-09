@@ -32,7 +32,7 @@ html_css_files = [
     "css/custom.css",
 ]
 
-html_logo = '_static/img/logo_lca_algebraic.png'
+html_logo = "_static/img/logo_lca_algebraic.png"
 logo_only = True
 
 templates_path = ["_templates"]
