@@ -1158,7 +1158,8 @@ def freezeParams(db_name, **params: Dict[str, float]):
         Name of the database for freeze (your foreground db usually)
 
     params:
-        All other parameters of this function are threated as the values of *lca_algebraic* parameters
+        All other parameters of this function are threated as the values of *lca_algebraic* parameters to be set.
+        The default values will be used for the *lca_algebraic* parameters not mentioned here.
 
     Examples
     --------
