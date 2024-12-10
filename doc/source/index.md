@@ -13,6 +13,8 @@ It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order
 * Definition of parameters
 * Fast computation of LCAs
 * Computation of monte carlo method and global sensitivity analysis (Sobol indices) 
+* Support for automatic check of [homogeneity of physical units](https://lca-algebraic.readthedocs.io/en/stable/api/units.html)
+
 
 # Installation
 
@@ -54,6 +56,15 @@ environment.
 **Activity Browser** can only be installed via conda/mamba. Note that it can also be installed on environment and will 
 still be able to access and browse the projects created programmatically with *lca_algebraic* / *Brightway*.  
 > conda install activity-browser
+
+
+>  **NOTE**
+> While the inventories created in *lca_algebraic* are stored in the Brightway project, 
+> the formulas and parameters are not compatible with **Activity Browser**
+> Before computing impacts with vanilla **Brightway2** or **Activity Browser**, 
+> you may use the function [freezeParams()](https://lca-algebraic.readthedocs.io/en/stable/api/parameters.html#lca_algebraic.freezeParams) 
+> to update the amounts in your database for a given scenario / set of parameter values.     
+
 
 # Mailing list
 
