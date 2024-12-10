@@ -30,7 +30,7 @@ pytest:
 
 test_notebook:
 	# ipyrmd -y --from Rmd --to ipynb $(TST_NOTEBOOK) -o $(TST_IPYNB)
-	pytest --nbmake *.ipynb
+	pytest --nbmake notebooks/*.ipynb
 
 lint:
 	pre-commit run

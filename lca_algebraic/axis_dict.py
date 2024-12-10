@@ -1,7 +1,8 @@
 from sympy import symbols
 from sympy.core.containers import Dict as SympyDict
 
-NO_AXIS = symbols("_other_")
+NO_AXIS_NAME = "_other_"
+NO_AXIS = symbols(NO_AXIS_NAME)
 
 
 class AxisDict(SympyDict):

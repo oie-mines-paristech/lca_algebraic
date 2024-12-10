@@ -8,7 +8,8 @@ import brightway2 as bw
 import pandas as pd
 from bw2data.backends.peewee import Activity, ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
-from sympy import Basic, symbols
+from pint import DimensionalityError, Quantity
+from sympy import Basic, simplify, symbols
 
 from lca_algebraic.base_utils import _actName, _getDb, _isOutputExch
 from lca_algebraic.database import (
@@ -25,12 +26,15 @@ from lca_algebraic.params import (
     _param_registry,
 )
 
-from .log import warn
+from .base_utils import ValueOrExpression, getActByCode
+from .log import logger, warn
+from .settings import Settings
+from .units import is_dimensionless, is_equivalent, parse_db_unit
+from .units import unit_registry as u
 
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 old_amount = symbols("old_amount")
-
-NumOrExpression = Union[float, Basic]
+old_amount_with_unit = u.Quantity(old_amount, u.old_unit)
 
 
 def _exch_name(exch):
@@ -143,30 +147,28 @@ class ActivityExtended(Activity):
         """
 
         # Update exchanges
-        for name, attrs in updates.items():
-            exchs = self.getExchange(name, single="*" not in name)
-            if not isinstance(exchs, list):
-                exchs = [exchs]
+        for ex_name, updates in updates.items():
+            # Build input & amount
+            if updates is not None and not isinstance(updates, dict):
+                if isinstance(updates, Activity):
+                    updates = dict(input=updates)
+                else:
+                    updates = dict(amount=updates)
 
-            for exch in exchs:
-                attrs_exch = attrs.copy()
-                if attrs_exch is None:
+            # Find echzanges matching name
+            matching_exchanges = self.getExchange(ex_name, single="*" not in ex_name)
+            if not isinstance(matching_exchanges, list):
+                matching_exchanges = [matching_exchanges]
+
+            # Loop on matching echanges to update
+            for exch in matching_exchanges:
+                # Delete exchange
+                if updates is None:
                     exch.delete()
                     exch.save()
                     continue
-
-                # Single value ? => amount
-                if not isinstance(attrs_exch, dict):
-                    if isinstance(attrs_exch, Activity):
-                        attrs_exch = dict(input=attrs_exch)
-                    else:
-                        attrs_exch = dict(amount=attrs_exch)
-
-                if "amount" in attrs_exch:
-                    attrs_exch.update(_amountToFormula(attrs_exch["amount"], exch["amount"]))
-
-                exch.update(attrs_exch)
-                exch.save()
+                else:
+                    self._update_exchange(exch, updates)
 
     def deleteExchanges(self, name, single=True):
         """Remove matching exchanges
@@ -190,7 +192,7 @@ class ActivityExtended(Activity):
         self.save()
 
     @with_db_context
-    def addExchanges(self, exchanges: Dict[Activity, Union[NumOrExpression, dict]] = dict()):
+    def addExchanges(self, exchanges: Dict[Activity, Union[ValueOrExpression, dict]] = dict()):
         """Add exchanges to an existing activity, with a compact syntax :
 
         Parameters
@@ -201,12 +203,9 @@ class ActivityExtended(Activity):
         """
 
         with DbContext(self.key[0]):
-            for sub_act, attrs in exchanges.items():
-                if isinstance(attrs, dict):
-                    amount = attrs.pop("amount")
-                else:
-                    amount = attrs
-                    attrs = dict()
+            for sub_act, updates in exchanges.items():
+                if not isinstance(updates, dict):
+                    updates = dict(amount=updates)
 
                 exch = self.new_exchange(
                     input=sub_act.key,
@@ -215,10 +214,105 @@ class ActivityExtended(Activity):
                     type="production" if self == sub_act else "technosphere" if sub_act.get("type") == "process" else "biosphere",
                 )
 
-                exch.update(attrs)
-                exch.update(_amountToFormula(amount))
-                exch.save()
+                self._update_exchange(exch, updates)
+
             self.save()
+
+    def _transform_unit(self, amount: ValueOrExpression, exchange_unit: str):
+        if not Settings.units_enabled:
+            return amount
+
+        # Parse unit
+        if exchange_unit is None:
+            logger.warn("Missing unit for target activity; Assuming dimensionless")
+            exchange_unit = u.dimensionless
+        else:
+            exchange_unit = parse_db_unit(exchange_unit)
+
+        if not isinstance(amount, Quantity):
+            if not is_dimensionless(exchange_unit) and not self.isSwitch() and amount != 0:
+                raise Exception(
+                    f"Unit '{exchange_unit}' expected, and dimensionless amount provided in a non-switch Activity: {amount}"
+                )
+            else:
+                return amount
+
+        # Help the compiler
+        amount: Quantity
+
+        act_unit = parse_db_unit(self["unit"])
+
+        if self.isSwitch() and (exchange_unit != act_unit):
+            raise Exception(f"Units should be the same in a switch activity {exchange_unit} != {act_unit}")
+
+        # Using 'old_amount' ? => replace with requested unit
+        if amount.units == u.old_unit:
+            amount = u.Quantity(amount.magnitude, exchange_unit)
+
+        # We try to transform either to the exchange unit, or ex_unit/act_unit
+        for target_unit in [exchange_unit, exchange_unit / act_unit]:
+            # We'll catch error at the end if none of the target units worked
+            if not is_equivalent(target_unit, amount.units):
+                continue
+
+            # Try to convert
+            new_amount = amount.to(target_unit).magnitude
+
+            # Auto scale disabld ?
+            if not _equals(amount.magnitude, new_amount) and not u.auto_scale:
+                raise Exception(f"auto_scale is disabled. '{amount}' should be explicity transformed to {target_unit}")
+
+            return new_amount
+
+        # At this point, no convertion worked :
+        raise DimensionalityError(
+            amount.units,
+            exchange_unit,
+            f"Unit of amount '{amount}' is not compatible with physical unit of exchange '{exchange_unit}' or the "
+            f"unit of exchange divided by the unit of the activity : '{exchange_unit / act_unit}'",
+        )
+
+    def _amount_to_formula(self, amount: ValueOrExpression, exchange: ExchangeDataset):
+        res = dict()
+        if isinstance(amount, Basic):
+            current_amount = exchange.get("amount", None)
+            if current_amount is not None:
+                amount = amount.subs(old_amount, current_amount)
+
+            # Check the expression does not reference undefined params
+            all_symbols = list([key for param in _param_registry().values() for key, val in param.expandParams().items()])
+            for symbol in amount.free_symbols:
+                if not str(symbol) in all_symbols:
+                    raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
+
+            res["formula"] = str(amount)
+            res["amount"] = 0
+        elif isinstance(amount, float) or isinstance(amount, int):
+            res["amount"] = amount
+        else:
+            raise Exception(
+                "Amount should be either a constant number or a Sympy expression (expression of ParamDef). Was : %s"
+                % type(amount)
+            )
+        return res
+
+    def _update_exchange(self, exchange: ExchangeDataset, updates):
+        """Update a single exchange. Take care of setting amount / formula accordingly"""
+        amount = updates.pop("amount") if "amount" in updates else None
+
+        if amount is not None:
+            # Update units
+            amount = self._transform_unit(amount, exchange["unit"])
+
+            # Extract formula if two separate field "amount" and "formula"
+            # Update the list of updates
+            updates.update(self._amount_to_formula(amount, exchange))
+
+        exchange.update(updates)
+        exchange.save()
+
+    def isSwitch(self):
+        return self.get("switch", False)
 
     @with_db_context
     def getAmount(self, *args, sum=False, **kargs):
@@ -257,11 +351,6 @@ class ActivityExtended(Activity):
         for key, val in kwargs.items():
             self._data[key] = val
         self.save()
-
-
-def getActByCode(db_name, code):
-    """Get activity by code"""
-    return _getDb(db_name).get(code)
 
 
 def findActivity(
@@ -376,28 +465,13 @@ def findTechAct(name=None, loc=None, single=True, **kwargs):
     return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
 
 
-def _amountToFormula(amount: Union[float, str, Basic], currentAmount=None):
-    """Transform amount in exchange to either simple amount or formula"""
-    res = dict()
-    if isinstance(amount, Basic):
-        if currentAmount is not None:
-            amount = amount.subs(old_amount, currentAmount)
-
-        # Check the expression does not reference undefined params
-        all_symbols = list([key for param in _param_registry().values() for key, val in param.expandParams().items()])
-        for symbol in amount.free_symbols:
-            if not str(symbol) in all_symbols:
-                raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
-
-        res["formula"] = str(amount)
-        res["amount"] = 0
-    elif isinstance(amount, float) or isinstance(amount, int):
-        res["amount"] = amount
-    else:
-        raise Exception(
-            "Amount should be either a constant number or a Sympy expression (expression of ParamDef). Was : %s" % type(amount)
-        )
-    return res
+def _equals(val1: ValueOrExpression, val2: ValueOrExpression):
+    """Compare float of Sympy values"""
+    if val1 == val2:
+        return True
+    if isinstance(val1, Basic) != isinstance(val2, Basic):
+        return False
+    return simplify(val1 / val2) == 1.0
 
 
 def _newAct(db_name, code):
@@ -425,8 +499,9 @@ def newActivity(
     amount=1,
     code=None,
     type="process",
+    switchActivity=False,
     **argv,
-):
+) -> ActivityExtended:
     """Creates a new activity
 
     Parameters
@@ -447,6 +522,10 @@ def newActivity(
     argv :
         Any extra params passed as properties of the new activity
 
+    switch:
+        Activities marked as *switch* are expected to be linear combination of activities of same unit.
+        This option changes how physical units are checked.
+
     amount:
         Production amount. 1 by default
     """
@@ -457,6 +536,9 @@ def newActivity(
     act["name"] = name
     act["type"] = type
     act["unit"] = unit
+    if switchActivity:
+        act["switch"] = True
+
     act.update(argv)
 
     # Add single production exchange
@@ -479,7 +561,7 @@ def newActivity(
     return act
 
 
-def copyActivity(db_name, activity: ActivityExtended, code, withExchanges=True, **kwargs) -> ActivityExtended:
+def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
 
@@ -500,6 +582,10 @@ def copyActivity(db_name, activity: ActivityExtended, code, withExchanges=True, 
     """
 
     res = _newAct(db_name, code)
+
+    # Same code if not provided
+    if code is None:
+        code = activity.key[1]
 
     for key, value in activity.items():
         if key not in ["database", "code"]:
@@ -568,7 +654,7 @@ def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, Activity
         exch[act] += amount * paramDef.symbol(key)
         unit = act["unit"]
 
-    res = newActivity(dbname, name, unit=unit, exchanges=exch)
+    res = newActivity(dbname, name, unit=unit, exchanges=exch, switch=True)
 
     return res
 

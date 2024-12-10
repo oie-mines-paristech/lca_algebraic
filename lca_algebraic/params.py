@@ -14,6 +14,7 @@ from bw2data.parameters import (
     ProjectParameter,
 )
 from IPython.core.display import HTML
+from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, lambdify, parse_expr
 from tabulate import tabulate
@@ -24,6 +25,8 @@ from lca_algebraic.log import logger
 from .base_utils import _snake2camel, _user_functions, as_np_array
 from .database import DbContext
 from .log import warn
+from .settings import Settings
+from .units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -290,6 +293,10 @@ class ParamDef(Symbol):
         else:
             return [self.name]
 
+    def with_unit(self):
+        """Returns the symbol together with its unit, as a Pint Quantity"""
+        return u.Quantity(self, self.unit)
+
     def __repr__(self):
         return self.name
 
@@ -549,14 +556,19 @@ def loadParams(global_variable=True, dbname=None):
 
     enumParams = defaultdict(lambda: dict())
 
-    def register(param):
+    def register(param: ParamDef):
         _param_registry()[param.name] = param
 
         # Make it available as global var
         if global_variable:
             if param.name in builtins.__dict__:
                 warn("Variable '%s' was already defined : overidding it with param." % param.name)
-            builtins.__dict__[param.name] = param
+
+            # If units are activated store param with unit in global variables
+            if Settings.units_enabled and param.type == ParamType.FLOAT:
+                builtins.__dict__[param.name] = param.with_unit()
+            else:
+                builtins.__dict__[param.name] = param
 
     select = DatabaseParameter.select()
     if dbname:
@@ -620,7 +632,7 @@ def loadParams(global_variable=True, dbname=None):
                 args["a"] = data["loc"]
                 args["b"] = data["shape"]
 
-            param = newFloatParam(name, save=False, **args)
+            param = newParamDef(name=name, type=ParamType.FLOAT, save=False, **args)
 
         # Save it in shared dictionnary
         register(param)
@@ -669,7 +681,7 @@ def newFloatParam(
     formula=None,
     save=True,
     **kwargs,
-):
+) -> Union[ParamDef, Quantity]:
     """
     Creates a float (decimal) parameter.
 
@@ -712,7 +724,11 @@ def newFloatParam(
     The newly created parameter
 
     """
-    return newParamDef(
+
+    if Settings.units_enabled and unit is None:
+        raise Exception("Unit mode activated : unit is mandatory for parameters")
+
+    param = newParamDef(
         name=name,
         type=ParamType.FLOAT,
         default=default,
@@ -727,6 +743,12 @@ def newFloatParam(
         save=save,
         **kwargs,
     )
+
+    # If units are enables, wrap float params with their unit
+    if Settings.units_enabled:
+        return param.with_unit()
+    else:
+        return param
 
 
 def newBoolParam(name, default, description: str = None, label: str = None, group: str = None, formula=None, save=True, **kwargs):
@@ -868,6 +890,11 @@ class ParamRegistry:
     def __getitem__(self, key):
         try:
             params_per_db = self.params[key]
+
+            if len(params_per_db) == 0:
+                # Param not found
+                raise KeyError("Parameter %s not found" % key)
+
             if len(params_per_db) == 1:
                 return list(params_per_db.values())[0]
 
@@ -1220,9 +1247,10 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
     if "formula" in ex:
         try:
+            # We don't want support for units there
             return _parse_formula(ex["formula"])
-        except Exception:
-            warn("Error while parsing formula '%s' : backing to amount" % ex["formula"])
+        except Exception as e:
+            warn(f"Error '{e}' while parsing formula {ex['formula']} : backing to amount")
 
     return ex["amount"]
 

@@ -6,26 +6,6 @@ from lca_algebraic import getActByCode, newActivity
 def init_acts(db):
     """Init bg acts (bio and techno)"""
 
-    # Clear DB
-    resetDb(db, False)
-
-    # Biosphere activities
-    bio1 = newActivity(db, "bio1", "unit", type="emission")
-    bio2 = newActivity(db, "bio2", "unit", type="emission")
-    bio3 = newActivity(db, "bio3", "unit", type="emission")
-
-    # Process activities
-    bg_act1 = newActivity(db, "bg_act1", "kg", {bio1: 1, bio2: 2})
-    bg_act2 = newActivity(db, "bg_act2", "kg", {bio1: 2, bio2: 1})
-    bg_act3 = newActivity(
-        db,
-        "bg_act3",
-        "m3",
-        {
-            bio3: 1,
-        },
-    )
-
     return bio1, bio2, bio3
 
 

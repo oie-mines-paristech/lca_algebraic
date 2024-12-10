@@ -4,8 +4,9 @@ from types import SimpleNamespace
 import brightway2 as bw
 import pytest
 
-from lca_algebraic import initProject, resetDb, resetParams
+from lca_algebraic import initProject, resetDb, resetParams, newActivity
 from lca_algebraic.cache import clear_caches
+from lca_algebraic.settings import Settings
 
 USER_DB = "fg"
 BG_DB = "bg"
@@ -20,12 +21,23 @@ def data():
     bw.projects.set_current("tests")
     bw.bw2setup()
 
-    # Create 3 bio activities
-    bio1, bio2, bio3 = init_acts(BG_DB)
+    # Clear DB
+    resetDb(BG_DB, False)
+
+    # Biosphere activities
+    bio1 = newActivity(BG_DB, "bio1", type="emission", unit="kg")
+    bio2 = newActivity(BG_DB, "bio2", type="emission", unit="kg")
+    bio3 = newActivity(BG_DB, "bio3", type="emission", unit="kg")
+
+    # Process activities
+    bg_act1 = newActivity(BG_DB, "bg_act1", "kg", {bio1: 1}, location="GLO")
+    bg_act2 = newActivity(BG_DB, "bg_act2", "kg", {bio2: 1}, location="GLO")
+    bg_act3 = newActivity(BG_DB, "bg_act3", "kg", {bio3: 1}, location="GLO")
 
     # Create one method per bio activity, plus 1 method with several
     ibio1, ibio2, ibio3, imulti = init_methods(BG_DB, METHOD_PREFIX)
 
+    # Cleanup foreground DB
     resetDb(USER_DB, True)
 
     return SimpleNamespace(**locals())

@@ -11,7 +11,9 @@ from .lca import *
 from .log import *
 from .methods import *
 from .params import *
+from .settings import Settings
 from .stats import *
+from .units import *
 
 # Backport the test of pypardiso from bw2calc to emit a warning
 try:

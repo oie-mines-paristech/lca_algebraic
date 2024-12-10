@@ -2,6 +2,7 @@ import builtins
 from typing import Dict, Tuple
 
 import brightway2 as bw
+from pint import Unit
 
 
 def _impact_labels():
@@ -51,9 +52,15 @@ def findMethods(search=None, mainCat=None):
     return res
 
 
-def method_unit(method: Tuple):
+def method_unit(method: Tuple, fu_unit: Unit = None):
     """Get the unit of an impact method"""
-    return bw.Method(method).metadata["unit"]
+
+    res = bw.Method(method).metadata["unit"]
+
+    if fu_unit is not None:
+        res += f" / {fu_unit}"
+
+    return res
 
 
 def method_name(method):

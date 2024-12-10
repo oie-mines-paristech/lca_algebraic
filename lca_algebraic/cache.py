@@ -5,6 +5,7 @@ from os import path
 import brightway2 as bw
 
 from .log import logger
+from .settings import Settings
 
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
@@ -22,10 +23,6 @@ class Pickler(pickle.Pickler):
         return NotImplemented
 
 
-class CacheSettings:
-    enabled = True
-
-
 def last_db_update():
     """Get the last update of current database project"""
     filename = path.join(bw.projects.dir, "lci", "databases.db")
@@ -34,7 +31,7 @@ def last_db_update():
 
 
 def disable_cache():
-    CacheSettings.enabled = False
+    Settings.cache_enabled = False
 
 
 class _Caches:
@@ -49,7 +46,7 @@ class _CacheDict:
         self.name = name
 
         # No cache ? => LOCAL DICT
-        if not CacheSettings.enabled:
+        if not Settings.cache_enabled:
             self.data = dict()
             return
 
@@ -80,7 +77,7 @@ class _CacheDict:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Save data on exit
-        if CacheSettings.enabled and self.data:
+        if Settings.cache_enabled and self.data:
             with open(_CacheDict.filename(self.name), "wb") as pickleFile:
                 self.data = Pickler(pickleFile).dump(self.data)
 

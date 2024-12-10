@@ -9,7 +9,8 @@ import pandas as pd
 from bw2data.backends.peewee import Activity
 from IPython.display import display
 from six import raise_from
-from sympy import Expr
+from sympy import Basic
+from sympy.physics.units import Quantity
 
 _user_functions = dict()
 
@@ -40,6 +41,14 @@ def Max(a, b):
 def Min(a, b):
     """Max define as algrebraic forumal with 'abs' for proper computation on vectors"""
     return (a + b - abs(b - a)) / 2
+
+
+def _actDesc(act: Activity):
+    """Generate pretty name for activity + basic information"""
+    name = _actName(act)
+    amount = act.getOutputAmount()
+
+    return "%s (%f %s)" % (name, amount, act["unit"])
 
 
 def _actName(act: Activity):
@@ -165,5 +174,9 @@ def one(it: Iterable):
     return it[0]
 
 
-# Custom types
-ValueOrExpression = Union[float, Expr]
+ValueOrExpression = Union[float, Basic, Quantity]
+
+
+def getActByCode(db_name, code):
+    """Get activity by code"""
+    return _getDb(db_name).get(code)
