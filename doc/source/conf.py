@@ -40,7 +40,7 @@ exclude_patterns = []
 source_suffix = [".rst", ".md"]
 
 gitref_remote_url = "https://github.com/oie-mines-paristech/lca_algebraic.git"
-gitref_branch = "master"
+gitref_branch = "main"
 
 
 # -- Options for HTML output -------------------------------------------------
