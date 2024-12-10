@@ -47,7 +47,7 @@ try:
     curr_branch = next(line for line in branches if "*" in line)
     curr_branch = curr_branch.replace(" ", "").replace("*", "")
 
-    if curr_branch != "master":
+    if curr_branch != "main":
         name += "_dev"
 
         # commit = run(["git", "log"])[0].split()[1][0:8]
