@@ -497,10 +497,15 @@ def test_compute_inventory(data):
 
 
 def test_inventory_loops_should_work(data):
-    act1 = newActivity(USER_DB, "act1", "kg")
-    act1.addExchanges({act1: 0.5, data.bio1: 1})  # Loop on itself  # Bg act
+    main_act = newActivity(USER_DB, "main_act", "kg")
 
-    res = compute_impacts(act1, data.ibio1)
+    # Hold the link to bg
+    other_act = newActivity(USER_DB, "other_act", "kg", exchanges={data.bg_act1: 1})
+    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={other_act: 1, data.bg_act2: 0.1})
+
+    main_act.addExchanges({main_act: 0.5, third_act: 1})  # Loop on itself  # link to background
+
+    res = compute_impacts(main_act, data.ibio1)
 
     assert res.values[0] == 12.0
 
