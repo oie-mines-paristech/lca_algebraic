@@ -505,6 +505,15 @@ def test_compute_inventory(data):
     assert_frame_equal(df_expected, df, rtol=1e-03)
 
 
+def test_inventory_loops_should_work(data):
+    act1 = newActivity(USER_DB, "act1", "kg")
+    act1.addExchanges({act1: 0.5, data.bio1: 1})  # Loop on itself  # Bg act
+
+    res = compute_impacts(act1, data.ibio1)
+
+    assert res.values[0] == 12.0
+
+
 def test_should_list_params_with_mixed_groups(data):
     """Test for bug #13 : https://github.com/oie-mines-paristech/lca_algebraic/issues/13"""
     p1 = newFloatParam("foo", 2, min=1, max=3, group="foo")
