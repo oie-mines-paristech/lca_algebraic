@@ -11,7 +11,17 @@ import pandas as pd
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Basic, Expr, Symbol, lambdify, parse_expr, simplify, symbols
+from sympy import (
+    Basic,
+    Expr,
+    ImmutableMatrix,
+    Symbol,
+    eye,
+    lambdify,
+    parse_expr,
+    simplify,
+    symbols,
+)
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
@@ -23,6 +33,7 @@ from .base_utils import (
     ValueOrExpression,
     _actName,
     _getDb,
+    _isOutputExch,
     _user_functions,
 )
 from .cache import ExprCache, LCIACache
@@ -844,6 +855,124 @@ def _tag_expr(expr, act, axis):
     return AxisDict({axis_tag: res})
 
 
+class ActMatrix(dict):
+    def __init__(self):
+        super().__init__()
+        self._col_acts = list()
+        self._row_acts = list()
+
+    def set(self, row_act, col_act, value):
+        if row_act not in self._row_acts:
+            self._row_acts.append(row_act)
+            self._row_acts.sort()
+
+        if col_act not in self._col_acts:
+            self._col_acts.append(col_act)
+            self._col_acts.sort()
+
+        self.__setitem__((row_act, col_act), value)
+
+    def demand_vector(self, act, value=1.0):
+        """Generate vector of len (rows) with zeros and 1 only at the index of act"""
+        act_idx = self.row_acts().index(act)
+        res = [0.0] * len(self._row_acts)
+        res[act_idx] = value
+        return ImmutableMatrix([res])
+
+    def row_acts(self):
+        return self._row_acts
+
+    def cols_acts(self):
+        return self._col_acts
+
+    def shape(self):
+        return len(self._row_acts), len(self._col_acts)
+
+    def to_sympy(self):
+        """Return an immutable sympy matrix"""
+        rows = list()
+        for row_act in self.row_acts():
+            row = list()
+            rows.append(row)
+            for col_act in self.cols_acts():
+                row.append(self.get((row_act, col_act), 0.0))
+        return ImmutableMatrix(rows)
+
+
+class ActSymbols:
+    """Class transforming acts to symbols and maintaining a dic tof the corespondancy"""
+
+    def __init__(self):
+        self.act_symbols: Dict[Symbol, ActivityExtended] = dict()
+
+    def act_to_symbol(self, act: ActivityExtended):
+        """Transform an activity to a named symbol and keep cache of it"""
+
+        db_name, code = act.key
+
+        # Look in cache
+        if not (db_name, code) in self.act_symbols:
+            act = _getDb(db_name).get(code)
+            name = act["name"]
+            base_slug = _slugify("_" + name)
+
+            slug = base_slug
+            i = 1
+            while symbols(slug) in self.act_symbols.values():
+                slug = f"{base_slug}{i}"
+                i += 1
+
+            self.act_symbols[(db_name, code)] = symbols(slug)
+
+        return self.act_symbols[(db_name, code)]
+
+    def symb_act_dict(self):
+        return _reverse_dict(self.act_symbols)
+
+
+def _solve_expression(
+    fg_matrix: ActMatrix, bg_matrix: ActMatrix, main_act, as_dict=False
+) -> Tuple[ActSymbols, ValueOrExpression]:
+    """solve the foreground inventory as sympy exrepssion"""
+
+    # Cache of  act = > symbol
+    act_symbols = ActSymbols()
+
+    A = fg_matrix.to_sympy()
+    B = bg_matrix.to_sympy()
+
+    size = A.shape[0]
+
+    ID = eye(size)
+
+    # Demand vector
+    D = fg_matrix.demand_vector(main_act)
+
+    # Inserse A
+    inv_A = (ID - A) ** -1
+
+    # Supply
+    S = inv_A * D.T
+
+    # BG
+    BG = S * B
+
+    # Transform BG vector to expression or dict
+    bg_vals_dict = dict()
+    for bg_idx, bg_act in enumerate(bg_matrix.cols_acts()):
+        bg_symbol = act_symbols.act_to_symbol(bg_act)
+        bg_vals_dict[bg_symbol] = BG[bg_idx]
+
+    if as_dict:
+        return act_symbols, AxisDict(bg_vals_dict)
+    else:
+        # As simple sympy expression
+        res = 0.0
+        for bg_symbol, value in bg_vals_dict.items():
+            res += bg_symbol * value
+        return act_symbols, res
+
+
 @with_db_context(arg="act")
 def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
@@ -853,96 +982,66 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
         (sympy_expr, dict of symbol => activity)
     """
 
-    act_symbols: Dict[Symbol] = dict()  # Cache of  act = > symbol
+    # Square technospere matrix dict of <act1, act2> => float
+    fg_matrix = ActMatrix()
 
-    def act_to_symbol(sub_act):
-        """Transform an activity to a named symbol and keep cache of it"""
+    # Rectangle matrix
+    bg_matrix = ActMatrix()
 
-        db_name, code = sub_act.key
-
-        # Look in cache
-        if not (db_name, code) in act_symbols:
-            act = _getDb(db_name).get(code)
-            name = act["name"]
-            base_slug = _slugify("_" + name)
-
-            slug = base_slug
-            i = 1
-            while symbols(slug) in act_symbols.values():
-                slug = f"{base_slug}{i}"
-                i += 1
-
-            act_symbols[(db_name, code)] = symbols(slug)
-
-        act_symbol = act_symbols[(db_name, code)]
-
-        if for_inventory:
-            # When computing inventories, we build Dict of {activity_id => amount_or_formula}
-            return AxisDict({str(act_symbol): 1})
-        else:
-            return act_symbol
-
-    # Local cache of expressions
-
-    def actToExpressionRec(act: ActivityExtended, parents=[]):
-        res = 0
+    # Fill the matrices
+    def fill_matrices_rec(act: ActivityExtended):
         outputAmount = act.getOutputAmount()
 
         if not _isForeground(act["database"]):
             # We reached a background DB ? => stop developping and create reference to activity
-            return act_to_symbol(act)
+            return
+
+        if act in fg_matrix.row_acts():
+            # Already explored
+            return
+
+        # Been there
+        fg_matrix.set(act, act, 0.0)
 
         for exch in act.exchanges():
-            formula = _getAmountOrFormula(exch)
+            amount = _getAmountOrFormula(exch)
 
-            if isinstance(formula, FunctionType):
+            if isinstance(amount, FunctionType):
                 # Some amounts in EIDB are functions ... we ignore them
                 continue
 
+            # Divide by output amount
+            amount /= outputAmount
+
             #  Production exchange
-            if exch["input"] == exch["output"]:
+            if _isOutputExch(exch):
                 continue
 
+            # Fetch activity referenced by the exchange
             input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
 
             # Background DB => reference it as a symbol
-            if not _isForeground(input_db):
-                act_expr = act_to_symbol(sub_act)
+            if _isForeground(input_db):
+                fg_matrix.set(act, sub_act, amount)
 
-            # Our model : recursively it to a symbolic expression
+                # Recursively explore the rest
+                fill_matrices_rec(sub_act)
+
             else:
-                parents = parents + [act]
-                if sub_act in parents:
-                    raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
+                bg_matrix.set(act, sub_act, amount)
 
-                act_expr = actToExpressionRec(sub_act, parents)
+    fill_matrices_rec(act)
 
-            avoidedBurden = 1
-
-            if exch.get("type") == "production" and not exch.get("input") == exch.get("output"):
-                avoidedBurden = -1
-
-            res += formula * act_expr * avoidedBurden
-
-        res = res / outputAmount
-
-        # Axis ? transforms this to a dict with the correct Tag
-        if axis:
-            res = _tag_expr(res, act, axis)
-
-        return res
-
-    expr = actToExpressionRec(act)
+    act_symbols, expr = _solve_expression(fg_matrix, bg_matrix, act, as_dict=for_inventory)
 
     if isinstance(expr, float):
         expr = simplify(expr)
-
     else:
         # Replace fixed params with their default value
         expr = _replace_fixed_params(expr, _fixed_params().values())
 
-    return (expr, _reverse_dict(act_symbols))
+    return expr, act_symbols.symb_act_dict()
 
 
 def _reverse_dict(dic):

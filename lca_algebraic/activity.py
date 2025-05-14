@@ -211,7 +211,7 @@ class ActivityExtended(Activity):
                     input=sub_act.key,
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type="production" if self == sub_act else "technosphere" if sub_act.get("type") == "process" else "biosphere",
+                    type="technosphere" if sub_act.get("type") == "process" else "biosphere",
                 )
 
                 self._update_exchange(exch, updates)
