@@ -510,13 +510,17 @@ def test_inventory_loops_should_work(data):
 
     # Hold the link to bg
     other_act = newActivity(USER_DB, "other_act", "kg", exchanges={data.bg_act1: 1})
-    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={other_act: 1, data.bg_act2: 0.1})
+    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={
+        other_act: 1,
+        data.bg_act2: 0.1})
 
-    main_act.addExchanges({main_act: 0.5, third_act: 1})  # Loop on itself  # link to background
+    main_act.addExchanges({
+        main_act: 0.2, # 20% of self consumption
+        third_act: 1})  # Link to background
 
     res = compute_impacts(main_act, data.ibio1)
 
-    assert res.values[0] == 12.0
+    assert res.values[0] == 1.25 # (1/(80%))
 
 
 def test_should_list_params_with_mixed_groups(data):
