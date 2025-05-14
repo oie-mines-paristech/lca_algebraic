@@ -906,15 +906,20 @@ class ActMatrix(dict):
         self._row_acts = list()
 
     def set(self, row_act, col_act, value):
-        if row_act not in self._row_acts:
-            self._row_acts.append(row_act)
-            self._row_acts.sort()
+        self.add_row(row_act)
+        self.add_col(col_act)
 
+        self.__setitem__((row_act, col_act), value)
+
+    def add_col(self, col_act):
         if col_act not in self._col_acts:
             self._col_acts.append(col_act)
             self._col_acts.sort()
 
-        self.__setitem__((row_act, col_act), value)
+    def add_row(self, row_act):
+        if row_act not in self._row_acts:
+            self._row_acts.append(row_act)
+            self._row_acts.sort()
 
     def demand_vector(self, act, value=1.0):
         """Generate vector of len (rows) with zeros and 1 only at the index of act"""
@@ -992,11 +997,8 @@ def _solve_expression(
     # Demand vector
     D = fg_matrix.demand_vector(main_act)
 
-    # Inserse A
-    inv_A = (ID - A) ** -1
-
-    # Supply
-    S = inv_A * D.T
+    # Supply = Demand * (I-A)^-1
+    S = D * (ID - A) ** -1
 
     # BG
     BG = S * B
@@ -1044,8 +1046,10 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
             # Already explored
             return
 
-        # Been there
-        fg_matrix.set(act, act, 0.0)
+        # Add current act to axes matrices, to keep correct shape
+        fg_matrix.add_row(act)
+        fg_matrix.add_col(act)
+        bg_matrix.add_row(act)
 
         for exch in act.exchanges():
             amount = _getAmountOrFormula(exch)
