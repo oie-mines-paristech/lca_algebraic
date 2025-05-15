@@ -2,6 +2,8 @@ import os
 import sys
 from tempfile import mkstemp
 
+import numpy as np
+
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
@@ -530,6 +532,27 @@ def test_inventory_loops_with_output_2(data):
     res = compute_impacts(main_act, data.ibio1)
 
     assert res.values[0] == 1.25  # (1/(80%))
+
+
+def test_several_outputs(data):
+    """Negative input = output"""
+
+    main_act = newActivity(USER_DB, "main_act", "kg")
+
+    scrap_act = newActivity(USER_DB, "scrap", "kg")
+    clean_scrap = newActivity(USER_DB, "clean_scrap", "kg", exchanges={
+        scrap_act: 1,
+        data.bio2:1}) # Bio2 measures the amount of cleaning
+
+    main_act.addExchanges({
+        data.bio1: 1, # REal entry : 1 unit pure + 1 clean scrap
+        clean_scrap: 1,
+        scrap_act: -1})  # Produce one unit of scrap for one unit of output
+
+    res = compute_impacts(main_act, [data.ibio1, data.ibio2])
+
+    # One unit of pure entry + one unit of cleaning
+    assert np.array_equal(res.values, np.array([[1.0, 1.0]]))
 
 
 def test_should_list_params_with_mixed_groups(data):
