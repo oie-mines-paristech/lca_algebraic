@@ -185,6 +185,11 @@ def test_enum_values_are_enforced():
     assert "Invalid value" in str(exc)
 
 
+def test_compute_impact_on_empty_act(data):
+    act = newActivity(USER_DB, "Foo", "unit")
+    compute_impacts(act, data.ibio1)
+
+
 def test_setforeground():
     setForeground(USER_DB)
 
@@ -510,17 +515,30 @@ def test_inventory_loops_should_work(data):
 
     # Hold the link to bg
     other_act = newActivity(USER_DB, "other_act", "kg", exchanges={data.bg_act1: 1})
-    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={
-        other_act: 1,
-        data.bg_act2: 0.1})
+    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={other_act: 1, data.bg_act2: 0.1})
 
-    main_act.addExchanges({
-        main_act: 0.2, # 20% of self consumption
-        third_act: 1})  # Link to background
+    main_act.addExchanges({main_act: 0.2, third_act: 1})  # 20% of self consumption  # Link to background
 
     res = compute_impacts(main_act, data.ibio1)
 
-    assert res.values[0] == 1.25 # (1/(80%))
+    assert res.values[0] == 1.25  # (1/(80%))
+
+
+def test_inventory_loops_with_output_2(data):
+    """Same as above with but doubles everything including the output amount of main_act"""
+
+    main_act = newActivity(USER_DB, "main_act", "kg")
+    main_act.setOutputAmount(2.0)
+
+    # Hold the link to bg
+    other_act = newActivity(USER_DB, "other_act", "kg", exchanges={data.bg_act1: 1})
+    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={other_act: 1, data.bg_act2: 0.1})
+
+    main_act.addExchanges({main_act: 0.4, third_act: 2})  # 20% of self consumption  # Link to background
+
+    res = compute_impacts(main_act, data.ibio1)
+
+    assert res.values[0] == 1.25  # (1/(80%))
 
 
 def test_should_list_params_with_mixed_groups(data):
