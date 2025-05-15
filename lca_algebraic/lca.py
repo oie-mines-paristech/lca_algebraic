@@ -957,7 +957,11 @@ def _solve_expression(
     S = D * (ID - A) ** -1
 
     # BG
-    BG = S * B
+    if len(bg_matrix.cols_acts()) == 0:
+        # Case of empty matrix
+        BG = ImmutableMatrix([[]])
+    else:
+        BG = S * B
 
     # Transform BG vector to expression or dict
     bg_vals_dict = dict()
@@ -1016,6 +1020,10 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
 
             # Divide by output amount
             amount /= outputAmount
+
+            # Add axis is required = transform expression to AxisDict
+            if axis:
+                amount = _tag_expr(amount, act, axis)
 
             #  Production exchange
             if _isOutputExch(exch):

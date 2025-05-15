@@ -11,9 +11,7 @@ class AxisDict(SympyDict):
     def _apply_op(self, other, fop, null_val):
         # None is the key for non flagged values
         if not isinstance(other, AxisDict):
-            dic = dict()
-            dic[NO_AXIS] = other
-            other = AxisDict(dic)
+            other = AxisDict({NO_AXIS: other})
 
         all_keys = set(other._dict.keys()) | set(self._dict.keys())
         return AxisDict({key: fop(self._dict.get(key, null_val), other._dict.get(key, null_val)) for key in all_keys})
