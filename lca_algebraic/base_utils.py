@@ -1,6 +1,6 @@
 from contextlib import AbstractContextManager
 from inspect import isfunction
-from typing import Dict, Iterable, Union
+from typing import Dict, Iterable, Tuple, Union
 
 import brightway2 as bw
 import ipywidgets as widgets
@@ -174,9 +174,11 @@ def one(it: Iterable):
     return it[0]
 
 
-ValueOrExpression = Union[float, Basic, Quantity]
-
-
 def getActByCode(db_name, code):
     """Get activity by code"""
     return _getDb(db_name).get(code)
+
+
+# Types
+ValueOrExpression = Union[float, Basic, Quantity]
+MethodKey = Tuple[str]
