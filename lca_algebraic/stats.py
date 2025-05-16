@@ -958,17 +958,6 @@ def sobol_simplify_model(
 TERM_MIN_LEVEL = 0.01
 
 
-def _rec_expression(exp, func):
-    """Recurse trough an expression, transforming each term with the result of f(term)"""
-
-    def rec(term):
-        if issubclass(exp.func, AtomicExpr):
-            return func(term)
-        else:
-            args = filter(lambda x: x is not None, list(func(arg) for arg in term.args))
-            return term.func(*args)
-
-
 def _simplify_sums(expr, param_values):
     def replace_term(term, minv, maxv, max_max):
         abs_max = max(abs(minv), abs(maxv))
