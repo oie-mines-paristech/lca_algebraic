@@ -26,6 +26,7 @@ from .base_utils import (
     _actName,
     _getDb,
     _isOutputExch,
+    _user_functions,
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
