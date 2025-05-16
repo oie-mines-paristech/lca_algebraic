@@ -9,16 +9,18 @@ import bw2calc
 import bw2data
 import numpy as np
 import pandas as pd
+from black.trans import defaultdict
 from bw2data import labels
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
 from pint import Quantity, Unit
 from sympy import (
+    Add,
     Basic,
     Expr,
     ImmutableMatrix,
+    Mul,
     Symbol,
-    eye,
     lambdify,
     parse_expr,
     simplify,
@@ -196,7 +198,7 @@ def _cachedActToExpression(
 
             cache.data[key] = (expr, actBySymbolName)
         else:
-            logger.debug(f"{model} found in exrepssion cache")
+            logger.debug(f"{model} found in expression cache")
 
         expr, actBySymbolName = cache.data[key]
 
@@ -868,48 +870,35 @@ def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT)
     return expr.xreplace(sub)
 
 
-def _safe_axis(axis_name: str):
-    if axis_name.isalnum():
-        return axis_name
+def _get_axis(act, axis_name: str):
+    """Safe"""
+    tag = act.get(axis_name, None)
+
+    if tag is None:
+        return None
+    if tag.isalnum():
+        return tag
     else:
-        return re.sub("[^0-9a-zA-Z]+", "_", axis_name)
+        return re.sub("[^0-9a-zA-Z]+", "_", tag)
 
 
-def _tag_expr(expr, act, axis):
-    """Tag expression for one axe. Check the child expression is not already tagged with different values"""
-    axis_tag = act.get(axis, None)
-
-    if axis_tag is None:
-        return expr
-
-    axis_tag = _safe_axis(axis_tag)
-
-    if isinstance(expr, AxisDict):
-        res = 0
-        for key, val in expr._dict.items():
-            if key is not None and str(key) != axis_tag:
-                raise ValueError(
-                    "Inconsistent axis for one change of  '%s' : attempt to tag as '%s'. "
-                    "Already tagged as '%s'. Value of the exchange : %s" % (act["name"], axis_tag, key, str(val))
-                )
-            res += val
-    else:
-        res = expr
-
-    return AxisDict({axis_tag: res})
-
-
-class ActMatrix(dict):
+class ActMatrix(defaultdict):
     def __init__(self):
-        super().__init__()
+        super().__init__(lambda: 0.0)
         self._col_acts = list()
         self._row_acts = list()
 
-    def set(self, row_act, col_act, value):
+    def __getitem__(self, key):
+        row_act, col_act = key
         self.add_row(row_act)
         self.add_col(col_act)
+        return super().__getitem__(key)
 
-        self.__setitem__((row_act, col_act), value)
+    def __setitem__(self, key, value):
+        row_act, col_act = key
+        self.add_row(row_act)
+        self.add_col(col_act)
+        return super().__setitem__(key, value)
 
     def add_col(self, col_act):
         if col_act not in self._col_acts:
@@ -946,6 +935,15 @@ class ActMatrix(dict):
             for col_act in self.cols_acts():
                 row.append(self.get((row_act, col_act), 0.0))
         return ImmutableMatrix(rows)
+
+    def to_dataframe(self):
+        res = dict()
+        for row_act in self.row_acts():
+            res[str(row_act)] = {str(col_act): self[(row_act, col_act)] for col_act in self.cols_acts()}
+        return pd.DataFrame(res)
+
+    def __repr__(self):
+        return self.to_dataframe().__repr__()
 
 
 class ActSymbols:
@@ -990,15 +988,11 @@ def _solve_expression(
     A = fg_matrix.to_sympy()
     B = bg_matrix.to_sympy()
 
-    size = A.shape[0]
-
-    ID = eye(size)
-
     # Demand vector
     D = fg_matrix.demand_vector(main_act)
 
-    # Supply = Demand * (I-A)^-1
-    S = D * (ID - A) ** -1
+    # Supply = Demand * A^-1
+    S = D * (A**-1)
 
     # BG
     if len(bg_matrix.cols_acts()) == 0:
@@ -1023,6 +1017,26 @@ def _solve_expression(
         return act_symbols, res
 
 
+def force_reduce(expr):
+    """Force reduction of sum and multiplication : usefull for AxisDict"""
+    if isinstance(expr, dict):
+        return AxisDict(expr)
+    if isinstance(expr, Add):
+        res = 0.0
+        for arg in expr.args:
+            res += force_reduce(arg)
+        return res
+    if isinstance(expr, Mul):
+        res = 1.0
+        for arg in expr.args:
+            res *= force_reduce(arg)
+        return res
+    # if isinstance(expr, Pow):
+    #    a = b = expr.args
+    #    return a ** b
+    return expr
+
+
 @with_db_context(arg="act")
 def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
     """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
@@ -1039,8 +1053,12 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
     bg_matrix = ActMatrix()
 
     # Fill the matrices
-    def fill_matrices_rec(act: ActivityExtended):
-        outputAmount = act.getOutputAmount()
+    def fill_matrices_rec(act: ActivityExtended, axis_tag=None):
+        # Update axis values
+        if axis is not None:
+            new_axis_val = _get_axis(act, axis)
+            if new_axis_val is not None:
+                axis_tag = new_axis_val
 
         if not _isForeground(act["database"]):
             # We reached a background DB ? => stop developping and create reference to activity
@@ -1062,31 +1080,29 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
                 # Some amounts in EIDB are functions ... we ignore them
                 continue
 
-            # Divide by output amount
-            amount /= outputAmount
-
-            # Add axis is required = transform expression to AxisDict
-            if axis:
-                amount = _tag_expr(amount, act, axis)
-
-            #  Production exchange
-            if _isOutputExch(exch):
-                continue
-
             # Fetch activity referenced by the exchange
             input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
 
-            # Background DB => reference it as a symbol
+            # Fill the appropriate matrix
             if _isForeground(input_db):
-                fg_matrix.set(act, sub_act, amount)
+                #  Production exchange
+                if not _isOutputExch(exch):
+                    amount = -amount
+
+                fg_matrix[act, sub_act] += amount
 
                 # Recursively explore the rest
-                fill_matrices_rec(sub_act)
+                fill_matrices_rec(sub_act, axis_tag)
 
             else:
-                bg_matrix.set(act, sub_act, amount)
+                # Only tag bg values
+                if axis_tag is not None:
+                    amount = AxisDict({axis_tag: amount})
 
+                bg_matrix[act, sub_act] += amount
+
+    # Bootstrap the recursive filling of matrices
     fill_matrices_rec(act)
 
     act_symbols, expr = _solve_expression(fg_matrix, bg_matrix, act, as_dict=for_inventory)
@@ -1096,6 +1112,9 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
     else:
         # Replace fixed params with their default value
         expr = _replace_fixed_params(expr, _fixed_params().values())
+
+    if axis is not None:
+        expr = force_reduce(expr)
 
     return expr, act_symbols.symb_act_dict()
 

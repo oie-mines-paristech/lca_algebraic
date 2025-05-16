@@ -29,6 +29,12 @@ class AxisDict(SympyDict):
     def __add__(self, other):
         return self._apply_op(other, lambda a, b: a + b, 0)
 
+    def __sub__(self, other):
+        return self._apply_op(other, lambda a, b: a - b, 0)
+
+    def __rsub__(self, other):
+        return self._apply_op(other, lambda a, b: b - a, 0)
+
     def __radd__(self, other):
         return self._apply_op(other, lambda a, b: b + a, 0)
 
@@ -42,7 +48,11 @@ class AxisDict(SympyDict):
         return self._apply_self(lambda a: a / other)
 
     def __rtruediv__(self, other):
-        return NotImplemented
+        return self._apply_self(lambda a: other / a)
+
+    def as_coeff_Mul(self, rational=False):
+        """Efficiently extract the coefficient of a product."""
+        return 1, self
 
     def _defer(self, funcname, args, kwargs):
         return AxisDict(
@@ -53,8 +63,11 @@ class AxisDict(SympyDict):
         )
 
     def str_keys(self):
-        # REturn a list to ensure the order is kept
+        # Return a list to ensure the order is kept
         return list(str(key) for key in self._dict.keys())
+
+    def equals(self, other):
+        return isinstance(other, AxisDict) and self._dict == other._dict
 
     @property
     def free_symbols(self):
