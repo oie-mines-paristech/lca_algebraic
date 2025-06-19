@@ -14,7 +14,7 @@ REQUIREMENTS = [
     "sympy",
     "matplotlib",
     "deprecation",
-    "brightway2",
+    "brightway25",
     "SALib",
     "pint",
     "typing-extensions",
@@ -32,7 +32,9 @@ def read(fname):
 
 
 def run(args):
-    return subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8").splitlines()
+    return (
+        subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8").splitlines()
+    )
 
 
 version = read("VERSION")
