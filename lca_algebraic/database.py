@@ -8,7 +8,6 @@ from bw2data import Database
 from bw2data import databases as dbmeta
 from bw2data.backends import SQLiteBackend as LCIBackend
 from bw2data.proxies import ActivityProxyBase
-from typing_extensions import deprecated
 
 from .base_utils import one
 from .log import logger
@@ -83,28 +82,6 @@ def resetDb(db_name, foreground=True):
         setForeground(db_name)
     else:
         setBackground(db_name)
-
-
-@deprecated("DEPRECATED : Use bw2io.import_ecoinvent_release() instead")
-def initProject(project_name):
-    """Setup the project if not already done."""
-    bw.projects.set_current(project_name)
-    bw.bw2setup()
-
-
-@deprecated("DEPRECATED : Use the new bw2io.import_ecoinvent_release instead")
-def importDb(dbname, path, parallel=False):
-    """Import eco invent DB
-
-    DEPRECATED : Use the new bw2io.import_ecoinvent_release instead
-    """
-    if dbname in bw.databases:
-        logger.warning("Database '%s' has already been imported " % dbname)
-    else:
-        ei34 = bw.SingleOutputEcospold2Importer(path, dbname, use_mp=parallel)
-        ei34.apply_strategies()
-        ei34.statistics()
-        ei34.write_database()
 
 
 _metaCache = defaultdict(lambda: {})
