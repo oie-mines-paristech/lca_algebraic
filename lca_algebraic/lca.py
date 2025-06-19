@@ -86,10 +86,26 @@ def user_function(sym):
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
-    lca = bw.MultiLCA("process")
-    cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
-    return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
+    # bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
+    meth_cfg = {"impact_categories": methods}
+    fu = {act["name"]: {act.id: 1} for k in activities for act in k}
+
+    data_objs = bw2data.get_multilca_data_objs(fu, meth_cfg)
+    lca = bw2calc.MultiLCA(demands=fu, method_config=meth_cfg, data_objs=data_objs)
+    lca.lci()
+    lca.lcia()
+
+    rows = [method_name(method) for method in methods]
+    cols = [
+        _actName(act) for act_amount in activities for act, amount in act_amount.items()
+    ]
+    results = lca.scores
+
+    return pd.DataFrame(
+        np.array([[results[m, a] for a in cols] for m in methods]),
+        index=rows,
+        columns=cols,
+    )
 
 
 def multiLCA(models, methods, **params):
