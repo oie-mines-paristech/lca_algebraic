@@ -26,10 +26,10 @@ def _isnumber(value):
 dbs = dict()
 
 
-def _getDb(dbname) -> bw.Database:
+def _getDb(dbname) -> Database:
     """Pool of Database instances"""
     if dbname not in dbs:
-        dbs[dbname] = bw.Database(dbname)
+        dbs[dbname] = Database(dbname)
     return dbs[dbname]
 
 
@@ -129,7 +129,9 @@ class TabbedDataframe:
         with pd.ExcelWriter(filename, engine="xlsxwriter") as writer:
             for itab, (name, df) in enumerate(self.dataframes.items()):
                 if itab == 0:
-                    df.to_excel(writer, sheet_name=name, startrow=len(self.metadata) + 1)
+                    df.to_excel(
+                        writer, sheet_name=name, startrow=len(self.metadata) + 1
+                    )
 
                     # Write metadata in header
                     worksheet = writer.sheets[name]

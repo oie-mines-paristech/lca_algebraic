@@ -28,8 +28,9 @@ unit_registry = UnitRegistry()
 def check_unit_consistency(db_name: str):
     """
     Check units of exchanges VS units of target activities in a single database.
-    This check is done statically. The purpose is to run this on a background, non parametric, database."""
-    db = bw.Database(db_name)
+    This check is done statically. The purpose is to run this on a background, non parametric, database.
+    """
+    db = Database(db_name)
 
     errors = list()
     for act in db:
@@ -37,7 +38,9 @@ def check_unit_consistency(db_name: str):
             sub_act = getActByCode(*ex["input"])
 
             if sub_act["unit"] != ex["unit"]:
-                errors.append(f"Unit of exxchange {ex} ({ex['unit']}) does not match unit of {sub_act} ({sub_act['unit']})")
+                errors.append(
+                    f"Unit of exxchange {ex} ({ex['unit']}) does not match unit of {sub_act} ({sub_act['unit']})"
+                )
 
     if errors:
         raise Exception("Error : unit inconsistancy\n" + "\n".join(errors))
@@ -110,7 +113,11 @@ def _add_sub_modified(self: PlainQuantity, other, op):
 
     def _safe_other_magnitude(units):
         if not self._REGISTRY.auto_scale:
-            raise (Exception(f"Auto scale disabled : explicit convertio of '{other}' to {units} required"))
+            raise (
+                Exception(
+                    f"Auto scale disabled : explicit convertio of '{other}' to {units} required"
+                )
+            )
         return other.to(units).magnitude
 
     if not self._check(other):
@@ -132,7 +139,11 @@ def _add_sub_modified(self: PlainQuantity, other, op):
             other_magnitude = self.to(units)._magnitude
 
             if other_magnitude != self.magnitude and not self._REGISTRY.auto_scale:
-                raise (Exception(f"Auto scale disabled : explicit convertion of '{self}' to {units} required"))
+                raise (
+                    Exception(
+                        f"Auto scale disabled : explicit convertion of '{self}' to {units} required"
+                    )
+                )
 
             magnitude = op(
                 self.to(units)._magnitude,
@@ -143,7 +154,9 @@ def _add_sub_modified(self: PlainQuantity, other, op):
         return self.__class__(magnitude, units)
 
     if not self.dimensionality == other.dimensionality:
-        raise DimensionalityError(self._units, other._units, self.dimensionality, other.dimensionality)
+        raise DimensionalityError(
+            self._units, other._units, self.dimensionality, other.dimensionality
+        )
 
     # Next we define some variables to make if-clauses more readable.
     self_non_mul_units = self._get_non_multiplicative_units()
@@ -162,7 +175,9 @@ def _add_sub_modified(self: PlainQuantity, other, op):
             units = self._units
         # If only self has a delta unit, other determines unit of result.
         elif self._get_delta_units() and not other._get_delta_units():
-            magnitude = op(self._convert_magnitude_not_inplace(other._units), other._magnitude)
+            magnitude = op(
+                self._convert_magnitude_not_inplace(other._units), other._magnitude
+            )
             units = other._units
         else:
             units = self._units

@@ -25,7 +25,7 @@ class Pickler(pickle.Pickler):
 
 def last_db_update():
     """Get the last update of current database project"""
-    filename = path.join(bw.projects.dir, "lci", "databases.db")
+    filename = path.join(bw2data.projects.dir, "lci", "databases.db")
 
     return path.getmtime(filename)
 
@@ -36,6 +36,7 @@ def disable_cache():
 
 class _Caches:
     "Singleton instance holding caches"
+
     caches = dict()
 
 
@@ -83,7 +84,7 @@ class _CacheDict:
 
     @classmethod
     def filename(cls, name):
-        return path.join(bw.projects.dir, f"lca_algebraic_cache-{name}.pickle")
+        return path.join(bw2data.projects.dir, f"lca_algebraic_cache-{name}.pickle")
 
 
 class LCIACache(_CacheDict):

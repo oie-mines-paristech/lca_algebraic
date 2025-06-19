@@ -98,7 +98,9 @@ def _extract_var_params(lambdas):
     for lamb in lambdas:
         required_param_names.update(_expanded_names_to_names(lamb.expanded_params))
     var_params = _variable_params(required_param_names)
-    return sorted(var_params.values(), key=lambda p: (p.group if p.group else "", p.name))
+    return sorted(
+        var_params.values(), key=lambda p: (p.group if p.group else "", p.name)
+    )
 
 
 @with_db_context(arg="model")
@@ -235,7 +237,13 @@ def _oat_dasboard(
 
 
 @with_db_context(arg="model")
-def oat_dashboard(model, impacts, functional_unit: ValueOrExpression = 1, func_unit_name="kWh", **kwparams):
+def oat_dashboard(
+    model,
+    impacts,
+    functional_unit: ValueOrExpression = 1,
+    func_unit_name="kWh",
+    **kwparams,
+):
     """
     This function runs a "one at a time" analysis on the selected param.
 
@@ -277,7 +285,11 @@ def oat_dashboard(model, impacts, functional_unit: ValueOrExpression = 1, func_u
     def process_func(param):
         with DbContext(model):
             _oat_dasboard(
-                model=lambdas, impacts=impacts, varying_param=_param_registry()[param], func_unit_name=func_unit_name, **kwparams
+                model=lambdas,
+                impacts=impacts,
+                varying_param=_param_registry()[param],
+                func_unit_name=func_unit_name,
+                **kwparams,
             )
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
@@ -307,7 +319,9 @@ def _stochastics(
     if extra_fixed_params:
         params.update(extra_fixed_params)
 
-    Y = _compute_stochastics(modelOrLambdas, methods, params=params, functional_unit=functional_unit)
+    Y = _compute_stochastics(
+        modelOrLambdas, methods, params=params, functional_unit=functional_unit
+    )
 
     return problem, params, Y
 
@@ -317,13 +331,17 @@ def _compute_stochastics(modelOrLambdas, methods, functional_unit=1, params=None
         params = {}
 
     if isinstance(modelOrLambdas, Activity):
-        Y = compute_impacts(modelOrLambdas, methods, functional_unit=functional_unit, **params)
+        Y = compute_impacts(
+            modelOrLambdas, methods, functional_unit=functional_unit, **params
+        )
     else:
         Y = _postMultiLCAAlgebric(methods, modelOrLambdas, **params)
     return Y
 
 
-def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None):
+def _generate_random_params(
+    n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None
+):
     """Compute stochastic impacts for later analysis of incertitude"""
     if var_params is None:
         var_params = _variable_params().values()
@@ -334,7 +352,9 @@ def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_para
     random.seed(seed)
 
     # Extract variable names
-    var_param_names = list([param if isinstance(param, str) else param.name for param in var_params])
+    var_param_names = list(
+        [param if isinstance(param, str) else param.name for param in var_params]
+    )
     problem = {
         "num_vars": len(var_param_names),
         "names": var_param_names,
@@ -346,7 +366,9 @@ def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_para
     elif sample_method == StochasticMethod.RAND:
         X = np.random.rand(n, len(var_param_names))
     elif sample_method == StochasticMethod.SOBOL:
-        X = sobol_sequence.sample(n * (len(var_param_names) * 2 + 2), len(var_param_names))
+        X = sobol_sequence.sample(
+            n * (len(var_param_names) * 2 + 2), len(var_param_names)
+        )
     # elif sample_method == StochasticMethod.LATIN :
     #    X = latin.sample(problem, n)
     else:
@@ -431,7 +453,9 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
                 if mean != 0:
                     data[:, i] = np.sqrt((sx[:, i] * var)) / mean * 100
 
-        param_labels = [_param_name(_param_registry()[name], name_type) for name in param_names]
+        param_labels = [
+            _param_name(_param_registry()[name], name_type) for name in param_names
+        ]
         df = pd.DataFrame(
             data,
             index=param_labels,
@@ -439,7 +463,11 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
         )
         _heatmap(
             df.transpose(),
-            title="Relative deviation of impacts (%)" if mode == "percent" else "Sobol indices (part of variability)",
+            title=(
+                "Relative deviation of impacts (%)"
+                if mode == "percent"
+                else "Sobol indices (part of variability)"
+            ),
             vmax=100 if mode == "percent" else 1,
             ints=mode == "percent",
         )
@@ -452,7 +480,9 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
 
 
 @with_db_context(arg="model")
-def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name_type=NameType.LABEL):
+def incer_stochastic_matrix(
+    model, methods, functional_unit=1, n=DEFAULT_N, name_type=NameType.LABEL
+):
     """
     Method computing matrix of parameter importance
 
@@ -473,7 +503,9 @@ def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name
     _incer_stochastic_matrix(methods, problem["names"], Y, sob, name_type=name_type)
 
 
-def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, nb_cols=3):
+def _incer_stochastic_violin(
+    methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, nb_cols=3
+):
     """Internal method for computing violin graph of impacts
     Parameters
     ----------
@@ -525,7 +557,9 @@ def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), 
 
 
 @with_db_context(arg="modelOrLambdas")
-def incer_stochastic_violin(modelOrLambdas, methods, functional_unit=1, n=DEFAULT_N, var_params=None, **kwparams):
+def incer_stochastic_violin(
+    modelOrLambdas, methods, functional_unit=1, n=DEFAULT_N, var_params=None, **kwparams
+):
     """
     Method for computing violin graph of impacts
 
@@ -559,7 +593,9 @@ def _incer_stochastic_variations(methods, param_names, Y, sob1):
     ax = plt.gca()
     tab20b = plt.get_cmap("tab20b")
     tab20c = plt.get_cmap("tab20c")
-    ax.set_prop_cycle("color", [tab20b(k) if k < 1 else tab20c(k - 1) for k in np.linspace(0, 2, 40)])
+    ax.set_prop_cycle(
+        "color", [tab20b(k) if k < 1 else tab20c(k - 1) for k in np.linspace(0, 2, 40)]
+    )
 
     relative_variance_pct = std * std / (mean * mean) * 100
     totplt = plt.bar(np.arange(len(method_names)), relative_variance_pct, 0.8)
@@ -603,13 +639,20 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
         + ["Sobol T(%s)" % param for param in param_names]
     )
 
-    df = pd.DataFrame(data, index=rows, columns=[method_name(method) for method in methods])
+    df = pd.DataFrame(
+        data, index=rows, columns=[method_name(method) for method in methods]
+    )
     displayWithExportButton(df)
 
 
 @with_db_context(arg="model")
 def incer_stochastic_dashboard(
-    model: Activity, methods, n=DEFAULT_N, var_params=None, functional_unit: ValueOrExpression = 1, **kwparams
+    model: Activity,
+    methods,
+    n=DEFAULT_N,
+    var_params=None,
+    functional_unit: ValueOrExpression = 1,
+    **kwparams,
 ):
     """
     This function runs a monte carlo & Sobol analysis (GSA) on a parametric model and displays a dashboard with results.
@@ -650,7 +693,9 @@ def incer_stochastic_dashboard(
 
     """
 
-    problem, _, Y = _stochastics(model, methods, n, var_params=var_params, functional_unit=functional_unit)
+    problem, _, Y = _stochastics(
+        model, methods, n, var_params=var_params, functional_unit=functional_unit
+    )
 
     param_names = problem["names"]
 
@@ -682,7 +727,12 @@ def incer_stochastic_dashboard(
 def _round_expr(expr, num_digits):
     """Round all number in sympy expression with n digits"""
 
-    return expr.xreplace({n: Float(n, num_digits) if isinstance(n, Float) else n for n in expr.atoms(Number)})
+    return expr.xreplace(
+        {
+            n: Float(n, num_digits) if isinstance(n, Float) else n
+            for n in expr.atoms(Number)
+        }
+    )
 
 
 def _snake2camel(val):
@@ -741,7 +791,10 @@ def _enum_to_piecewize(exp):
             return expr
 
         for enum_name, ratio_dict in enums.items():
-            choices = [(ratio, Eq(symbols(enum_name), symbols(enum_value))) for enum_value, ratio in ratio_dict.items()]
+            choices = [
+                (ratio, Eq(symbols(enum_name), symbols(enum_value)))
+                for enum_value, ratio in ratio_dict.items()
+            ]
             if len(choices) < len(_param_registry()[enum_name].values):
                 # Not all choices covered ? => Add default
                 choices.append((0, True))
@@ -750,7 +803,9 @@ def _enum_to_piecewize(exp):
 
         return Add(*res_terms)
 
-    return exp.replace(lambda x: isinstance(x, Sum) or isinstance(x, Add), _replace_enums)
+    return exp.replace(
+        lambda x: isinstance(x, Sum) or isinstance(x, Add), _replace_enums
+    )
 
 
 def prettify(exp):
@@ -760,7 +815,9 @@ def prettify(exp):
 
     res = _enum_to_piecewize(exp)
 
-    res = res.replace(lambda x: isinstance(x, Symbol), lambda x: Symbol(_snake2camel(str(x))))
+    res = res.replace(
+        lambda x: isinstance(x, Symbol), lambda x: Symbol(_snake2camel(str(x)))
+    )
 
     # Replace absolute values for positive parameters
     res, nb_match = _replace_abs(res)
@@ -876,7 +933,9 @@ def sobol_simplify_model(
 
     var_param_names = list([param.name for param in var_params])
 
-    problem, params, Y = _stochastics(model, methods, n, var_params=var_params, functional_unit=functional_unit)
+    problem, params, Y = _stochastics(
+        model, methods, n, var_params=var_params, functional_unit=functional_unit
+    )
 
     sob = _sobols(methods, problem, Y)
 
@@ -899,7 +958,9 @@ def sobol_simplify_model(
         sum = 0
 
         sorted_param_indices = list(range(0, len(var_param_names)))
-        sorted_param_indices = sorted(sorted_param_indices, key=lambda i: s1[i, imethod], reverse=True)
+        sorted_param_indices = sorted(
+            sorted_param_indices, key=lambda i: s1[i, imethod], reverse=True
+        )
         selected_params = []
         sobols = dict()
 
@@ -923,7 +984,11 @@ def sobol_simplify_model(
         expr = exprs[imethod]
 
         # Replace non selected params by their value
-        fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
+        fixed_params = [
+            param
+            for param in _param_registry().values()
+            if param.name not in selected_params
+        ]
         expr = _replace_fixed_params(expr, fixed_params, fixed_mode=fixed_mode)
 
         # Sympy simplification
@@ -936,7 +1001,9 @@ def sobol_simplify_model(
         lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
 
         # Compute list of parameter values (monte carlo)
-        expanded_params = _complete_and_expand_params(params, lambd.params, asSymbols=False)
+        expanded_params = _complete_and_expand_params(
+            params, lambd.params, asSymbols=False
+        )
         expanded_params = _filter_param_values(expanded_params, lambd.expanded_params)
 
         # Extra step of simplification : simplify sums with neligeable terms
@@ -984,7 +1051,10 @@ def _simplify_products(expr, param_values):
     def replace_term(term, minv, maxv, max_max):
         # Close to 1 or -1 ?
         for factor in [-1, 1]:
-            if abs(minv - factor) < TERM_MIN_LEVEL and abs(maxv - factor) < TERM_MIN_LEVEL:
+            if (
+                abs(minv - factor) < TERM_MIN_LEVEL
+                and abs(maxv - factor) < TERM_MIN_LEVEL
+            ):
                 if factor == -1:
                     return -1
                 else:
@@ -1061,7 +1131,9 @@ def _hline(x1, x2, y, linewidth=1, linestyle="solid"):
 
 
 def _vline(x, ymin, ymax, linewidth=1, linestyle="solid"):
-    plt.axvline(x, color="k", ymin=ymin, ymax=ymax, linewidth=linewidth, linestyle=linestyle)
+    plt.axvline(
+        x, color="k", ymin=ymin, ymax=ymax, linewidth=linewidth, linestyle=linestyle
+    )
 
 
 def _graph(
@@ -1187,7 +1259,9 @@ def distrib(
     """
 
     if Y is None:
-        _, _, Y = _stochastics(model, methods, n=DEFAULT_N * 16, functional_unit=functional_unit)
+        _, _, Y = _stochastics(
+            model, methods, n=DEFAULT_N * 16, functional_unit=functional_unit
+        )
 
     if axes is None:
         nb_rows = math.ceil(len(methods) / nb_cols)
@@ -1294,15 +1368,21 @@ def compare_simplified(
 
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
-    for i, lambd, simpl_lambd, method, ax in zip(range(len(methods)), lambdas, simpl_lambdas, methods, axes.flatten()):
+    for i, lambd, simpl_lambd, method, ax in zip(
+        range(len(methods)), lambdas, simpl_lambdas, methods, axes.flatten()
+    ):
         params, _ = _generate_random_params(100000, sample_method=StochasticMethod.RAND)
 
         # Run  Monte Carlo on full model
-        Y1 = _compute_stochastics([lambd], [method], functional_unit=functional_unit, params=params)
+        Y1 = _compute_stochastics(
+            [lambd], [method], functional_unit=functional_unit, params=params
+        )
         d1 = Y1[Y1.columns[0]]
 
         # Run monte carlo of simplified model
-        Y2 = _compute_stochastics([simpl_lambd], [method], functional_unit=functional_unit, params=params)
+        Y2 = _compute_stochastics(
+            [simpl_lambd], [method], functional_unit=functional_unit, params=params
+        )
         d2 = Y2[Y2.columns[0]]
 
         r_value = r_squared(Y1, Y2)
