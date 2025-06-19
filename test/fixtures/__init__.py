@@ -19,14 +19,14 @@ def init_methods(db, prefix):
 
         act = getActByCode(db, bioname)
 
-        method = bw.Method((prefix, bioname, "total"))
+        method = bw2data.Method((prefix, bioname, "total"))
         method.register(unit="MJ-Eq", description="quantity of " + bioname)
         method.write([(act.key, 1)])
 
         res.append((prefix, bioname, "total"))
 
     # Digital : one digit per bio activity
-    method = bw.Method((prefix, "all", "total"))
+    method = bw2data.Method((prefix, "all", "total"))
     method.register(unit="1", description="quantity of " + bioname)
     method.write(
         [

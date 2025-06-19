@@ -19,8 +19,10 @@ def data():
     """Setup background data"""
 
     # Reset func project, empty DB
-    bw.projects.set_current("tests")
-    bw.bw2setup()
+    if "tests" not in bw2data.projects:
+        bw2data.projects.set_current("Glop")
+        bw2data.projects.copy_project("tests", switch=False)
+    bw2data.projects.set_current("tests")
 
     # Clear DB
     resetDb(BG_DB, False)
@@ -48,9 +50,9 @@ def data():
 def reset_db():
     """Before each test"""
 
-    for db_name in list(bw.databases):
+    for db_name in list(bw2data.databases):
         if db_name != BG_DB and not db_name.startswith("bio"):
-            del bw.databases[db_name]
+            del bw2data.databases[db_name]
 
     resetDb(USER_DB, foreground=True)
     resetParams()
