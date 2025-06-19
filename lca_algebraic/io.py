@@ -1,5 +1,5 @@
-import brightway2 as bw
-from bw2data.parameters import DatabaseParameter, ProjectParameter
+from bw2data import Database
+from bw2data.parameters import DatabaseParameter, ParameterManager, ProjectParameter
 from bw2io import BW2Package
 
 from lca_algebraic.log import warn

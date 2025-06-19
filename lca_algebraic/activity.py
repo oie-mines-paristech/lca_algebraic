@@ -4,10 +4,10 @@ from copy import deepcopy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
-import brightway2 as bw
+import bw2data
 import pandas as pd
-from bw2data.backends.peewee import Activity, ExchangeDataset
-from bw2data.backends.peewee.utils import dict_as_exchangedataset
+from bw2data.backends import Activity, ExchangeDataset
+from bw2data.backends.utils import dict_as_exchangedataset
 from pint import DimensionalityError, Quantity
 from sympy import Basic, simplify, symbols
 

@@ -9,11 +9,11 @@ import pytest
 from conftest import BG_DB, METHOD_PREFIX, USER_DB
 from fixtures import *
 from numpy.testing import assert_array_equal
-
-from lca_algebraic.database import _isForeground, setForeground, setBackground
-from lca_algebraic.params import _param_registry
-from lca_algebraic.lca import _cachedActToExpression
 from pandas.testing import assert_frame_equal
+
+from lca_algebraic.database import _isForeground, setBackground, setForeground
+from lca_algebraic.lca import _cachedActToExpression
+from lca_algebraic.params import _param_registry
 
 
 def test_load_params():

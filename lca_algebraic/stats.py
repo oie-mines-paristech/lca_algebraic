@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Type
 
 import numpy as np
 import seaborn as sns
-from bw2data.backends.peewee import Activity
+from bw2data.backends import Activity
 from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt

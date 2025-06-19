@@ -2,7 +2,7 @@ import os
 import pickle
 from os import path
 
-import brightway2 as bw
+import bw2data
 
 from .log import logger
 from .settings import Settings

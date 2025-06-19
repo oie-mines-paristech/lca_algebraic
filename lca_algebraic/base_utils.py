@@ -2,11 +2,11 @@ from contextlib import AbstractContextManager
 from inspect import isfunction
 from typing import Dict, Iterable, Union
 
-import brightway2 as bw
 import ipywidgets as widgets
 import numpy as np
 import pandas as pd
-from bw2data.backends.peewee import Activity
+from bw2data import Database
+from bw2data.backends import Activity
 from IPython.display import display
 from six import raise_from
 from sympy import Basic

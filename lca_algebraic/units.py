@@ -1,7 +1,7 @@
 import operator
 from contextlib import contextmanager
 
-import brightway2 as bw
+from bw2data import Database
 from pint import DimensionalityError, OffsetUnitCalculusError, Unit, UnitRegistry
 from pint.compat import _to_magnitude, zero_or_nan
 from pint.facets.plain import PlainQuantity

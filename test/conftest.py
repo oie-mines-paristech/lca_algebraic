@@ -1,10 +1,11 @@
 from test.fixtures import init_acts, init_methods
 from types import SimpleNamespace
 
-import brightway2 as bw
+import bw2data
+import bw2io
 import pytest
 
-from lca_algebraic import initProject, resetDb, resetParams, newActivity
+from lca_algebraic import newActivity, resetDb, resetParams
 from lca_algebraic.cache import clear_caches
 from lca_algebraic.settings import Settings
 

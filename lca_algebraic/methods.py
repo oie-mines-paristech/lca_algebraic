@@ -1,7 +1,7 @@
 import builtins
 from typing import Dict, Tuple
 
-import brightway2 as bw
+import bw2data
 from pint import Unit
 
 

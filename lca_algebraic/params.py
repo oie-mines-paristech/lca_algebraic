@@ -3,14 +3,15 @@ from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Union
 
-import brightway2 as bw
 import numpy as np
 import pandas as pd
-from bw2data.backends.peewee import ExchangeDataset
+from bw2data import Database
+from bw2data.backends import ExchangeDataset
 from bw2data.parameters import (
     ActivityParameter,
     DatabaseParameter,
     Group,
+    ParameterManager,
     ProjectParameter,
 )
 from IPython.core.display import HTML

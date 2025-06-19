@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
-import brightway2 as bw
+import bw2calc
+import bw2data
 import numpy as np
 import pandas as pd
+from bw2data.errors import UnknownObject
 from pandas import DataFrame
-from peewee import DoesNotExist
 from pint import Quantity, Unit
 from sympy import Basic, Expr, Symbol, lambdify, parse_expr, simplify, symbols
 from sympy.printing.numpy import NumPyPrinter

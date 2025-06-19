@@ -3,10 +3,10 @@ import inspect
 from collections import defaultdict
 from typing import Union
 
-import brightway2 as bw
 import pandas as pd
+from bw2data import Database
 from bw2data import databases as dbmeta
-from bw2data.backends import LCIBackend
+from bw2data.backends import SQLiteBackend as LCIBackend
 from bw2data.proxies import ActivityProxyBase
 from typing_extensions import deprecated
 
