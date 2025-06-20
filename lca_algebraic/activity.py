@@ -6,6 +6,7 @@ from typing import Dict, Tuple, Union
 
 import bw2data
 import pandas as pd
+from bw2data import labels
 from bw2data.backends import Activity, ExchangeDataset
 from bw2data.backends.utils import dict_as_exchangedataset
 from pint import DimensionalityError, Quantity
@@ -220,12 +221,12 @@ class ActivityExtended(Activity):
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
                     type=(
-                        "production"
+                        labels.production_edge_default
                         if self == sub_act
                         else (
-                            "technosphere"
-                            if sub_act.get("type") == "process"
-                            else "biosphere"
+                            labels.consumption_edge_default
+                            if sub_act.get("type") == labels.process_node_default
+                            else labels.biosphere_edge_default
                         )
                     ),
                 )
@@ -367,7 +368,9 @@ class ActivityExtended(Activity):
         res = 1.0
 
         for exch in self.exchanges():
-            if (exch["input"] == exch["output"]) and (exch["type"] == "production"):
+            if (exch["input"] == exch["output"]) and (
+                exch["type"] == labels.production_edge_default
+            ):
                 res = exch["amount"]
                 break
         return res
@@ -534,7 +537,7 @@ def newActivity(
     exchanges: Dict[Activity, Union[float, str]] = dict(),
     amount=1,
     code=None,
-    type="process",
+    type=labels.process_node_default,
     switchActivity=False,
     **argv,
 ) -> ActivityExtended:
@@ -578,12 +581,12 @@ def newActivity(
     act.update(argv)
 
     # Add single production exchange
-    if type == "process":
+    if type == labels.process_node_default:
         ex = act.new_exchange(
             input=act.key,
             name=act["name"],
             unit=act["unit"],
-            type="production",
+            type=labels.production_edge_default,
             amount=amount,
         )
         ex.save()
@@ -632,7 +635,7 @@ def copyActivity(
         res._data[k] = v
     res._data["code"] = code
     res["name"] = code
-    res["type"] = "process"
+    res["type"] = labels.process_node_default
     res["inherited_from"] = activity.key
     res.save()
 

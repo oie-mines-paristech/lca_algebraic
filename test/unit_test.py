@@ -147,7 +147,7 @@ def test_freeze(data):
 
     for exc in act1.exchanges():
         # Don't show production
-        if exc["type"] == "production":
+        if exc["type"] == labels.production_edge_default:
             continue
 
         name = exc["name"]

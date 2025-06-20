@@ -9,6 +9,7 @@ import bw2calc
 import bw2data
 import numpy as np
 import pandas as pd
+from bw2data import labels
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
 from pint import Quantity, Unit
@@ -1013,9 +1014,9 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
 
             avoidedBurden = 1
 
-            if exch.get("type") == "production" and not exch.get("input") == exch.get(
-                "output"
-            ):
+            if exch.get("type") == labels.production_edge_default and not exch.get(
+                "input"
+            ) == exch.get("output"):
                 avoidedBurden = -1
 
             res += formula * act_expr * avoidedBurden
