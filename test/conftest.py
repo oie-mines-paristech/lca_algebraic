@@ -1,10 +1,11 @@
 from test.fixtures import init_acts, init_methods
 from types import SimpleNamespace
 
-import brightway2 as bw
+import bw2data
+import bw2io
 import pytest
 
-from lca_algebraic import initProject, resetDb, resetParams, newActivity
+from lca_algebraic import newActivity, resetDb, resetParams
 from lca_algebraic.cache import clear_caches
 from lca_algebraic.settings import Settings
 
@@ -18,8 +19,11 @@ def data():
     """Setup background data"""
 
     # Reset func project, empty DB
-    bw.projects.set_current("tests")
-    bw.bw2setup()
+    if "tests" not in bw2data.projects:
+        bw2data.projects.set_current("base_9c7d6b13-62eb-407e-84fa-a48a7cae1e03")
+        bw2data.projects.copy_project("tests", switch=False)
+
+    bw2data.projects.set_current("tests")
 
     # Clear DB
     resetDb(BG_DB, False)
@@ -47,9 +51,9 @@ def data():
 def reset_db():
     """Before each test"""
 
-    for db_name in list(bw.databases):
-        if db_name != BG_DB and not db_name.startswith("bio"):
-            del bw.databases[db_name]
+    for db_name in list(bw2data.databases):
+        if db_name != BG_DB and "biosphere" not in db_name:
+            del bw2data.databases[db_name]
 
     resetDb(USER_DB, foreground=True)
     resetParams()

@@ -1,10 +1,17 @@
+from test.conftest import USER_DB
+
 import pytest
 
+from lca_algebraic import (
+    Settings,
+    compute_impacts,
+    copyActivity,
+    newActivity,
+    newFloatParam,
+)
 from lca_algebraic.params import _getAmountOrFormula
-from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
-from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity, compute_impacts
-from test.conftest import USER_DB
+from lca_algebraic.units import unit_registry as u
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -70,7 +77,9 @@ def test_add_exchanges(data):
 
     # Should fail : BG activities are all in kg
     with pytest.raises(DimensionalityError):
-        act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p1_meter})
+        act1 = newActivity(
+            USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p1_meter}
+        )
 
     # Should pass
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_kg})
@@ -94,7 +103,9 @@ def test_update_exchanges(data):
 
     # Should fail : BG activities are all in kg
     with pytest.raises(DimensionalityError):
-        act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p1_meter})
+        act1 = newActivity(
+            USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p1_meter}
+        )
 
     # Should convert ton to kg
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_ton})
