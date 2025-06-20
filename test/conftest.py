@@ -20,8 +20,9 @@ def data():
 
     # Reset func project, empty DB
     if "tests" not in bw2data.projects:
-        bw2data.projects.set_current("Glop")
+        bw2data.projects.set_current("base_9c7d6b13-62eb-407e-84fa-a48a7cae1e03")
         bw2data.projects.copy_project("tests", switch=False)
+
     bw2data.projects.set_current("tests")
 
     # Clear DB
@@ -51,7 +52,7 @@ def reset_db():
     """Before each test"""
 
     for db_name in list(bw2data.databases):
-        if db_name != BG_DB and not db_name.startswith("bio"):
+        if db_name != BG_DB and "biosphere" not in db_name:
             del bw2data.databases[db_name]
 
     resetDb(USER_DB, foreground=True)
