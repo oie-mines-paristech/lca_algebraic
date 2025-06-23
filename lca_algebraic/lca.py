@@ -98,9 +98,7 @@ def _multiLCA(activities, methods):
     lca.lcia()
 
     rows = [method_name(method) for method in methods]
-    cols = [
-        _actName(act) for act_amount in activities for act, amount in act_amount.items()
-    ]
+    cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
     results = lca.scores
 
     return pd.DataFrame(
@@ -141,11 +139,7 @@ def multiLCA(models, methods, **params):
 def _multiLCAWithCache(acts, methods):
     with LCIACache() as cache:
         # List activities with at least one missing value
-        remaining_acts = list(
-            act
-            for act in acts
-            if any(method for method in methods if (act, method) not in cache.data)
-        )
+        remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in cache.data))
 
         if len(remaining_acts) > 0:
             lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
@@ -156,11 +150,7 @@ def _multiLCAWithCache(acts, methods):
                     cache.data[(act, method)] = lca.iloc[imethod, iact]
 
         # Return a copy of the cache for selected impacts and activities
-        return {
-            (act, method): cache.data[(act, method)]
-            for act in acts
-            for method in methods
-        }
+        return {(act, method): cache.data[(act, method)] for act in acts for method in methods}
 
 
 def _replace_symbols_with_params_in_exp(expr: Basic):
@@ -173,11 +163,7 @@ def _replace_symbols_with_params_in_exp(expr: Basic):
         return expr
 
     all_params = _param_registry().as_dict()
-    subs = {
-        symb: all_params[symb.name]
-        for symb in expr.free_symbols
-        if isinstance(symb, Symbol) and symb.name in all_params
-    }
+    subs = {symb: all_params[symb.name] for symb in expr.free_symbols if isinstance(symb, Symbol) and symb.name in all_params}
 
     logger.debug("Replace: %s", subs)
 
@@ -195,9 +181,7 @@ def _cachedActToExpression(
         if key not in cache.data:
             logger.debug(f"{model} was not in exrepssion cache, computing...")
 
-            expr, actBySymbolName = actToExpression(
-                model, axis=axis, for_inventory=for_inventory
-            )
+            expr, actBySymbolName = actToExpression(model, axis=axis, for_inventory=for_inventory)
 
             cache.data[key] = (expr, actBySymbolName)
         else:
@@ -240,9 +224,7 @@ def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
     exprs = []
     for method in methods:
         # Replace activities by their value in expression for this method
-        sub = dict(
-            {symbol: lcas[(act, method)] for symbol, act in act_by_symbol.items()}
-        )
+        sub = dict({symbol: lcas[(act, method)] for symbol, act in act_by_symbol.items()})
 
         expr_curr = expr.xreplace(sub)
 
@@ -406,14 +388,10 @@ class LambdaWithParamNames:
 
 
 def lambdify_expr(expr):
-    return LambdaWithParamNames(
-        expr, params=[param.name for param in _param_registry().values()]
-    )
+    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
 
 
-def _preMultiLCAAlgebric(
-    model: ActivityExtended, methods, alpha: ValueOrExpression = 1, axis=None
-):
+def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: ValueOrExpression = 1, axis=None):
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -503,10 +481,7 @@ def _postMultiLCAAlgebric(
 
     result = pd.DataFrame(
         res,
-        index=[
-            method_name(method) + "[%s]" % method_unit(method, fu_unit=unit)
-            for method in methods
-        ],
+        index=[method_name(method) + "[%s]" % method_unit(method, fu_unit=unit) for method in methods],
     ).transpose()
 
     if with_params:
@@ -524,10 +499,7 @@ def _filter_params(params, expected_names, model):
         if expected_name not in params:
             default = _param_registry()[expected_name].default
             res[expected_name] = default
-            warn(
-                "Missing parameter %s, replaced by default value %s"
-                % (expected_name, default)
-            )
+            warn("Missing parameter %s, replaced by default value %s" % (expected_name, default))
 
     for key, value in params.items():
         if key not in expected_params_names:
@@ -628,9 +600,7 @@ def compute_inventory(
 
     """
 
-    expr, act_by_symbol = _cachedActToExpression(
-        model, alpha=1 / functional_unit, for_inventory=True
-    )
+    expr, act_by_symbol = _cachedActToExpression(model, alpha=1 / functional_unit, for_inventory=True)
 
     val_by_act_name = compute_value(expr, **params)
 
@@ -772,23 +742,16 @@ def compute_impacts(
             # Check no params are passed for FixedParams
             for key in params:
                 if key in _fixed_params():
-                    warn(
-                        "Param '%s' is marked as FIXED, but passed in parameters : ignored"
-                        % key
-                    )
+                    warn("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
 
             if functional_unit != 1:
                 alpha = alpha / functional_unit
 
             lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
 
-            unit: Optional[Unit] = (
-                functional_unit.units if isinstance(functional_unit, Quantity) else None
-            )
+            unit: Optional[Unit] = functional_unit.units if isinstance(functional_unit, Quantity) else None
 
-            res = _postMultiLCAAlgebric(
-                methods, lambdas, with_params=return_params, unit=unit, **params
-            )
+            res = _postMultiLCAAlgebric(methods, lambdas, with_params=return_params, unit=unit, **params)
 
             if return_params:
                 df = res.dataframe
@@ -801,9 +764,7 @@ def compute_impacts(
                 model_name += "'"
 
             # param with several values
-            list_params = {
-                k: vals for k, vals in params.items() if isinstance(vals, list)
-            }
+            list_params = {k: vals for k, vals in params.items() if isinstance(vals, list)}
 
             # Shapes the output / index according to the axis or multi param entry
             if axis:
@@ -850,9 +811,7 @@ def compute_impacts(
         if description:
             metadata["Description"] = description
 
-        return TabbedDataframe(
-            metadata=metadata, Results=df, Parameters=_params_dataframe(params_all)
-        )
+        return TabbedDataframe(metadata=metadata, Results=df, Parameters=_params_dataframe(params_all))
     else:
         return df
 
@@ -866,9 +825,7 @@ def _createTechProxyForBio(act_key, target_db):
     act = _getDb(dbname).get(code)
 
     # Biosphere ?
-    if (BIOSPHERE_PREFIX in dbname) or (
-        "type" in act and act["type"] in ["emission", "natural resource"]
-    ):
+    if (BIOSPHERE_PREFIX in dbname) or ("type" in act and act["type"] in ["emission", "natural resource"]):
         code_to_find = code + "#asTech"
 
         try:
@@ -895,11 +852,7 @@ def _createTechProxyForBio(act_key, target_db):
 def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
     """Replace fixed params with their value."""
 
-    sub = {
-        key: val
-        for param in fixed_params
-        for key, val in param.expandParams(param.stat_value(fixed_mode)).items()
-    }
+    sub = {key: val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
     sub = _toSymbolDict(sub)
     return expr.xreplace(sub)
 
@@ -926,8 +879,7 @@ def _tag_expr(expr, act, axis):
             if key is not None and str(key) != axis_tag:
                 raise ValueError(
                     "Inconsistent axis for one change of  '%s' : attempt to tag as '%s'. "
-                    "Already tagged as '%s'. Value of the exchange : %s"
-                    % (act["name"], axis_tag, key, str(val))
+                    "Already tagged as '%s'. Value of the exchange : %s" % (act["name"], axis_tag, key, str(val))
                 )
             res += val
     else:
@@ -1006,18 +958,13 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
             else:
                 parents = parents + [act]
                 if sub_act in parents:
-                    raise Exception(
-                        "Found recursive activities : "
-                        + ", ".join(_actName(act) for act in (parents + [sub_act]))
-                    )
+                    raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
 
                 act_expr = actToExpressionRec(sub_act, parents)
 
             avoidedBurden = 1
 
-            if exch.get("type") == labels.production_edge_default and not exch.get(
-                "input"
-            ) == exch.get("output"):
+            if exch.get("type") == labels.production_edge_default and not exch.get("input") == exch.get("output"):
                 avoidedBurden = -1
 
             res += formula * act_expr * avoidedBurden

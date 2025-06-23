@@ -95,11 +95,7 @@ class ActivityExtended(Activity):
                     loc = loc[1:]
                 act = getActByCode(*exch["input"])
 
-                if (
-                    "location" not in act
-                    or (negative and act["location"] == loc)
-                    or (not negative and act["location"] != loc)
-                ):
+                if "location" not in act or (negative and act["location"] == loc) or (not negative and act["location"] != loc):
                     return False
 
             if "*" in name:
@@ -123,9 +119,7 @@ class ActivityExtended(Activity):
             raise Exception("Found no exchange matching name : %s" % name)
 
         if single and len(exchs) != 1:
-            raise Exception(
-                "Expected 1 exchange with name '%s' found %d" % (name, len(exchs))
-            )
+            raise Exception("Expected 1 exchange with name '%s' found %d" % (name, len(exchs)))
         if single:
             return exchs[0]
         else:
@@ -199,9 +193,7 @@ class ActivityExtended(Activity):
         self.save()
 
     @with_db_context
-    def addExchanges(
-        self, exchanges: Dict[Activity, Union[ValueOrExpression, dict]] = dict()
-    ):
+    def addExchanges(self, exchanges: Dict[Activity, Union[ValueOrExpression, dict]] = dict()):
         """Add exchanges to an existing activity, with a compact syntax :
 
         Parameters
@@ -247,11 +239,7 @@ class ActivityExtended(Activity):
             exchange_unit = parse_db_unit(exchange_unit)
 
         if not isinstance(amount, Quantity):
-            if (
-                not is_dimensionless(exchange_unit)
-                and not self.isSwitch()
-                and amount != 0
-            ):
+            if not is_dimensionless(exchange_unit) and not self.isSwitch() and amount != 0:
                 raise Exception(
                     f"Unit '{exchange_unit}' expected, and dimensionless amount provided in a non-switch Activity: {amount}"
                 )
@@ -264,9 +252,7 @@ class ActivityExtended(Activity):
         act_unit = parse_db_unit(self["unit"])
 
         if self.isSwitch() and (exchange_unit != act_unit):
-            raise Exception(
-                f"Units should be the same in a switch activity {exchange_unit} != {act_unit}"
-            )
+            raise Exception(f"Units should be the same in a switch activity {exchange_unit} != {act_unit}")
 
         # Using 'old_amount' ? => replace with requested unit
         if amount.units == u.old_unit:
@@ -283,9 +269,7 @@ class ActivityExtended(Activity):
 
             # Auto scale disabld ?
             if not _equals(amount.magnitude, new_amount) and not u.auto_scale:
-                raise Exception(
-                    f"auto_scale is disabled. '{amount}' should be explicity transformed to {target_unit}"
-                )
+                raise Exception(f"auto_scale is disabled. '{amount}' should be explicity transformed to {target_unit}")
 
             return new_amount
 
@@ -305,18 +289,10 @@ class ActivityExtended(Activity):
                 amount = amount.subs(old_amount, current_amount)
 
             # Check the expression does not reference undefined params
-            all_symbols = list(
-                [
-                    key
-                    for param in _param_registry().values()
-                    for key, val in param.expandParams().items()
-                ]
-            )
+            all_symbols = list([key for param in _param_registry().values() for key, val in param.expandParams().items()])
             for symbol in amount.free_symbols:
                 if not str(symbol) in all_symbols:
-                    raise Exception(
-                        "Symbol '%s' not found in params : %s" % (symbol, all_symbols)
-                    )
+                    raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
 
             res["formula"] = str(amount)
             res["amount"] = 0
@@ -368,9 +344,7 @@ class ActivityExtended(Activity):
         res = 1.0
 
         for exch in self.exchanges():
-            if (exch["input"] == exch["output"]) and (
-                exch["type"] == labels.production_edge_default
-            ):
+            if (exch["input"] == exch["output"]) and (exch["type"] == labels.production_edge_default):
                 res = exch["amount"]
                 break
         return res
@@ -469,10 +443,7 @@ def findActivity(
 
     if single and len(acts) == 0:
         any_name = name if name else in_name
-        raise Exception(
-            "No activity found in '%s' with name '%s' and location '%s'"
-            % (db_name, any_name, loc)
-        )
+        raise Exception("No activity found in '%s' with name '%s' and location '%s'" % (db_name, any_name, loc))
     if single and len(acts) > 1:
         raise Exception(
             "Several activity found in '%s' with name '%s' and location '%s':\n%s"
@@ -497,8 +468,7 @@ def findTechAct(name=None, loc=None, single=True, **kwargs):
     dbs = _listTechBackgroundDbs()
     if len(dbs) > 1:
         raise Exception(
-            "There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)"
-            % str(dbs)
+            "There is more than one technosphere background DB (%s) please use findActivity(..., db_name=YOUR_DB)" % str(dbs)
         )
 
     return findActivity(name=name, loc=loc, db_name=dbs[0], single=single, **kwargs)
@@ -600,9 +570,7 @@ def newActivity(
     return act
 
 
-def copyActivity(
-    db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs
-) -> ActivityExtended:
+def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
 
@@ -654,9 +622,7 @@ def copyActivity(
 ActivityOrActivityAmount = Union[Activity, Tuple[Activity, float]]
 
 
-def newSwitchAct(
-    dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]
-):
+def newSwitchAct(dbname, name, paramDef: ParamDef, acts_dict: Dict[str, ActivityOrActivityAmount]):
     """Creates a new parametrized, virtual activity, made of a map of other activities, controlled by an enum parameter.
     This enables to implement a "Switch" with brightway parameters
     Internally, this will create a linear sum of other activities controlled by <param_name>_<enum_value> : 0 or 1
@@ -745,10 +711,7 @@ def printAct(*activities, **params):
 
                 # Params provided ? Evaluate formulas
                 if len(params) > 0 and isinstance(amount, Basic):
-                    new_params = [
-                        (name, value)
-                        for name, value in _complete_and_expand_params(params).items()
-                    ]
+                    new_params = [(name, value) for name, value in _complete_and_expand_params(params).items()]
                     amount = amount.subs(new_params)
 
                 ex_name = _exch_name(exc)

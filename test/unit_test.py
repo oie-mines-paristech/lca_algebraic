@@ -18,9 +18,7 @@ from lca_algebraic.params import _param_registry
 
 def test_load_params():
     _p1 = newEnumParam("p1", values={"v1": 0.6, "v2": 0.3}, default="v1")
-    _p2 = newFloatParam(
-        "p2", min=1, max=3, default=2, distrib=DistributionType.TRIANGLE
-    )
+    _p2 = newFloatParam("p2", min=1, max=3, default=2, distrib=DistributionType.TRIANGLE)
     _p3 = newBoolParam("p3", default=1, formula=_p2 + 4)
 
     _param_registry().clear()
@@ -29,9 +27,7 @@ def test_load_params():
     loadParams()
 
     # Get params from in memory DB
-    loaded_params = {
-        (param.name, param.dbname): param for param in _param_registry().all()
-    }
+    loaded_params = {(param.name, param.dbname): param for param in _param_registry().all()}
 
     assert _p1.__dict__ == loaded_params[("p1", None)].__dict__
     assert _p2.__dict__ == loaded_params[("p2", None)].__dict__
@@ -87,9 +83,7 @@ def test_switch_activity_support_sevral_times_same_target():
 
     bg_act1 = findTechAct("bg_act1")
 
-    act = newSwitchAct(
-        USER_DB, "switchAct", p1, {"v1": bg_act1, "v2": bg_act1, "v3": bg_act1}
-    )
+    act = newSwitchAct(USER_DB, "switchAct", p1, {"v1": bg_act1, "v2": bg_act1, "v3": bg_act1})
 
     impact = (METHOD_PREFIX, "all", "total")
 
@@ -118,9 +112,7 @@ def test_new_switch_act_with_tuples():
 
 def test_list_params_should_support_missing_groups():
     p1 = newFloatParam("p1", default=1.0, distrib=DistributionType.FIXED)
-    p2 = newFloatParam(
-        "p2", default=2.0, distrib=DistributionType.FIXED, group="mygroup"
-    )
+    p2 = newFloatParam("p2", default=2.0, distrib=DistributionType.FIXED, group="mygroup")
 
     list_parameters()
 
@@ -174,13 +166,8 @@ def test_find_activities():
     assert findActivity("activity*", db_name=USER_DB) == act1
 
     # Test categories
-    assert (
-        findActivity("activity*", categories=["cat1", "cat2"], db_name=USER_DB) == act1
-    )
-    assert (
-        findActivity("activity*", categories=["cat1"], db_name=USER_DB, single=False)
-        == []
-    )
+    assert findActivity("activity*", categories=["cat1", "cat2"], db_name=USER_DB) == act1
+    assert findActivity("activity*", categories=["cat1"], db_name=USER_DB, single=False) == []
     assert findActivity("activity*", category="cat1", db_name=USER_DB) == act1
 
 
@@ -190,9 +177,7 @@ def test_enum_values_are_enforced():
 
     act = newActivity(USER_DB, "Foo", "unit")
 
-    climate = [
-        m for m in bw2data.methods if "IPCC 2021" in str(m) and "no LT" in str(m)
-    ][1]
+    climate = [m for m in bw2data.methods if "IPCC 2021" in str(m) and "no LT" in str(m)][1]
 
     with pytest.raises(Exception) as exc:
         compute_impacts(act, climate, p1="bar")
@@ -240,9 +225,7 @@ def test_simplify_model(data):
     assert res.expr.__repr__() == "1.0*p1**2"
 
     # Simplified model, without removing minor sum term
-    res = sobol_simplify_model(
-        m1, [data.ibio1], simple_sums=False, simple_products=False
-    )[0]
+    res = sobol_simplify_model(m1, [data.ibio1], simple_sums=False, simple_products=False)[0]
     assert res.expr.__repr__() == "p1*(1.0*p1 + 0.001)"
 
     # -- Simplify products
@@ -373,9 +356,7 @@ def test_compute_impacts_return_params(data):
 def test_switch_value(data):
     p1 = newFloatParam("p1", default=0, min=0, max=2)
     p2 = newFloatParam("p2", default=0, min=0, max=2)
-    switch_param = newEnumParam(
-        "switch_param", default="p1", values=["from_p1", "from_p2"]
-    )
+    switch_param = newEnumParam("switch_param", default="p1", values=["from_p1", "from_p2"])
     computed = newFloatParam("computed", default=0, min=0, max=3)
 
     computed.formula = switchValue(switch_param, from_p1=p1 * 2, from_p2=p2 * 3)
@@ -404,9 +385,7 @@ def test_interpolation(data):
     p = newFloatParam("p", 1.0, min=1, max=3)
 
     # Create act1 act2 and act4 having respectively 1.0, 2.0 units of bio1
-    act1, act2 = [
-        newActivity(USER_DB, "act%d" % v, "unit", {data.bio1: v}) for v in [1.0, 2.0]
-    ]
+    act1, act2 = [newActivity(USER_DB, "act%d" % v, "unit", {data.bio1: v}) for v in [1.0, 2.0]]
 
     # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
     interp1 = interpolate_activities(USER_DB, "interp1", p, {1.0: act1, 3.0: act2})
@@ -414,9 +393,7 @@ def test_interpolation(data):
     check_impacts(interp1, [0.0, 1.0, 2.0, 3.0, 5.0], [0.5, 1.0, 1.5, 2.0, 3.0])
 
     # Interpolate including zero
-    interp_with_zero = interpolate_activities(
-        USER_DB, "interp_w_zero", p, {1.0: act1, 3.0: act2}, add_zero=True
-    )
+    interp_with_zero = interpolate_activities(USER_DB, "interp_w_zero", p, {1.0: act1, 3.0: act2}, add_zero=True)
 
     check_impacts(interp_with_zero, [0.0, 0.5, 1.0, 3.0], [0.0, 0.5, 1.0, 2.0])
 
@@ -424,13 +401,9 @@ def test_interpolation(data):
 def test_axis(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)
 
-    act1_phase_a = newActivity(
-        USER_DB, "act1", "unit", {data.bio1: 1.0}, phase="phase a"
-    )
+    act1_phase_a = newActivity(USER_DB, "act1", "unit", {data.bio1: 1.0}, phase="phase a")
 
-    act2_phase_b = newActivity(
-        USER_DB, "act2", "unit", {data.bio1: 2.0}, phase="phase b"
-    )
+    act2_phase_b = newActivity(USER_DB, "act2", "unit", {data.bio1: 2.0}, phase="phase b")
 
     act3_no_phase = newActivity(USER_DB, "act3", "unit", {data.bio1: 3.0})
 

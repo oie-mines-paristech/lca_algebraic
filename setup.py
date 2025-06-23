@@ -32,9 +32,7 @@ def read(fname):
 
 
 def run(args):
-    return (
-        subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8").splitlines()
-    )
+    return subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8").splitlines()
 
 
 version = read("VERSION")

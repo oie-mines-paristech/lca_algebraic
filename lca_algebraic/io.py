@@ -26,9 +26,7 @@ def export_db(db_name, filename):
     db.metadata["database_parameters"] = [_param_data(param) for param in db_params]
 
     # List of all project params used in this dataset
-    used_project_params = list(
-        param.name for param in _listParams(db_name) if param.dbname is None
-    )
+    used_project_params = list(param.name for param in _listParams(db_name) if param.dbname is None)
 
     if len(used_project_params) > 0:
         warn(
@@ -37,14 +35,9 @@ def export_db(db_name, filename):
             used_project_params,
         )
 
-        proj_params = list(
-            ProjectParameter.get(ProjectParameter.name == name)
-            for name in used_project_params
-        )
+        proj_params = list(ProjectParameter.get(ProjectParameter.name == name) for name in used_project_params)
 
-        db.metadata["project_parameters"] = [
-            _param_data(param) for param in proj_params
-        ]
+        db.metadata["project_parameters"] = [_param_data(param) for param in proj_params]
 
     BW2Package._write_file(filename, [BW2Package._prepare_obj(db, False)])
 

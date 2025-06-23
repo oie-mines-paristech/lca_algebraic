@@ -172,17 +172,13 @@ class ParamDef(Symbol):
 
         if not distrib and type == ParamType.FLOAT:
             if self.min is None:
-                raise Exception(
-                    f"No 'min/max' provided for {self.name}, distrib should explicitely set to FIXED"
-                )
+                raise Exception(f"No 'min/max' provided for {self.name}, distrib should explicitely set to FIXED")
             else:
                 self.distrib = DistributionType.LINEAR
 
         elif distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
             if "std" not in kwargs:
-                raise Exception(
-                    "Standard deviation is mandatory for normal / lognormal distribution"
-                )
+                raise Exception("Standard deviation is mandatory for normal / lognormal distribution")
             self.std = kwargs["std"]
 
             if distrib == DistributionType.LOGNORMAL and self.min is not None:
@@ -193,9 +189,7 @@ class ParamDef(Symbol):
 
         elif distrib == DistributionType.BETA:
             if "a" not in kwargs or "b" not in kwargs or "std" not in kwargs:
-                raise Exception(
-                    "Beta distribution requires params 'a' 'b' and 'std' (used as scale)"
-                )
+                raise Exception("Beta distribution requires params 'a' 'b' and 'std' (used as scale)")
             self.a = kwargs["a"]
             self.b = kwargs["b"]
             self.std = kwargs["std"]
@@ -271,9 +265,7 @@ class ParamDef(Symbol):
                     self._distrib = lognorm(self.default, self.std)
 
                 elif self.distrib == DistributionType.BETA:
-                    self._distrib = beta(
-                        self.a, self.b, loc=self.default, scale=self.std
-                    )
+                    self._distrib = beta(self.a, self.b, loc=self.default, scale=self.std)
 
                 else:
                     raise Exception("Unkown distribution type " + self.distrib)
@@ -285,9 +277,7 @@ class ParamDef(Symbol):
 
     def __eq__(self, other):
         if isinstance(other, ParamDef):
-            return self.name == other.name and getattr(self, "dbname", None) == getattr(
-                other, "dbname", None
-            )
+            return self.name == other.name and getattr(self, "dbname", None) == getattr(other, "dbname", None)
         else:
             return Symbol.__eq__(self, other)
 
@@ -354,10 +344,7 @@ class EnumParam(ParamDef):
 
         # A dict of weights was passed
         if isinstance(currValue, dict):
-            res = {
-                "%s_%s" % (self.name, key): val / self.sum
-                for key, val in currValue.items()
-            }
+            res = {"%s_%s" % (self.name, key): val / self.sum for key, val in currValue.items()}
             res["%s_default" % self.name] = 0
             return res
 
@@ -366,10 +353,7 @@ class EnumParam(ParamDef):
 
         # Bad value ?
         if currValue not in values:
-            raise Exception(
-                "Invalid value %s for param %s. Should be in %s"
-                % (currValue, self.name, str(self.values))
-            )
+            raise Exception("Invalid value %s for param %s. Should be in %s" % (currValue, self.name, str(self.values)))
 
         res = dict()
         for enum_val in values:
@@ -385,9 +369,7 @@ class EnumParam(ParamDef):
         if choice is None:
             return Symbol(self.name + "_default")
         if choice not in self.values:
-            raise Exception(
-                "enumValue should be one of %s. Was %s" % (str(self.values), choice)
-            )
+            raise Exception("enumValue should be one of %s. Was %s" % (str(self.values), choice))
         return Symbol(self.name + "_" + choice)
 
     def names(self, use_label=False):
@@ -581,10 +563,7 @@ def loadParams(global_variable=True, dbname=None):
         # Make it available as global var
         if global_variable:
             if param.name in builtins.__dict__:
-                warn(
-                    "Variable '%s' was already defined : overidding it with param."
-                    % param.name
-                )
+                warn("Variable '%s' was already defined : overidding it with param." % param.name)
 
             # If units are activated store param with unit in global variables
             if Settings.units_enabled and param.type == ParamType.FLOAT:
@@ -669,9 +648,7 @@ def loadParams(global_variable=True, dbname=None):
         args["values"] = {key: data["scale"] for key, data in param_values.items()}
 
         # Default enum value is the one with amount=1
-        defaults = list(
-            key for key, data in param_values.items() if data.get("amount") == 1
-        )
+        defaults = list(key for key, data in param_values.items() if data.get("amount") == 1)
         if len(defaults) == 1:
             default = defaults[0]
         else:
@@ -890,22 +867,14 @@ def _variable_params(param_names=None):
     if param_names is None:
         param_names = _param_registry().keys()
     params = {key: _param_registry()[key] for key in param_names}
-    return {
-        key: param
-        for key, param in params.items()
-        if param.distrib != DistributionType.FIXED
-    }
+    return {key: param for key, param in params.items() if param.distrib != DistributionType.FIXED}
 
 
 def _fixed_params(param_names=None):
     if param_names is None:
         param_names = _param_registry().keys()
     params = {key: _param_registry()[key] for key in param_names}
-    return {
-        key: param
-        for key, param in params.items()
-        if param.distrib == DistributionType.FIXED
-    }
+    return {key: param for key, param in params.items() if param.distrib == DistributionType.FIXED}
 
 
 def _listOfDictToDictOflist(LD):
@@ -955,19 +924,14 @@ class ParamRegistry:
                 return params_per_db[None]
 
         except KeyError:
-            raise Exception(
-                f"Parameter {key} not found :. Valid parameters : {self.keys()}"
-            )
+            raise Exception(f"Parameter {key} not found :. Valid parameters : {self.keys()}")
 
     def as_dict(self):
         return dict(self.items())
 
     def __setitem__(self, key, param: ParamDef):
         if param.dbname in self.params[key]:
-            warn(
-                "[ParamRegistry] Param %s was already defined in '%s' : overriding."
-                % (param.name, param.dbname or "<project>")
-            )
+            warn("[ParamRegistry] Param %s was already defined in '%s' : overriding." % (param.name, param.dbname or "<project>"))
 
         self.params[key][param.dbname] = param
 
@@ -993,9 +957,7 @@ class ParamRegistry:
 
     def all(self):
         """Return list of all parameters, including params with same names and different DB"""
-        return list(
-            param for params in self.params.values() for param in params.values()
-        )
+        return list(param for params in self.params.values() for param in params.values())
 
 
 # Possible param values : either floator string (enum value)
@@ -1021,10 +983,7 @@ def all_params() -> Dict[str, ParamDef]:
 def _toSymbolDict(params: Dict[str, Any]):
     """Replace names with actual params as key when possible"""
     all_params = _param_registry().as_dict()
-    return {
-        all_params[name] if name in all_params else Symbol(name): val
-        for name, val in params.items()
-    }
+    return {all_params[name] if name in all_params else Symbol(name): val for name, val in params.items()}
 
 
 def _compute_param_length(params):
@@ -1035,9 +994,7 @@ def _compute_param_length(params):
             if param_length == 1:
                 param_length = len(val)
             elif param_length != len(val):
-                raise Exception(
-                    "Parameters should be a single value or a list of same number of values"
-                )
+                raise Exception("Parameters should be a single value or a list of same number of values")
     return param_length
 
 
@@ -1075,22 +1032,15 @@ def _complete_params(params: Dict[str, ParamValues], required_params):
         if param_name not in params:
             if param.formula:
                 params[param_name] = compute_expr_value(param.formula, params)
-                logger.info(
-                    f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}"
-                )
+                logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
             else:
                 params[param_name] = param.default
-                logger.info(
-                    "Required param '%s' was missing, replacing by default value : %s"
-                    % (param_name, str(param.default))
-                )
+                logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
 
     return params
 
 
-def _complete_and_expand_params(
-    params: Dict[str, ParamValues], required_params: List[str] = None, asSymbols=True
-):
+def _complete_and_expand_params(params: Dict[str, ParamValues], required_params: List[str] = None, asSymbols=True):
     """
     Check parameters and expand enum params.
     Also transform single values to list of param values of same size and compute formulas of missing params.
@@ -1129,12 +1079,8 @@ def resetParams(db_name=None):
         ActivityParameter.delete().execute()
         DatabaseParameter.delete().execute()
     else:
-        ActivityParameter.delete().where(
-            ActivityParameter.database == db_name
-        ).execute()
-        DatabaseParameter.delete().where(
-            DatabaseParameter.database == db_name
-        ).execute()
+        ActivityParameter.delete().where(ActivityParameter.database == db_name).execute()
+        DatabaseParameter.delete().where(DatabaseParameter.database == db_name).execute()
         Group.delete().execute()
 
 
@@ -1199,9 +1145,7 @@ def compute_expr_value(expr: Expr, param_values: Dict):
 
     required_params = _expanded_names_to_names(free_symbols)
 
-    values = _complete_and_expand_params(
-        param_values, required_params=required_params, asSymbols=False
-    )
+    values = _complete_and_expand_params(param_values, required_params=required_params, asSymbols=False)
 
     # Filter only required params
     values = {name: val for name, val in values.items() if name in free_symbols}
@@ -1247,10 +1191,7 @@ def freezeParams(db_name, **params: Dict[str, float]):
                     with ExceptionContext(val):
                         val = float(val)
 
-                    print(
-                        "Freezing %s // %s : %s => %0.2f"
-                        % (act, exc["name"], amount, val)
-                    )
+                    print("Freezing %s // %s : %s => %0.2f" % (act, exc["name"], amount, val))
 
                     # Update in DB
                     exc["amount"] = val
@@ -1274,9 +1215,7 @@ def _listParams(db_name) -> List[ParamDef]:
                 if isinstance(amount, Basic):
                     expanded_names = list(str(symbol) for symbol in amount.free_symbols)
                     param_names = _expanded_names_to_names(expanded_names)
-                    params = list(
-                        _param_registry()[param_name] for param_name in param_names
-                    )
+                    params = list(_param_registry()[param_name] for param_name in param_names)
                     res.update(params)
     return res
 
@@ -1321,9 +1260,7 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
             # We don't want support for units there
             return _parse_formula(ex["formula"])
         except Exception as e:
-            warn(
-                f"Error '{e}' while parsing formula {ex['formula']} : backing to amount"
-            )
+            warn(f"Error '{e}' while parsing formula {ex['formula']} : backing to amount")
 
     return ex["amount"]
 

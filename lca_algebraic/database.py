@@ -131,11 +131,7 @@ def setBackground(db_name):
 
 def _listTechBackgroundDbs():
     """List all background databases technosphere (non biosphere) batabases"""
-    return list(
-        name
-        for name in dbmeta
-        if not _isForeground(name) and BIOSPHERE_PREFIX not in name
-    )
+    return list(name for name in dbmeta if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
 
 
 def _find_biosphere_db():
@@ -150,11 +146,7 @@ def list_databases():
             name=name,
             backend=_getMeta(name, "backend"),
             nb_activities=len(Database(name)),
-            type=(
-                "biosphere"
-                if BIOSPHERE_PREFIX in name
-                else "foreground" if _isForeground(name) else "background"
-            ),
+            type=("biosphere" if BIOSPHERE_PREFIX in name else "foreground" if _isForeground(name) else "background"),
         )
         for name in dbmeta
     )
@@ -177,11 +169,7 @@ def with_db_context(func=None, arg="self"):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         # Transform all parameters (positionnal and named) to named ones
-        all_param = {
-            k: args[n] if n < len(args) else v.default
-            for n, (k, v) in enumerate(param_specs.items())
-            if k != "kwargs"
-        }
+        all_param = {k: args[n] if n < len(args) else v.default for n, (k, v) in enumerate(param_specs.items()) if k != "kwargs"}
         all_param.update(kwargs)
 
         val = all_param[arg]
@@ -192,9 +180,7 @@ def with_db_context(func=None, arg="self"):
             # Value is directly a  db_name
             dbname = val
         else:
-            raise Exception(
-                "Param %s is neither an Activity or a db_name : %s" % (arg, val)
-            )
+            raise Exception("Param %s is neither an Activity or a db_name : %s" % (arg, val))
 
         with DbContext(dbname):
             return func(*args, **kwargs)
