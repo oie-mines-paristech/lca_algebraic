@@ -89,7 +89,7 @@ def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
     # bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
     meth_cfg = {"impact_categories": methods}
-    fu = {act["name"]: {act.id: 1} for k in activities for act in k}
+    fu = {_actName(act): {act.id: 1} for k in activities for act in k}
 
     bw2data.databases.clean()
     data_objs = bw2data.get_multilca_data_objs(fu, meth_cfg)
