@@ -1,5 +1,5 @@
-import brightway2 as bw
-from bw2data.parameters import DatabaseParameter, ProjectParameter
+from bw2data import Database
+from bw2data.parameters import DatabaseParameter, ParameterManager, ProjectParameter
 from bw2io import BW2Package
 
 from lca_algebraic.log import warn
@@ -19,7 +19,7 @@ def _param_data(param):
 
 def export_db(db_name, filename):
     """This function exports a database to the **BW2Package** format, including the definition of parameters"""
-    db = bw.Database(db_name)
+    db = Database(db_name)
     db_params = DatabaseParameter.select().where(DatabaseParameter.database == db_name)
 
     # Export Db params
@@ -46,13 +46,14 @@ def import_db(filename):
     """Import Db from BW2Package with linked parameters (as produced by **export_db**)"""
 
     db = BW2Package.import_file(filename)[0]
+    param_mgr = ParameterManager()
     if "database_parameters" in db.metadata:
         params = db.metadata["database_parameters"]
-        bw.parameters.new_database_parameters(params, db.name)
+        param_mgr.new_database_parameters(params, db.name)
 
     if "project_parameters" in db.metadata:
         params = db.metadata["project_parameters"]
-        bw.parameters.new_project_parameters(params)
+        param_mgr.new_project_parameters(params)
 
     # Reload the parameters
     loadParams()

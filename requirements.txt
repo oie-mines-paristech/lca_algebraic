@@ -8,12 +8,12 @@ nbconvert
 numpy
 matplotlib
 scipy
-brightway2
+brightway25
 ipython
 SALib
 tqdm
 python-dotenv
 pypardiso
 pyarrow
-pint==0.23
+pint
 typing-extensions

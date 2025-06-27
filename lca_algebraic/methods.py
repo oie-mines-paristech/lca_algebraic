@@ -1,7 +1,7 @@
 import builtins
 from typing import Dict, Tuple
 
-import brightway2 as bw
+import bw2data
 from pint import Unit
 
 
@@ -42,7 +42,7 @@ def findMethods(search=None, mainCat=None):
     """
     res = []
     search = search.lower()
-    for method in bw.methods:
+    for method in bw2data.methods:
         text = str(method).lower()
         match = search in text
         if mainCat:
@@ -55,7 +55,7 @@ def findMethods(search=None, mainCat=None):
 def method_unit(method: Tuple, fu_unit: Unit = None):
     """Get the unit of an impact method"""
 
-    res = bw.Method(method).metadata["unit"]
+    res = bw2data.Method(method).metadata["unit"]
 
     if fu_unit is not None:
         res += f" / {fu_unit}"

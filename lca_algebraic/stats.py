@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Type
 
 import numpy as np
 import seaborn as sns
-from bw2data.backends.peewee import Activity
+from bw2data.backends import Activity
 from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt
@@ -235,7 +235,13 @@ def _oat_dasboard(
 
 
 @with_db_context(arg="model")
-def oat_dashboard(model, impacts, functional_unit: ValueOrExpression = 1, func_unit_name="kWh", **kwparams):
+def oat_dashboard(
+    model,
+    impacts,
+    functional_unit: ValueOrExpression = 1,
+    func_unit_name="kWh",
+    **kwparams,
+):
     """
     This function runs a "one at a time" analysis on the selected param.
 
@@ -277,7 +283,11 @@ def oat_dashboard(model, impacts, functional_unit: ValueOrExpression = 1, func_u
     def process_func(param):
         with DbContext(model):
             _oat_dasboard(
-                model=lambdas, impacts=impacts, varying_param=_param_registry()[param], func_unit_name=func_unit_name, **kwparams
+                model=lambdas,
+                impacts=impacts,
+                varying_param=_param_registry()[param],
+                func_unit_name=func_unit_name,
+                **kwparams,
             )
 
     param_list = _expanded_names_to_names(lambdas[0].expanded_params)
@@ -439,7 +449,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
         )
         _heatmap(
             df.transpose(),
-            title="Relative deviation of impacts (%)" if mode == "percent" else "Sobol indices (part of variability)",
+            title=("Relative deviation of impacts (%)" if mode == "percent" else "Sobol indices (part of variability)"),
             vmax=100 if mode == "percent" else 1,
             ints=mode == "percent",
         )
@@ -609,7 +619,12 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
 @with_db_context(arg="model")
 def incer_stochastic_dashboard(
-    model: Activity, methods, n=DEFAULT_N, var_params=None, functional_unit: ValueOrExpression = 1, **kwparams
+    model: Activity,
+    methods,
+    n=DEFAULT_N,
+    var_params=None,
+    functional_unit: ValueOrExpression = 1,
+    **kwparams,
 ):
     """
     This function runs a monte carlo & Sobol analysis (GSA) on a parametric model and displays a dashboard with results.

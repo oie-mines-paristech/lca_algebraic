@@ -2,11 +2,11 @@ from contextlib import AbstractContextManager
 from inspect import isfunction
 from typing import Dict, Iterable, Union
 
-import brightway2 as bw
 import ipywidgets as widgets
 import numpy as np
 import pandas as pd
-from bw2data.backends.peewee import Activity
+from bw2data import Database, labels
+from bw2data.backends import Activity
 from IPython.display import display
 from six import raise_from
 from sympy import Basic
@@ -16,7 +16,7 @@ _user_functions = dict()
 
 
 def _isOutputExch(exc):
-    return exc.get("type") == "production"
+    return exc.get("type") == labels.production_edge_default
 
 
 def _isnumber(value):
@@ -26,10 +26,10 @@ def _isnumber(value):
 dbs = dict()
 
 
-def _getDb(dbname) -> bw.Database:
+def _getDb(dbname) -> Database:
     """Pool of Database instances"""
     if dbname not in dbs:
-        dbs[dbname] = bw.Database(dbname)
+        dbs[dbname] = Database(dbname)
     return dbs[dbname]
 
 

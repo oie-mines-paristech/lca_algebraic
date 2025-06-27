@@ -3,12 +3,11 @@ import inspect
 from collections import defaultdict
 from typing import Union
 
-import brightway2 as bw
 import pandas as pd
+from bw2data import Database
 from bw2data import databases as dbmeta
-from bw2data.backends import LCIBackend
+from bw2data.backends import SQLiteBackend as LCIBackend
 from bw2data.proxies import ActivityProxyBase
-from typing_extensions import deprecated
 
 from .base_utils import one
 from .log import logger
@@ -57,7 +56,7 @@ class DbContext:
 
 def deleteDb(db_name):
     """Delete a database"""
-    del bw.databases[db_name]
+    del dbmeta[db_name]
 
 
 def resetDb(db_name, foreground=True):
@@ -73,38 +72,16 @@ def resetDb(db_name, foreground=True):
     foreground:
         If true (default), the database is set as foreground.
     """
-    if db_name in bw.databases:
+    if db_name in dbmeta:
         logger.warning("Db %s was here. Reseting it" % db_name)
-        del bw.databases[db_name]
+        del dbmeta[db_name]
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
     db.write(dict())
     if foreground:
         setForeground(db_name)
     else:
         setBackground(db_name)
-
-
-@deprecated("DEPRECATED : Use bw2io.import_ecoinvent_release() instead")
-def initProject(project_name):
-    """Setup the project if not already done."""
-    bw.projects.set_current(project_name)
-    bw.bw2setup()
-
-
-@deprecated("DEPRECATED : Use the new bw2io.import_ecoinvent_release instead")
-def importDb(dbname, path, parallel=False):
-    """Import eco invent DB
-
-    DEPRECATED : Use the new bw2io.import_ecoinvent_release instead
-    """
-    if dbname in bw.databases:
-        logger.warning("Database '%s' has already been imported " % dbname)
-    else:
-        ei34 = bw.SingleOutputEcospold2Importer(path, dbname, use_mp=parallel)
-        ei34.apply_strategies()
-        ei34.statistics()
-        ei34.write_database()
 
 
 _metaCache = defaultdict(lambda: {})
@@ -154,12 +131,12 @@ def setBackground(db_name):
 
 def _listTechBackgroundDbs():
     """List all background databases technosphere (non biosphere) batabases"""
-    return list(name for name in bw.databases if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
+    return list(name for name in dbmeta if not _isForeground(name) and BIOSPHERE_PREFIX not in name)
 
 
 def _find_biosphere_db():
     """List all background databases technosphere (non biosphere) batabases"""
-    return one(name for name in bw.databases if BIOSPHERE_PREFIX in name)
+    return one(name for name in dbmeta if BIOSPHERE_PREFIX in name)
 
 
 def list_databases():
@@ -168,10 +145,10 @@ def list_databases():
         dict(
             name=name,
             backend=_getMeta(name, "backend"),
-            nb_activities=len(bw.Database(name)),
-            type="biosphere" if BIOSPHERE_PREFIX in name else "foreground" if _isForeground(name) else "background",
+            nb_activities=len(Database(name)),
+            type=("biosphere" if BIOSPHERE_PREFIX in name else "foreground" if _isForeground(name) else "background"),
         )
-        for name in bw.databases
+        for name in dbmeta
     )
 
     res = pd.DataFrame(data)

@@ -3,14 +3,15 @@ from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Union
 
-import brightway2 as bw
 import numpy as np
 import pandas as pd
-from bw2data.backends.peewee import ExchangeDataset
+from bw2data import Database
+from bw2data.backends import ExchangeDataset
 from bw2data.parameters import (
     ActivityParameter,
     DatabaseParameter,
     Group,
+    ParameterManager,
     ProjectParameter,
 )
 from IPython.core.display import HTML
@@ -514,9 +515,9 @@ def _persistParam(param):
         out.append(bwParam)
 
     if param.dbname:
-        bw.parameters.new_database_parameters(out, param.dbname)
+        ParameterManager().new_database_parameters(out, param.dbname)
     else:
-        bw.parameters.new_project_parameters(out)
+        ParameterManager().new_project_parameters(out)
 
 
 def _loadArgs(data):
@@ -751,7 +752,16 @@ def newFloatParam(
         return param
 
 
-def newBoolParam(name, default, description: str = None, label: str = None, group: str = None, formula=None, save=True, **kwargs):
+def newBoolParam(
+    name,
+    default,
+    description: str = None,
+    label: str = None,
+    group: str = None,
+    formula=None,
+    save=True,
+    **kwargs,
+):
     """
     Creates a boolean parameter.
 
@@ -876,7 +886,6 @@ class DuplicateParamsAndNoContextException(Exception):
 
 
 class ParamRegistry:
-
     """In memory registry of parameters, acting like a dict and maintaining parameters with possibly same names on several DBs"""
 
     def __init__(self):
@@ -1168,7 +1177,7 @@ def freezeParams(db_name, **params: Dict[str, float]):
 
     """
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
 
     with DbContext(db):
         for act in db:
@@ -1194,7 +1203,7 @@ def _listParams(db_name) -> List[ParamDef]:
     Return a set of all parameters used in activities
     """
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
     res = set()
 
     with DbContext(db):

@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
-import brightway2 as bw
+import bw2calc
+import bw2data
 import numpy as np
 import pandas as pd
+from bw2data import labels
+from bw2data.errors import UnknownObject
 from pandas import DataFrame
-from peewee import DoesNotExist
 from pint import Quantity, Unit
 from sympy import Basic, Expr, Symbol, lambdify, parse_expr, simplify, symbols
 from sympy.printing.numpy import NumPyPrinter
@@ -85,10 +87,25 @@ def user_function(sym):
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
-    lca = bw.MultiLCA("process")
+    # bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
+    meth_cfg = {"impact_categories": methods}
+    fu = {_actName(act): {act.id: 1} for k in activities for act in k}
+
+    bw2data.databases.clean()
+    data_objs = bw2data.get_multilca_data_objs(fu, meth_cfg)
+    lca = bw2calc.MultiLCA(demands=fu, method_config=meth_cfg, data_objs=data_objs)
+    lca.lci()
+    lca.lcia()
+
+    rows = [method_name(method) for method in methods]
     cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
-    return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
+    results = lca.scores
+
+    return pd.DataFrame(
+        np.array([[results[m, a] for a in cols] for m in methods]),
+        index=rows,
+        columns=cols,
+    )
 
 
 def multiLCA(models, methods, **params):
@@ -235,13 +252,24 @@ def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
 
     printer = NumPyPrinter(
-        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
+        {
+            "fully_qualified_modules": False,
+            "inline": True,
+            "allow_unknown_functions": True,
+            "user_functions": dict(),
+        }
     )
 
     modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
 
     if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
+        lambd = lambdify(
+            expanded_params,
+            expr,
+            modules,
+            printer=printer,
+            cse=LambdaWithParamNames._use_sympy_cse,
+        )
 
         def func(*arg, **kwargs):
             res = lambd(*arg, **kwargs)
@@ -390,7 +418,13 @@ class ResultsWithParams:
     params: Dict
 
 
-def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_params=False, unit: Unit = None, **params):
+def _postMultiLCAAlgebric(
+    methods,
+    lambdas: List[LambdaWithParamNames],
+    with_params=False,
+    unit: Unit = None,
+    **params,
+):
     """
     Compute LCA for a given set of parameters and pre-compiled lambda functions.
     This function is used by **multiLCAAlgebric**
@@ -532,7 +566,11 @@ SingleOrMultipleFloat = Union[float, List[float], np.ndarray]
 
 
 def compute_inventory(
-    model: ActivityExtended, functional_unit=1, as_dict=False, fields=["database", "name", "location", "unit"], **params
+    model: ActivityExtended,
+    functional_unit=1,
+    as_dict=False,
+    fields=["database", "name", "location", "unit"],
+    **params,
 ):
     """
 
@@ -793,12 +831,18 @@ def _createTechProxyForBio(act_key, target_db):
         try:
             # Already created ?
             return _getDb(target_db).get(code_to_find)
-        except DoesNotExist:
+        except UnknownObject:
             name = act["name"] + " # asTech"
 
             # Create biosphere proxy in User Db
             res = newActivity(
-                target_db, name, act["unit"], {act: 1}, code=code_to_find, switchActivity=True, isProxy=True
+                target_db,
+                name,
+                act["unit"],
+                {act: 1},
+                code=code_to_find,
+                switchActivity=True,
+                isProxy=True,
             )  # add a this flag to distinguish this dummy activity from others
             return res
     else:
@@ -920,7 +964,7 @@ def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
 
             avoidedBurden = 1
 
-            if exch.get("type") == "production" and not exch.get("input") == exch.get("output"):
+            if exch.get("type") == labels.production_edge_default and not exch.get("input") == exch.get("output"):
                 avoidedBurden = -1
 
             res += formula * act_expr * avoidedBurden

@@ -1,10 +1,17 @@
+from test.conftest import USER_DB
+
 import pytest
 
+from lca_algebraic import (
+    Settings,
+    compute_impacts,
+    copyActivity,
+    newActivity,
+    newFloatParam,
+)
 from lca_algebraic.params import _getAmountOrFormula
-from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
-from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity, compute_impacts
-from test.conftest import USER_DB
+from lca_algebraic.units import unit_registry as u
 
 
 @pytest.fixture(scope="module", autouse=True)
