@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from black.trans import defaultdict
 from bw2data import labels
-from bw2data.backends.peewee import Activity
+from bw2data.backends import Activity
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
 from pint import Quantity, Unit
@@ -1049,7 +1049,7 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
                 bg_matrix[act, sub_act] += amount
 
     # Fill the matrices exploring everything
-    for act in bw.Database(db_name):
+    for act in bw2data.Database(db_name):
         fill_matrices_rec(act)
 
     # solve the linear equation algebically
