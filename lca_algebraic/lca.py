@@ -1,5 +1,6 @@
 import concurrent.futures
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
@@ -7,7 +8,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import brightway2 as bw
 import numpy as np
 import pandas as pd
-from black.trans import defaultdict
 from bw2data.backends.peewee import Activity
 from pandas import DataFrame
 from peewee import DoesNotExist
