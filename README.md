@@ -26,7 +26,7 @@ This packages is available via [pip /pypi](https://pypi.org/project/lca-algebrai
 
 ## 1) Setup separate environement
 
-First create a python environment, with **Python** [>=3.9] :
+First create a python environment, with **Python** [>=3.9, <=3.12] :
 
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
