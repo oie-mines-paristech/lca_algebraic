@@ -398,6 +398,21 @@ def test_interpolation(data):
     check_impacts(interp_with_zero, [0.0, 0.5, 1.0, 3.0], [0.0, 0.5, 1.0, 2.0])
 
 
+def test_user_function(data):
+    @user_function()
+    def power_n(x, n):
+        return x**n
+
+    a = newFloatParam("a", default=2, min=0, max=10)
+
+    # bio1 = a**²
+    act = newActivity(USER_DB, "act3", "unit", {data.bio1: power_n(a, 2)})
+
+    res = compute_impacts(act, [data.ibio1], a=2.0)
+
+    assert res.values.item() == 4.0
+
+
 def test_axis(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)
 

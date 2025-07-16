@@ -70,6 +70,15 @@ Enum parameters represent a set of mutually exclusive choices.
 .. autofunction:: lca_algebraic.persistParams
 ```
 
+### Custom Sympy functions
+
+If you want to integrate a custom "blackbox" numerical computation, you may register and use [custom Sympy function](https://docs.sympy.org/latest/guides/custom-functions.html])
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.user_function
+```
+
+
 ### Misc
 
 ```{eval-rst} 
