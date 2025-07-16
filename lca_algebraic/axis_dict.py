@@ -42,7 +42,7 @@ class AxisDict(SympyDict):
         return self._apply_self(lambda a: a * other)
 
     def __rmul__(self, other):
-        return self._apply_self(lambda a: other * a)
+        return self._apply_self(lambda a: a * other)
 
     def __truediv__(self, other):
         return self._apply_self(lambda a: a / other)
