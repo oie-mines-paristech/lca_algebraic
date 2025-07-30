@@ -217,13 +217,9 @@ class ActivityExtended(Activity):
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
                     type=(
-                        labels.production_edge_default
-                        if self == sub_act
-                        else (
-                            labels.consumption_edge_default
-                            if sub_act.get("type") == labels.process_node_default
-                            else labels.biosphere_edge_default
-                        )
+                        labels.consumption_edge_default
+                        if sub_act.get("type") == labels.process_node_default
+                        else labels.biosphere_edge_default
                     ),
                 )
 
