@@ -131,7 +131,6 @@ class ActivityExtended(Activity):
         output_exchange = self.getOutputExchange()
         output_exchange["amount"] = amount
         output_exchange.save()
-        output_exchange.save()
 
     @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
