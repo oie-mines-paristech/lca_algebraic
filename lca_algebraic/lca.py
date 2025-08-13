@@ -229,9 +229,9 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: Va
     exprs = []
     for method in methods:
         expr = 0.0
-        for bg_act, value in expr_by_bg_act.items():
+        for bg_act, _expr in expr_by_bg_act.items():
             impact = impacts[(bg_act, method)]
-            expr += impact * value
+            expr += _expr * impact
 
         # Ensure symbols are params
         expr = _replace_symbols_with_params_in_exp(expr)
