@@ -2,6 +2,8 @@ import os
 import sys
 from tempfile import mkstemp
 
+import numpy as np
+
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
@@ -12,7 +14,6 @@ from numpy.testing import assert_array_equal
 
 from lca_algebraic.database import _isForeground, setForeground, setBackground
 from lca_algebraic.params import _param_registry
-from lca_algebraic.lca import _cachedActToExpression
 from pandas.testing import assert_frame_equal
 
 
@@ -183,6 +184,11 @@ def test_enum_values_are_enforced():
         compute_impacts(act, climate, p1="bar")
 
     assert "Invalid value" in str(exc)
+
+
+def test_compute_impact_on_empty_act(data):
+    act = newActivity(USER_DB, "Foo", "unit")
+    compute_impacts(act, data.ibio1)
 
 
 def test_setforeground():
@@ -509,6 +515,57 @@ def test_compute_inventory(data):
     )
 
     assert_frame_equal(df_expected, df, rtol=1e-03)
+
+
+def test_inventory_loops_should_work(data):
+    main_act = newActivity(USER_DB, "main_act", "kg")
+
+    # Hold the link to bg
+    other_act = newActivity(USER_DB, "other_act", "kg", exchanges={data.bg_act1: 1})
+    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={other_act: 1, data.bg_act2: 0.1})
+
+    main_act.addExchanges({main_act: 0.2, third_act: 1})  # 20% of self consumption  # Link to background
+
+    res = compute_impacts(main_act, data.ibio1)
+
+    assert res.values[0] == 1.25  # (1/(80%))
+
+
+def test_inventory_loops_with_output_2(data):
+    """Same as above with but doubles everything including the output amount of main_act"""
+
+    main_act = newActivity(USER_DB, "main_act", "kg")
+    main_act.setOutputAmount(2.0)
+
+    # Hold the link to bg
+    other_act = newActivity(USER_DB, "other_act", "kg", exchanges={data.bg_act1: 1})
+    third_act = newActivity(USER_DB, "third_act", "kg", exchanges={other_act: 1, data.bg_act2: 0.1})
+
+    main_act.addExchanges({main_act: 0.4, third_act: 2})  # 20% of self consumption  # Link to background
+
+    res = compute_impacts(main_act, data.ibio1)
+
+    assert res.values[0] == 1.25  # (1/(80%))
+
+
+def test_several_outputs(data):
+    """Negative input = output"""
+
+    main_act = newActivity(USER_DB, "main_act", "kg")
+
+    scrap_act = newActivity(USER_DB, "scrap", "kg")
+    clean_scrap = newActivity(
+        USER_DB, "clean_scrap", "kg", exchanges={scrap_act: 1, data.bio2: 1}
+    )  # Bio2 measures the amount of cleaning
+
+    main_act.addExchanges(
+        {data.bio1: 1, clean_scrap: 1, scrap_act: -1}  # REal entry : 1 unit pure + 1 clean scrap
+    )  # Produce one unit of scrap for one unit of output
+
+    res = compute_impacts(main_act, [data.ibio1, data.ibio2])
+
+    # One unit of pure entry + one unit of cleaning
+    assert np.array_equal(res.values, np.array([[1.0, 1.0]]))
 
 
 def test_should_list_params_with_mixed_groups(data):
