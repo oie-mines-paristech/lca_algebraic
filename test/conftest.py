@@ -12,6 +12,7 @@ from lca_algebraic.settings import Settings
 USER_DB = "fg"
 BG_DB = "bg"
 METHOD_PREFIX = "tests"
+TST_PROJECT_NAME = "tests-bw25"
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -19,11 +20,11 @@ def data():
     """Setup background data"""
 
     # Reset func project, empty DB
-    if "tests" not in bw2data.projects:
+    if TST_PROJECT_NAME not in bw2data.projects:
         bw2data.projects.set_current("base_9c7d6b13-62eb-407e-84fa-a48a7cae1e03")
-        bw2data.projects.copy_project("tests", switch=False)
+        bw2data.projects.copy_project(TST_PROJECT_NAME, switch=False)
 
-    bw2data.projects.set_current("tests")
+    bw2data.projects.set_current(TST_PROJECT_NAME)
 
     # Clear DB
     resetDb(BG_DB, False)
