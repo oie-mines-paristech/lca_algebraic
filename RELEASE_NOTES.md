@@ -1,3 +1,10 @@
+# XXXX
+
+* Added support for "loops" in fireground inventory : 
+  Refactored the generation of sympy expression by building a Sympy matrix of <FG-act, FG-act> and inverting it.   
+  Internally, we now build a dict of <BG-Act, Expression> rarther than a single big expression that used custom 
+  symbols as BG activities. This makes the code much cleaner and may tackle some performance issues with big inventories. 
+
 # 1.2 
 
 * Fix bug in compare_simplified introduced since the release of *functional_unit*

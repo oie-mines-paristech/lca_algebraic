@@ -9,7 +9,7 @@ import bw2calc
 import bw2data
 import numpy as np
 import pandas as pd
-from bw2data import labels
+import sympy
 from bw2data.backends import Activity
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
@@ -72,20 +72,26 @@ def register_user_function(sym, func):
     return sym
 
 
-def user_function(sym):
-    """Function decorator to register user function
+def user_function(real=True, imaginary=False):
+    """Function decorator to register custom Sympy user function.
+    Beware that the implementation of the custom function should be compatible with numpy and work on vectors of values.
 
     Usage
     -----
-    >>> @user_function(sympy.Function('func_add', real=True, imaginary=False))
-    >>> def func_add(*args):
-            returm sum(*args)
+    >>> @user_function()
+    >>> def func_add(a, b):
+    >>>      return a +b
     >>>
     >>> e = sympy.Symbol('a') * func_add(sympy.Symbol('b'), sympy.Symbol('c'))
     >>> sympy.srepr(e)
     "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
     """
-    return lambda func: register_user_function(sym, func)
+
+    def lamb_f(func):
+        sym_func = sympy.Function(func.__name__, real=real, imaginary=imaginary)
+        return register_user_function(sym_func, func)
+
+    return lamb_f
 
 
 def _multiLCA(activities, methods):
