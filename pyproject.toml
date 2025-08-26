@@ -47,6 +47,7 @@ packages = ["lca_algebraic"]
 [tool.setuptools.package-data]
 lca_algebraic = ["README.md"]
 
+
 [tool.tox]
 requires = ["tox>=4"]
 env_list = ["py310-bw25", "py311-bw25", "py312-bw25"]
@@ -60,3 +61,4 @@ commands = [["pytest"]]
 max-line-length = 130
 exclude = ["tests/*", "doc/*"]
 per-file-ignores = { "**/__init__.py" = ["F403", "F405", "F401"] }
+

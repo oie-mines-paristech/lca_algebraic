@@ -1,9 +1,6 @@
 TST_NOTEBOOK:=example-notebook.Rmd
 TST_IPYNB:=example-notebook.ipynb
 
-VERSION:=$(shell cat VERSION)
-
-
 .PHONY: doc test package tst-upload 
 
 zip:
@@ -16,7 +13,7 @@ clean:
 	rm -r dist
 
 package:
-	python setup.py sdist bdist_wheel --universal
+	python -m build
 
 tst-upload:
 	twine upload --repository-url https://test.pypi.org/legacy/ dist/lca_algebraic*
