@@ -126,7 +126,11 @@ class ActivityExtended(Activity):
 
     def setOutputAmount(self, amount):
         """Set the amount for the single output exchange (1 by default)"""
-        self.addExchanges({self: amount})
+
+        output_exchange = self.getOutputExchange()
+        output_exchange["amount"] = amount
+        output_exchange.save()
+        output_exchange.save()
 
     @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
@@ -211,7 +215,7 @@ class ActivityExtended(Activity):
                     input=sub_act.key,
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type="production" if self == sub_act else "technosphere" if sub_act.get("type") == "process" else "biosphere",
+                    type="technosphere" if sub_act.get("type") == "process" else "biosphere",
                 )
 
                 self._update_exchange(exch, updates)
@@ -330,15 +334,15 @@ class ActivityExtended(Activity):
         else:
             return _getAmountOrFormula(exchs)
 
-    def getOutputAmount(self):
-        """Return the amount of the production : 1 if none is found"""
-        res = 1.0
-
+    def getOutputExchange(self):
         for exch in self.exchanges():
             if (exch["input"] == exch["output"]) and (exch["type"] == "production"):
-                res = exch["amount"]
-                break
-        return res
+                return exch
+
+    def getOutputAmount(self):
+        """Return the amount of the production : 1 if none is found"""
+        output_exchange = self.getOutputExchange()
+        return 1.0 if output_exchange is None else output_exchange["amount"]
 
     def non_production_exchanges(self):
         """List of exchange, except production (output) one."""

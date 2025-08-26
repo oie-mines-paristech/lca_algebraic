@@ -3,7 +3,14 @@
 <img src="./doc/source/_static/img/logo_lca_algebraic.png" alt="logo" width="200" style="margin:auto;display:block"/>
 
 
-**lca_algebraic** is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
+![Python 3.10](https://img.shields.io/badge/python-3.10-blue) 
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+
+[![Brightway 2.4](https://img.shields.io/badge/brightway-2.4-blue)](https://docs.brightway.dev/en/legacy/index.html)
+[![Brightway 2.5](https://img.shields.io/badge/brightway-2.5-blue)](https://docs.brightway.dev/en/latest/)
+
+**lca_algebraic** is a layer above [**Brightway**](https://brightway.dev/) designed for the definition of **parametric inventories** 
 with fast computation of LCA impacts, suitable for **monte-carlo** / global sensitivity analysis 
 
 It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order to write parametric formulas as regular Python expressions.
@@ -20,13 +27,15 @@ It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order
 
 # ⚙ Installation
 
-We don't provide conda package anymore.
+We support both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/index.html)
+and [Brightway 2.5](https://docs.brightway.dev/en/latest/) via two separate branches / libraries :
 
-This packages is available via [pip /pypi](https://pypi.org/project/lca-algebraic/)
+* [lca_algebraic](https://pypi.org/project/lca-algebraic/) (for Brightway 2.4)
+* [lca_algebraic_bw25](https://pypi.org/project/lca-algebraic/) (for  Brightway 2.5)
 
-## 1) Setup separate environement
+## 1) Setup separate environment
 
-First create a python environment, with **Python** [>=3.9, <=3.12] :
+First create a python environment, with **Python** [>=3.10, <3.13] :
 
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
@@ -46,6 +55,10 @@ source .venv/bin/activate
 
 > pip install lca_algebraic 
 
+Or, for brightway 25 :
+
+> pip install lca_algebraic_bw25
+
 ## 3) [Optional] Install Jupyter & Activity Browser 
 
 You may also install Jupyter and [Activity Browser](https://github.com/LCA-ActivityBrowser/activity-browser) on the same 
@@ -64,7 +77,6 @@ still be able to access and browse the projects created programmatically with *l
 > Before computing impacts with vanilla **Brightway2** or **Activity Browser**, 
 > you may use the function [freezeParams()](https://lca-algebraic.readthedocs.io/en/stable/api/parameters.html#lca_algebraic.freezeParams) 
 > to update the amounts in your database for a given scenario / set of parameter values.     
-
 
 
 

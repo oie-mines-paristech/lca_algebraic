@@ -1,6 +1,6 @@
 import concurrent.futures
 import re
-from collections import OrderedDict
+from collections import defaultdict
 from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
@@ -8,25 +8,29 @@ from typing import Dict, List, Optional, Tuple, Union
 import brightway2 as bw
 import numpy as np
 import pandas as pd
+import sympy
+from bw2data.backends.peewee import Activity
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Basic, Expr, Symbol, lambdify, parse_expr, simplify, symbols
+from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
 from . import newActivity
 from .activity import ActivityExtended
-from .axis_dict import NO_AXIS_NAME, AxisDict
+from .axis_dict import AxisDict
 from .base_utils import (
+    MethodKey,
     TabbedDataframe,
     ValueOrExpression,
     _actName,
     _getDb,
+    _isOutputExch,
     _user_functions,
 )
 from .cache import ExprCache, LCIACache
-from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, with_db_context
+from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
 from .log import logger, warn
 from .methods import method_name, method_unit
 from .params import (
@@ -67,20 +71,26 @@ def register_user_function(sym, func):
     return sym
 
 
-def user_function(sym):
-    """Function decorator to register user function
+def user_function(real=True, imaginary=False):
+    """Function decorator to register custom Sympy user function.
+    Beware that the implementation of the custom function should be compatible with numpy and work on vectors of values.
 
     Usage
     -----
-    >>> @user_function(sympy.Function('func_add', real=True, imaginary=False))
-    >>> def func_add(*args):
-            returm sum(*args)
+    >>> @user_function()
+    >>> def func_add(a, b):
+    >>>      return a +b
     >>>
     >>> e = sympy.Symbol('a') * func_add(sympy.Symbol('b'), sympy.Symbol('c'))
     >>> sympy.srepr(e)
     "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
     """
-    return lambda func: register_user_function(sym, func)
+
+    def lamb_f(func):
+        sym_func = sympy.Function(func.__name__, real=real, imaginary=imaginary)
+        return register_user_function(sym_func, func)
+
+    return lamb_f
 
 
 def _multiLCA(activities, methods):
@@ -119,10 +129,17 @@ def multiLCA(models, methods, **params):
 """ Compute LCA and return (act, method) => value """
 
 
-def _multiLCAWithCache(acts, methods):
+def _multiLCAWithCache(acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
+    # Create proxys for bio activities
+    proxy_acts = _createTechProxysForBio(acts)
+
     with LCIACache() as cache:
         # List activities with at least one missing value
-        remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in cache.data))
+        remaining_acts = list(
+            proxy_act
+            for proxy_act in proxy_acts.values()
+            if any(method for method in methods if (proxy_act, method) not in cache.data)
+        )
 
         if len(remaining_acts) > 0:
             lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
@@ -133,7 +150,7 @@ def _multiLCAWithCache(acts, methods):
                     cache.data[(act, method)] = lca.iloc[imethod, iact]
 
         # Return a copy of the cache for selected impacts and activities
-        return {(act, method): cache.data[(act, method)] for act in acts for method in methods}
+        return {(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods}
 
 
 def _replace_symbols_with_params_in_exp(expr: Basic):
@@ -154,41 +171,34 @@ def _replace_symbols_with_params_in_exp(expr: Basic):
     return expr
 
 
-def _cachedActToExpression(
-    model: ActivityExtended, alpha=1.0, axis=None, for_inventory=False
-) -> Tuple[Expr, Dict[Symbol, ActivityExtended]]:
+def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrExpression]:
+    """
+    For a given activity return a dict of bg _activity => expression
+    """
+
+    db_name = model["database"]
+
     # Try to load from cache
     with ExprCache() as cache:
-        key = (model, axis, for_inventory)
+        key = (db_name, axis)
 
         if key not in cache.data:
-            logger.debug(f"{model} was not in exrepssion cache, computing...")
+            logger.debug(f"{db_name} was not in expression cache, computing...")
 
-            expr, actBySymbolName = actToExpression(model, axis=axis, for_inventory=for_inventory)
+            res_by_act = _computeDbExpressions(db_name=db_name, axis=axis)
 
-            cache.data[key] = (expr, actBySymbolName)
+            cache.data[key] = res_by_act
         else:
-            logger.debug(f"{model} found in exrepssion cache")
+            logger.debug(f"{model} found in expression cache")
 
-        expr, actBySymbolName = cache.data[key]
+        res_by_act = cache.data[key]
 
-    # Using units ? Only keep the magnitude, drop the units
-    if isinstance(alpha, Quantity):
-        alpha = alpha.magnitude
+    res = res_by_act[model]
 
-    expr = expr * alpha
-
-    # Create dummy reference to biosphere
-    # We cannot run LCA to biosphere activities
-    # We create a technosphere activity mapping exactly to 1 biosphere item
-    pureTechActBySymbol = OrderedDict()
-    for act_name, act in actBySymbolName.items():
-        pureTechActBySymbol[act_name] = _createTechProxyForBio(act, model.key[0])
-
-    return expr, pureTechActBySymbol
+    return res
 
 
-def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
+def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1):
     """
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -198,23 +208,29 @@ def _modelToExpr(model: ActivityExtended, methods, alpha=1, axis=None):
 
     """
 
-    expr, act_by_symbol = _cachedActToExpression(model, alpha=alpha, axis=axis)
+    expr_by_bg_act = _actToExpressionDict(model, axis=axis)
+
+    bg_acts = list(expr_by_bg_act.keys())
 
     # Compute LCA for background activities
-    lcas = _multiLCAWithCache(act_by_symbol.values(), methods)
+    impacts = _multiLCAWithCache(bg_acts, methods)
 
     # For each method, compute an algebric expression with activities replaced by their values
     exprs = []
     for method in methods:
-        # Replace activities by their value in expression for this method
-        sub = dict({symbol: lcas[(act, method)] for symbol, act in act_by_symbol.items()})
-
-        expr_curr = expr.xreplace(sub)
+        expr = 0.0
+        for bg_act, _expr in expr_by_bg_act.items():
+            impact = impacts[(bg_act, method)]
+            expr += _expr * impact
 
         # Ensure symbols are params
-        expr_curr = _replace_symbols_with_params_in_exp(expr_curr)
+        expr = _replace_symbols_with_params_in_exp(expr)
 
-        exprs.append(expr_curr)
+        if isinstance(alpha, Quantity):
+            alpha = alpha.magnitude
+        expr *= alpha
+
+        exprs.append(expr)
 
     return exprs
 
@@ -363,7 +379,7 @@ def lambdify_expr(expr):
     return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
 
 
-def _preMultiLCAAlgebric(model: ActivityExtended, methods, alpha: ValueOrExpression = 1, axis=None):
+def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None):
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -562,27 +578,12 @@ def compute_inventory(
 
     """
 
-    expr, act_by_symbol = _cachedActToExpression(model, alpha=1 / functional_unit, for_inventory=True)
-
-    val_by_act_name = compute_value(expr, **params)
-
-    def get_act_by_name(act_name):
-        """Get activitiy. Possibly derefernce it (if is a bio proxy)"""
-        act = act_by_symbol[symbols(act_name)]
-        if "isProxy" in act:
-            exchanges = act.listExchanges()
-            assert len(exchanges) == 1
-            name, act, amount = exchanges[0]
-        return act
+    exprs_by_bg_act = _actToExpressionDict(model)
 
     # Transform to dict of act => value
     val_by_act = dict()
-    for act_name, value in val_by_act_name.items():
-        if act_name == NO_AXIS_NAME:
-            continue
-
-        act = get_act_by_name(act_name)
-        val_by_act[act] = value
+    for bg_act, expr in exprs_by_bg_act.items():
+        val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
 
     if as_dict:
         return val_by_act
@@ -778,171 +779,250 @@ def compute_impacts(
         return df
 
 
-def _createTechProxyForBio(act_key, target_db):
+def _isBioAct(act: ActivityExtended):
+    db_name = act["database"]
+    return (BIOSPHERE_PREFIX in db_name) or ("type" in act and act["type"] in ["emission", "natural resource"])
+
+
+def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtended, ActivityExtended]:
     """
-    We cannot reference directly biosphere in the model, since LCA can only be applied to products
-    We create a dummy activity in our DB, with same code, and single exchange of amount '1'
+    Potentially create tech proxys for bio activity (brightway cannot proces LCIA on them
+    Returns a dict of [OriginalAct -> OriginalOrProxyAct]
     """
-    dbname, code = act_key
-    act = _getDb(dbname).get(code)
+    res = dict()
+    for act in acts:
+        if not _isBioAct(act):
+            proxy_act = act
+        else:
+            proxy_code = act["code"] + "#asTech"
+            try:
+                proxy_act = _getDb(act["database"]).get(proxy_code)
+            except DoesNotExist:
+                name = act["name"] + " # asTech"
 
-    # Biosphere ?
-    if (BIOSPHERE_PREFIX in dbname) or ("type" in act and act["type"] in ["emission", "natural resource"]):
-        code_to_find = code + "#asTech"
+                # Create biosphere proxy in User Db
+                proxy_act = newActivity(
+                    db_name=act["database"],
+                    name=name,
+                    code=proxy_code,
+                    switchActivity=True,
+                    isProxy=True,
+                    unit=act["unit"],
+                    exchanges={act: 1},
+                )
+        res[act] = proxy_act
 
-        try:
-            # Already created ?
-            return _getDb(target_db).get(code_to_find)
-        except DoesNotExist:
-            name = act["name"] + " # asTech"
-
-            # Create biosphere proxy in User Db
-            res = newActivity(
-                target_db, name, act["unit"], {act: 1}, code=code_to_find, switchActivity=True, isProxy=True
-            )  # add a this flag to distinguish this dummy activity from others
-            return res
-    else:
-        return act
+    return res
 
 
 def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
     """Replace fixed params with their value."""
+    if not isinstance(expr, Basic):
+        return expr
 
     sub = {key: val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
     sub = _toSymbolDict(sub)
     return expr.xreplace(sub)
 
 
-def _safe_axis(axis_name: str):
-    if axis_name.isalnum():
-        return axis_name
+def _get_axis(act, axis_name: str):
+    """Safe"""
+    tag = act.get(axis_name, None)
+
+    if tag is None:
+        return None
+    if tag.isalnum():
+        return tag
     else:
-        return re.sub("[^0-9a-zA-Z]+", "_", axis_name)
+        return re.sub("[^0-9a-zA-Z]+", "_", tag)
 
 
-def _tag_expr(expr, act, axis):
-    """Tag expression for one axe. Check the child expression is not already tagged with different values"""
-    axis_tag = act.get(axis, None)
+class ActMatrix(defaultdict):
+    def __init__(self):
+        super().__init__(lambda: 0.0)
+        self._col_acts = list()
+        self._row_acts = list()
 
-    if axis_tag is None:
-        return expr
+    def __getitem__(self, key):
+        row_act, col_act = key
+        self.add_row(row_act)
+        self.add_col(col_act)
+        return super().__getitem__(key)
 
-    axis_tag = _safe_axis(axis_tag)
+    def __setitem__(self, key, value):
+        row_act, col_act = key
+        self.add_row(row_act)
+        self.add_col(col_act)
+        return super().__setitem__(key, value)
 
-    if isinstance(expr, AxisDict):
-        res = 0
-        for key, val in expr._dict.items():
-            if key is not None and str(key) != axis_tag:
-                raise ValueError(
-                    "Inconsistent axis for one change of  '%s' : attempt to tag as '%s'. "
-                    "Already tagged as '%s'. Value of the exchange : %s" % (act["name"], axis_tag, key, str(val))
-                )
-            res += val
+    def add_col(self, col_act):
+        if col_act not in self._col_acts:
+            self._col_acts.append(col_act)
+            self._col_acts.sort()
+
+    def add_row(self, row_act):
+        if row_act not in self._row_acts:
+            self._row_acts.append(row_act)
+            self._row_acts.sort()
+
+    def demand_vector(self, act, value=1.0):
+        """Generate vector of len (rows) with zeros and 1 only at the index of act"""
+        act_idx = self.row_acts().index(act)
+        res = [0.0] * len(self._row_acts)
+        res[act_idx] = value
+        return ImmutableMatrix([res])
+
+    def row_acts(self):
+        return self._row_acts
+
+    def cols_acts(self):
+        return self._col_acts
+
+    def shape(self):
+        return len(self._row_acts), len(self._col_acts)
+
+    def to_sympy(self):
+        """Return an immutable sympy matrix"""
+        rows = list()
+        for row_act in self.row_acts():
+            row = list()
+            rows.append(row)
+            for col_act in self.cols_acts():
+                row.append(self.get((row_act, col_act), 0.0))
+        return ImmutableMatrix(rows)
+
+    def to_dataframe(self):
+        res = dict()
+        for row_act in self.row_acts():
+            res[str(row_act)] = {str(col_act): self[(row_act, col_act)] for col_act in self.cols_acts()}
+        return pd.DataFrame(res)
+
+    def __repr__(self):
+        return self.to_dataframe().__repr__()
+
+
+def _force_reduce(expr):
+    """Force reduction of sum and multiplication : usefull for AxisDict"""
+    if isinstance(expr, dict):
+        return AxisDict(expr)
+    if isinstance(expr, Add):
+        res = 0.0
+        for arg in expr.args:
+            res += _force_reduce(arg)
+        return res
+    if isinstance(expr, Mul):
+        res = 1.0
+        for arg in expr.args:
+            res *= _force_reduce(arg)
+        return res
+    return expr
+
+
+def _clean_expr(expr):
+    expr = _force_reduce(expr)
+    return _replace_fixed_params(expr, _fixed_params().values())
+
+
+def _solve_expression(
+    fg_matrix: ActMatrix, bg_matrix: ActMatrix
+) -> Dict[ActivityExtended, Dict[ActivityExtended, ValueOrExpression]]:
+    """solve the foreground inventory. Retrurn dict o"""
+
+    A = fg_matrix.to_sympy()
+    B = bg_matrix.to_sympy()
+
+    # BG
+    if len(bg_matrix.cols_acts()) == 0:
+        # Case of empty matrix
+        res_mat = ImmutableMatrix([[]])
     else:
-        res = expr
+        res_mat = (A**-1) * B
 
-    return AxisDict({axis_tag: res})
+    # Transform to dict of dict
+    res = dict()
+    for i_fg, fg_act in enumerate(fg_matrix.cols_acts()):
+        row = dict()
+        res[fg_act] = row
+        for i_bg, bg_act in enumerate(bg_matrix.cols_acts()):
+            val = res_mat[i_fg, i_bg]
+            if val == 0:
+                continue
+            row[bg_act] = _clean_expr(val)
+
+    return res
 
 
-@with_db_context(arg="act")
-def actToExpression(act: ActivityExtended, axis=None, for_inventory=False):
-    """Computes a symbolic expression of the model, referencing background activities and model parameters as symbols
-
-    Returns
-    -------
-        (sympy_expr, dict of symbol => activity)
+def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, ValueOrExpression]]:
+    """
+    Compute all expressions for a given DB
+    Returns Dict[FgAct => Dict[BGAct => Expressions]]
     """
 
-    act_symbols: Dict[Symbol] = dict()  # Cache of  act = > symbol
+    if not _isForeground(db_name):
+        raise ValueError(f"Can only compute expression on foreground activities. {db_name} is background")
 
-    def act_to_symbol(sub_act):
-        """Transform an activity to a named symbol and keep cache of it"""
+    # Square technospere matrix dict of <act1, act2> => float
+    fg_matrix = ActMatrix()
 
-        db_name, code = sub_act.key
+    # Rectangle matrix
+    bg_matrix = ActMatrix()
 
-        # Look in cache
-        if not (db_name, code) in act_symbols:
-            act = _getDb(db_name).get(code)
-            name = act["name"]
-            base_slug = _slugify("_" + name)
-
-            slug = base_slug
-            i = 1
-            while symbols(slug) in act_symbols.values():
-                slug = f"{base_slug}{i}"
-                i += 1
-
-            act_symbols[(db_name, code)] = symbols(slug)
-
-        act_symbol = act_symbols[(db_name, code)]
-
-        if for_inventory:
-            # When computing inventories, we build Dict of {activity_id => amount_or_formula}
-            return AxisDict({str(act_symbol): 1})
-        else:
-            return act_symbol
-
-    # Local cache of expressions
-
-    def actToExpressionRec(act: ActivityExtended, parents=[]):
-        res = 0
-        outputAmount = act.getOutputAmount()
+    # Fill the matrices
+    def fill_matrices_rec(act: Activity, axis_tag=None):
+        # Update axis values
+        if axis is not None:
+            new_axis_val = _get_axis(act, axis)
+            if new_axis_val is not None:
+                axis_tag = new_axis_val
 
         if not _isForeground(act["database"]):
             # We reached a background DB ? => stop developping and create reference to activity
-            return act_to_symbol(act)
+            return
+
+        if act in fg_matrix.row_acts():
+            # Already explored
+            return
+
+        # Add current act to axes matrices, to keep correct shape
+        fg_matrix.add_row(act)
+        fg_matrix.add_col(act)
+        bg_matrix.add_row(act)
 
         for exch in act.exchanges():
-            formula = _getAmountOrFormula(exch)
+            amount = _getAmountOrFormula(exch)
 
-            if isinstance(formula, FunctionType):
+            if isinstance(amount, FunctionType):
                 # Some amounts in EIDB are functions ... we ignore them
                 continue
 
-            #  Production exchange
-            if exch["input"] == exch["output"]:
-                continue
-
+            # Fetch activity referenced by the exchange
             input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
 
-            # Background DB => reference it as a symbol
-            if not _isForeground(input_db):
-                act_expr = act_to_symbol(sub_act)
+            # Fill the appropriate matrix
+            if _isForeground(input_db):
+                #  Production exchange
+                if not _isOutputExch(exch):
+                    amount = -amount
 
-            # Our model : recursively it to a symbolic expression
+                fg_matrix[act, sub_act] += amount
+
+                # Recursively explore the rest
+                fill_matrices_rec(sub_act, axis_tag)
+
             else:
-                parents = parents + [act]
-                if sub_act in parents:
-                    raise Exception("Found recursive activities : " + ", ".join(_actName(act) for act in (parents + [sub_act])))
+                # Only tag bg values
+                if axis_tag is not None:
+                    amount = AxisDict({axis_tag: amount})
 
-                act_expr = actToExpressionRec(sub_act, parents)
+                bg_matrix[act, sub_act] += amount
 
-            avoidedBurden = 1
+    # Fill the matrices exploring everything
+    for act in bw.Database(db_name):
+        fill_matrices_rec(act)
 
-            if exch.get("type") == "production" and not exch.get("input") == exch.get("output"):
-                avoidedBurden = -1
-
-            res += formula * act_expr * avoidedBurden
-
-        res = res / outputAmount
-
-        # Axis ? transforms this to a dict with the correct Tag
-        if axis:
-            res = _tag_expr(res, act, axis)
-
-        return res
-
-    expr = actToExpressionRec(act)
-
-    if isinstance(expr, float):
-        expr = simplify(expr)
-
-    else:
-        # Replace fixed params with their default value
-        expr = _replace_fixed_params(expr, _fixed_params().values())
-
-    return (expr, _reverse_dict(act_symbols))
+    # solve the linear equation algebically
+    return _solve_expression(fg_matrix, bg_matrix)
 
 
 def _reverse_dict(dic):
