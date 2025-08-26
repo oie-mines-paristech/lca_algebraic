@@ -1,5 +1,13 @@
 # Introduction
 
+![Python 3.10](https://img.shields.io/badge/python-3.10-blue) 
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+
+[![Brightway 2.4](https://img.shields.io/badge/brightway-2.4-blue)](https://docs.brightway.dev/en/legacy/index.html)
+[![Brightway 2.5](https://img.shields.io/badge/brightway-2.5-blue)](https://docs.brightway.dev/en/latest/)
+
+
 This library is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
 with fast computation of LCA impacts, suitable for **monte-carlo** / global sensitivity analysis 
 
@@ -16,15 +24,17 @@ It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order
 * Support for automatic check of [homogeneity of physical units](https://lca-algebraic.readthedocs.io/en/stable/api/units.html)
 
 
-# Installation
+# ⚙ Installation
 
-We don't provide conda package anymore.
+We support both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/index.html)
+and [Brightway 2.5](https://docs.brightway.dev/en/latest/) via two separate branches / libraries :
 
-This packages is available via [pip /pypi](https://pypi.org/project/lca-algebraic/)
+* [lca_algebraic](https://pypi.org/project/lca-algebraic/) (for Brightway 2.4)
+* [lca_algebraic_bw25](https://pypi.org/project/lca-algebraic/) (for  Brightway 2.5)
 
-## 1) Setup separate environement
+## 1) Setup separate environment
 
-First create a python environment, with **Python** [>=3.9] :
+First create a python environment, with **Python** [>=3.10, <3.13] :
 
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
@@ -42,7 +52,11 @@ source .venv/bin/activate
 
 ## 2) Install lca_algebraic
 
-> pip install lca_algebraic
+> pip install lca_algebraic 
+
+Or, for brightway 25 :
+
+> pip install lca_algebraic_bw25
 
 
 ## 3) [Optional] Install Jupyter & Activity Browser 

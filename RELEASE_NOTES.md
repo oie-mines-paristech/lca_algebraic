@@ -1,4 +1,4 @@
-# XXXX
+# 1.3
 
 * Added support for "loops" in fireground inventory : 
   Refactored the generation of sympy expression by building a Sympy matrix of <FG-act, FG-act> and inverting it.   
