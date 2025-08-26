@@ -172,16 +172,14 @@ def test_find_activities():
     assert findActivity("activity*", category="cat1", db_name=USER_DB) == act1
 
 
-def test_enum_values_are_enforced():
+def test_enum_values_are_enforced(data):
     # Enum param
     p1 = newEnumParam("p1", values=["v1", "v2", "v3"], default="v1")
 
     act = newActivity(USER_DB, "Foo", "unit")
 
-    climate = [m for m in bw2data.methods if "IPCC 2021" in str(m) and "no LT" in str(m)][1]
-
     with pytest.raises(Exception) as exc:
-        compute_impacts(act, climate, p1="bar")
+        compute_impacts(act, data.ibio1, p1="bar")
 
     assert "Invalid value" in str(exc)
 
