@@ -46,3 +46,19 @@ packages = ["lca_algebraic"]
 
 [tool.setuptools.package-data]
 lca_algebraic = ["README.md"]
+
+
+[tool.tox]
+requires = ["tox>=4"]
+env_list = ["py310", "py311", "py312"]
+
+[tool.tox.env_run_base]
+description = "Run test under {base_python}"
+deps = ["pytest>=7", "nbmake"]
+commands = [["pytest"]]
+
+[tool.flake8]
+max-line-length = 130
+exclude = ["tests/*", "doc/*"]
+per-file-ignores = { "**/__init__.py" = ["F403", "F405", "F401"] }
+
