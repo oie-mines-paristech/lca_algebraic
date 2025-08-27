@@ -48,7 +48,10 @@ try:
     curr_branch = curr_branch.replace(" ", "").replace("*", "")
 
     if curr_branch != "main":
-        name += "_dev"
+        if "/" in curr_branch:
+            curr_branch = curr_branch.split("/")[-1]
+
+        name += f"_{curr_branch}"
 
         # commit = run(["git", "log"])[0].split()[1][0:8]
 
