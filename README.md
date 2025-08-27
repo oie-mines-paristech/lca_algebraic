@@ -31,7 +31,7 @@ We support both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/in
 and [Brightway 2.5](https://docs.brightway.dev/en/latest/) via two separate branches / libraries :
 
 * [lca_algebraic](https://pypi.org/project/lca-algebraic/) (for Brightway 2.4)
-* [lca_algebraic_bw25](https://pypi.org/project/lca-algebraic/) (for  Brightway 2.5)
+* [lca_algebraic_bw25](https://pypi.org/project/lca-algebraic-bw25/) (for  Brightway 2.5)
 
 ## 1) Setup separate environment
 
