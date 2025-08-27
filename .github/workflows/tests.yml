@@ -1,0 +1,46 @@
+name: Run tox tests
+
+on:
+  push:
+    branches:
+      - main
+      - bw25
+      - dev
+      - dev25
+  pull_request:
+    branches:
+      - main
+      - bw25
+      - dev
+      - dev25
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install tox
+        run: pip install tox
+
+      - name: Cache tox environments
+        uses: actions/cache@v3
+        with:
+          path: .tox
+          key: tox-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
+          restore-keys: |
+            tox-${{ runner.os }}-${{ matrix.python-version }}-
+
+      - name: Run tox
+        run: tox

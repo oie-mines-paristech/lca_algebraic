@@ -1,5 +1,7 @@
 ecoinvent*
-.*/
+.venv/
+.tox/
+.ipynb*/
 __pycache__/
 .envrc
 # *.ipynb
