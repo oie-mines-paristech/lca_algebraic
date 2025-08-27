@@ -30,7 +30,7 @@ from .units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
-
+STORE_FORMULA_KEY = "lca_algebraic_formula"
 
 class ParamType:
     """Type of parameters"""
@@ -1246,12 +1246,12 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
-    if "formula" in ex:
+    if STORE_FORMULA_KEY in ex:
         try:
             # We don't want support for units there
-            return _parse_formula(ex["formula"])
+            return _parse_formula(ex[STORE_FORMULA_KEY])
         except Exception as e:
-            warn(f"Error '{e}' while parsing formula {ex['formula']} : backing to amount")
+            warn(f"Error '{e}' while parsing formula {ex[STORE_FORMULA_KEY]} : backing to amount")
 
     return ex["amount"]
 
