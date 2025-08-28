@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from copy import deepcopy
+from copy import deepcopy, copy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
@@ -603,14 +603,22 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
     res["inherited_from"] = activity.key
     res.save()
 
+    def copy_exchange(exc):
+        nonlocal activity, res
+        data = copy(exc.as_dict())
+        if data["output"] == activity.key:
+            data["output"] = res.key
+        if data["input"] == activity.key:
+            data["input"] = res.key
+        ExchangeDataset.create(**dict_as_exchangedataset(data))
+
     if withExchanges:
         for exc in activity.exchanges():
-            data = deepcopy(exc._data)
-            data["output"] = res.key
-            # Change `input` for production exchanges
-            if exc["input"] == exc["output"]:
-                data["input"] = res.key
-            ExchangeDataset.create(**dict_as_exchangedataset(data))
+            copy_exchange(exc)
+    else:
+        for exc in activity.exchanges():
+            if (exc["input"] == activity.key) and (exc["output"] == activity.key):
+                copy_exchange(exc)
 
     return res
 
