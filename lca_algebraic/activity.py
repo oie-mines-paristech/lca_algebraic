@@ -20,12 +20,12 @@ from lca_algebraic.database import (
     with_db_context,
 )
 from lca_algebraic.params import (
+    STORE_FORMULA_KEY,
     DbContext,
     ParamDef,
     _complete_and_expand_params,
     _getAmountOrFormula,
     _param_registry,
-    STORE_FORMULA_KEY
 )
 
 from .base_utils import ValueOrExpression, getActByCode
@@ -37,6 +37,7 @@ from .units import unit_registry as u
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 old_amount = symbols("old_amount")
 old_amount_with_unit = u.Quantity(old_amount, u.old_unit)
+
 
 def _exch_name(exch):
     return exch["name"] if "name" in exch else str(exch.input)

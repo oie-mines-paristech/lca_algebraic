@@ -155,6 +155,8 @@ def oat_matrix(
     )
     _heatmap(change.transpose(), title, 100, ints=True)
 
+    return change
+
 
 def _oat_dasboard(
     model,
@@ -481,6 +483,8 @@ def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name
     sob = _sobols(methods, problem, Y)
 
     _incer_stochastic_matrix(methods, problem["names"], Y, sob, name_type=name_type)
+
+    return sob
 
 
 def _incer_stochastic_violin(methods, Y, figsize=(15, 15), figspace=(0.5, 0.5), sharex=True, nb_cols=3):

@@ -33,6 +33,7 @@ DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 STORE_FORMULA_KEY = "lca_algebraic_formula"
 
+
 class ParamType:
     """Type of parameters"""
 
@@ -1140,8 +1141,10 @@ def list_parameters(name_type=NameType.NAME, as_dataframe=False):
 
 def compute_expr_value(expr: Expr, param_values: Dict):
     """Compute value of an expression for given set of parameter values"""
+    from .lca import _lambdify
+
     free_symbols = [str(symbol) for symbol in expr.free_symbols]
-    lambd = lambdify(free_symbols, expr)
+    lambd = _lambdify(expr, free_symbols)
 
     required_params = _expanded_names_to_names(free_symbols)
 

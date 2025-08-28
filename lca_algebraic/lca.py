@@ -194,6 +194,10 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
 
     db_name = model["database"]
 
+    if not _isForeground(db_name):
+        # Already Bg activity ?
+        return {model: 1}
+
     # Try to load from cache
     with ExprCache() as cache:
         key = (db_name, axis)
@@ -584,6 +588,7 @@ def compute_inventory(
     model: ActivityExtended,
     functional_unit=1,
     as_dict=False,
+    impact_method=None,
     fields=["database", "name", "location", "unit"],
     **params,
 ):
@@ -605,6 +610,9 @@ def compute_inventory(
     fields:
         List of fields to be added in the ouput dataframe
 
+    impact_method:
+        If provided, return the impact for each activity, rather that its quantity
+
     params:
         All other attributes are treated as values of lca_algebraic parameters.
         If not specified, each parameters takes its default value.
@@ -621,6 +629,12 @@ def compute_inventory(
     val_by_act = dict()
     for bg_act, expr in exprs_by_bg_act.items():
         val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
+
+    if impact_method is not None:
+        # Compute LCA of background activities
+        impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
+
+        val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
 
     if as_dict:
         return val_by_act
