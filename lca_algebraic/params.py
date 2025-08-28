@@ -32,6 +32,7 @@ DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 STORE_FORMULA_KEY = "lca_algebraic_formula"
 
+
 class ParamType:
     """Type of parameters"""
 
