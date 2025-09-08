@@ -598,7 +598,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         code = activity.key[1]
 
     for key, value in activity.items():
-        if key not in ["database", "code"]:
+        if key not in ["database", "code", "id"]:
             res[key] = value
     for k, v in kwargs.items():
         res._data[k] = v

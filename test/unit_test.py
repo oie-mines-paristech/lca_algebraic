@@ -664,6 +664,10 @@ def test_bg_loops(data):
     # Should show same results
     assert abs(fg_impacts - bg_impacts) < 1e-7
 
+def test_copy_activity_with_id(data):
+    bg_act = newActivity(BG_DB, "bg_act", "kg", {data.bio1: 1})
+    copy_act = copyActivity(USER_DB, bg_act, code="bg_act_copy")
+
 
 if __name__ == "__main__":
     pytest.main(sys.argv)
