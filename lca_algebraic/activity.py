@@ -129,9 +129,12 @@ class ActivityExtended(Activity):
         """Set the amount for the single output exchange (1 by default)"""
 
         output_exchange = self.getOutputExchange()
-        output_exchange["amount"] = amount
-        output_exchange.save()
-        output_exchange.save()
+
+        if output_exchange is None:
+            self.addExchanges({self: amount})
+        else:
+            output_exchange["amount"] = amount
+            output_exchange.save()
 
     @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
