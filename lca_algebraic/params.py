@@ -17,7 +17,7 @@ from bw2data.parameters import (
 from IPython.core.display import HTML
 from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
-from sympy import Basic, Expr, Symbol, lambdify, parse_expr
+from sympy import Basic, Expr, Symbol, parse_expr
 from tabulate import tabulate
 
 from lca_algebraic.base_utils import ExceptionContext, ValueOrExpression
