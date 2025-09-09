@@ -569,6 +569,14 @@ def test_setoutput_amount_doesnt_duplicate_output_exchange(data):
 
     assert res.values[0][0] == 1.0
 
+    # Same for copy activity
+    act2 = copyActivity(USER_DB, data.bg_act1, withExchanges=False)
+    act2.addExchanges({data.bio1: 1.0})
+    act2.setOutputAmount(1.0)
+
+    res = multiLCA(act2, [data.ibio1])
+    assert res.values[0][0] == 1.0
+
 
 if __name__ == "__main__":
     pytest.main(sys.argv)
