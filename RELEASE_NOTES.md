@@ -1,6 +1,7 @@
 # 1.2.1
 
 * Fix bug #78 : setOutputAmount() duplicates output exchange.
+* Backported fix for bug #66 : Fix freezeParam to use user defined functions
 
 # 1.2 
 
