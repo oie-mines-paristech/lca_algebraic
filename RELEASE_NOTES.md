@@ -1,3 +1,7 @@
+# 1.2.1
+
+* Fix bug #78 : setOutputAmount() duplicates output exchange.
+
 # 1.2 
 
 * Fix bug in compare_simplified introduced since the release of *functional_unit*
