@@ -157,6 +157,7 @@ def oat_matrix(
 
     return change
 
+
 def _oat_dasboard(
     model,
     impacts,

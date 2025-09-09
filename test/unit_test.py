@@ -630,6 +630,7 @@ def test_named_parameters_for_with_db_context(data):
     """
     m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
 
+
 def test_setoutput_amount_doesnt_duplicate_output_exchange(data):
     m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
 
@@ -645,7 +646,6 @@ def test_setoutput_amount_doesnt_duplicate_output_exchange(data):
 
     res = multiLCA(act2, [data.ibio1])
     assert res.values[0][0] == 1.0
-
 
 
 def test_bg_loops(data):
