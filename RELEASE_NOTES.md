@@ -1,3 +1,7 @@
+# 1.3.1 
+
+* Improved speed of symbolic matrix inversion using sparse matrices and "LU" method for inverse
+
 # 1.3
 
 * Added support for "loops" in fireground inventory : 
