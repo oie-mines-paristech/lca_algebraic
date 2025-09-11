@@ -13,10 +13,12 @@ from bw2data.backends.peewee import Activity
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr
+from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr, ImmutableSparseMatrix
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
+
+from .log import debug
 from . import newActivity
 from .activity import ActivityExtended
 from .axis_dict import AxisDict
@@ -907,7 +909,7 @@ class ActMatrix(defaultdict):
             rows.append(row)
             for col_act in self.cols_acts():
                 row.append(self.get((row_act, col_act), 0.0))
-        return ImmutableMatrix(rows)
+        return ImmutableSparseMatrix(rows)
 
     def to_dataframe(self):
         res = dict()
@@ -949,12 +951,16 @@ def _solve_expression(
     A = fg_matrix.to_sympy()
     B = bg_matrix.to_sympy()
 
+    debug(f"FG matrix : {A}")
+
     # BG
     if len(bg_matrix.cols_acts()) == 0:
         # Case of empty matrix
         res_mat = ImmutableMatrix([[]])
     else:
-        res_mat = (A**-1) * B
+        # Inverse using LU method : the matrix might be triangular or almost
+        inv_A = A.inv(method="LU")
+        res_mat = inv_A * B
 
     # Transform to dict of dict
     res = dict()
