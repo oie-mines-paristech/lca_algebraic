@@ -1,6 +1,7 @@
 # 1.3.1 
 
 * Improved speed of symbolic matrix inversion using sparse matrices and "LU" method for inverse
+* Fixed #79 "Problem with freezeParams" new exchanges were wrongly set as "biosphere" for activities of type 'processwithreferenceproduct'
 
 # 1.3
 

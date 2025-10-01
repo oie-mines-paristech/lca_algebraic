@@ -632,6 +632,19 @@ def test_brightway_lca(data):
     res = multiLCA(act2, [data.ibio1], p1=2)
     assert res.values[0] == 4.0
 
+def test_brightway_lca_with_type_processwithreferenceproduct(data):
+    """Test for bug https://github.com/oie-mines-paristech/lca_algebraic/issues/79 """
+
+    p1 = newFloatParam("p1", 2, min=0, max=2)
+
+    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: 2.0 * p1})
+
+    act1["type"] = labels.chimaera_node_default
+
+    act2 = newActivity(USER_DB, "act2", "kg", {act1: 1})
+
+    res = multiLCA(act2, [data.ibio1], p1=2)
+    assert res.values[0] == 4.0
 
 def test_named_parameters_for_with_db_context(data):
     """Tests functions annotated with with_context_db, still support named db .

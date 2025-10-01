@@ -33,6 +33,7 @@ from .log import logger, warn
 from .settings import Settings
 from .units import is_dimensionless, is_equivalent, parse_db_unit
 from .units import unit_registry as u
+from bw2data.configuration import labels
 
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 old_amount = symbols("old_amount")
@@ -216,16 +217,15 @@ class ActivityExtended(Activity):
                 if not isinstance(updates, dict):
                     updates = dict(amount=updates)
 
+                exch_type = (labels.consumption_edge_default
+                        if sub_act.get("type") in labels.lci_node_types
+                        else labels.biosphere_edge_default)
+
                 exch = self.new_exchange(
                     input=sub_act.key,
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type=(
-                        labels.consumption_edge_default
-                        if sub_act.get("type") == labels.process_node_default
-                        else labels.biosphere_edge_default
-                    ),
-                )
+                    type=exch_type)
 
                 self._update_exchange(exch, updates)
 
