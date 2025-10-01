@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from copy import deepcopy, copy
+from copy import copy, deepcopy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
@@ -9,6 +9,7 @@ import pandas as pd
 from bw2data import labels
 from bw2data.backends import Activity, ExchangeDataset
 from bw2data.backends.utils import dict_as_exchangedataset
+from bw2data.configuration import labels
 from pint import DimensionalityError, Quantity
 from sympy import Basic, simplify, symbols
 
@@ -33,7 +34,6 @@ from .log import logger, warn
 from .settings import Settings
 from .units import is_dimensionless, is_equivalent, parse_db_unit
 from .units import unit_registry as u
-from bw2data.configuration import labels
 
 # Can be used in expression of amount for updateExchanges, in order to reference the previous value
 old_amount = symbols("old_amount")
@@ -217,15 +217,15 @@ class ActivityExtended(Activity):
                 if not isinstance(updates, dict):
                     updates = dict(amount=updates)
 
-                exch_type = (labels.consumption_edge_default
-                        if sub_act.get("type") in labels.lci_node_types
-                        else labels.biosphere_edge_default)
+                exch_type = (
+                    labels.consumption_edge_default
+                    if sub_act.get("type") in labels.lci_node_types
+                    else labels.biosphere_edge_default
+                )
 
                 exch = self.new_exchange(
-                    input=sub_act.key,
-                    name=sub_act["name"],
-                    unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type=exch_type)
+                    input=sub_act.key, name=sub_act["name"], unit=sub_act["unit"] if "unit" in sub_act else None, type=exch_type
+                )
 
                 self._update_exchange(exch, updates)
 
