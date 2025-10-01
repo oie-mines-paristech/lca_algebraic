@@ -21,6 +21,9 @@ tst-upload:
 upload:
 	twine upload dist/lca_algebraic*
 
+upload-tst:
+	twine upload --repository testpypi dist/lca_algebraic*
+
 
 pytest:
 	pytest test

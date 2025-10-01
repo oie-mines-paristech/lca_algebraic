@@ -633,11 +633,73 @@ def test_brightway_lca(data):
     assert res.values[0] == 4.0
 
 
+def test_brightway_lca_with_type_processwithreferenceproduct(data):
+    """Test for bug https://github.com/oie-mines-paristech/lca_algebraic/issues/79"""
+
+    p1 = newFloatParam("p1", 2, min=0, max=2)
+
+    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: 2.0 * p1})
+
+    act1["type"] = labels.chimaera_node_default
+
+    act2 = newActivity(USER_DB, "act2", "kg", {act1: 1})
+
+    res = multiLCA(act2, [data.ibio1], p1=2)
+    assert res.values[0] == 4.0
+
+
 def test_named_parameters_for_with_db_context(data):
     """Tests functions annotated with with_context_db, still support named db .
     See: https://github.com/oie-mines-paristech/lca_algebraic/issues/12
     """
     m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
+
+
+def test_setoutput_amount_doesnt_duplicate_output_exchange(data):
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
+
+    m1.setOutputAmount(1.0)
+    res = multiLCA(m1, [data.ibio1])
+
+    assert res.values[0][0] == 1.0
+
+    # Same for copy activity
+    act2 = copyActivity(USER_DB, data.bg_act1, withExchanges=False)
+    act2.addExchanges({data.bio1: 1.0})
+    act2.setOutputAmount(1.0)
+
+    res = multiLCA(act2, [data.ibio1])
+    assert res.values[0][0] == 1.0
+
+
+def test_bg_loops(data):
+    """
+    Test for bug #72
+    Ensure that a BG activity with direct and deep loops, copied to FG, provides the same results
+    """
+
+    # Create background activity wih loop
+    # The bio1 impact of produce 1 kg of net "loop2" should be 2
+    bg_loop_root = newActivity(BG_DB, "bg_loop_root", "kg", {data.bio1: 1})
+    bg_loop_bis = newActivity(BG_DB, "bg_loop_bis", "kg", {bg_loop_root: 0.1, data.bio1: 1})
+
+    bg_loop_root.addExchanges({bg_loop_root: 0.1, bg_loop_bis: 1})  # Direct loop on itself  # Deeper loop
+
+    bg_impacts = compute_impacts(bg_loop_root, [data.ibio1]).values.item()
+
+    # Copying this loop in foreground
+    loop_root_copy = copyActivity(USER_DB, bg_loop_root, code="loop_copy")
+
+    # Both should provide the same output
+    fg_impacts = compute_impacts(loop_root_copy, [data.ibio1]).values.item()
+
+    # Should show same results
+    assert abs(fg_impacts - bg_impacts) < 1e-7
+
+
+def test_copy_activity_with_id(data):
+    bg_act = newActivity(BG_DB, "bg_act", "kg", {data.bio1: 1})
+    copy_act = copyActivity(USER_DB, bg_act, code="bg_act_copy")
 
 
 if __name__ == "__main__":

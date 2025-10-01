@@ -10,6 +10,13 @@
 [![Brightway 2.4](https://img.shields.io/badge/brightway-2.4-blue)](https://docs.brightway.dev/en/legacy/index.html)
 [![Brightway 2.5](https://img.shields.io/badge/brightway-2.5-blue)](https://docs.brightway.dev/en/latest/)
 
+[![main status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=main&label=main)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Amain)
+[![dev status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=dev&label=dev)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Adev)
+&nbsp;&nbsp;&nbsp;
+[![bw25 status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=bw25&label=bw25)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Abw25)
+[![dev25 status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=dev25&label=dev25)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Adev25)
+
+
 **lca_algebraic** is a layer above [**Brightway**](https://brightway.dev/) designed for the definition of **parametric inventories** 
 with fast computation of LCA impacts, suitable for **monte-carlo** / global sensitivity analysis 
 

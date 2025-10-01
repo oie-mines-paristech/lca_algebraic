@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from copy import deepcopy
+from copy import copy, deepcopy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
@@ -9,6 +9,7 @@ import pandas as pd
 from bw2data import labels
 from bw2data.backends import Activity, ExchangeDataset
 from bw2data.backends.utils import dict_as_exchangedataset
+from bw2data.configuration import labels
 from pint import DimensionalityError, Quantity
 from sympy import Basic, simplify, symbols
 
@@ -20,6 +21,7 @@ from lca_algebraic.database import (
     with_db_context,
 )
 from lca_algebraic.params import (
+    STORE_FORMULA_KEY,
     DbContext,
     ParamDef,
     _complete_and_expand_params,
@@ -129,9 +131,12 @@ class ActivityExtended(Activity):
         """Set the amount for the single output exchange (1 by default)"""
 
         output_exchange = self.getOutputExchange()
-        output_exchange["amount"] = amount
-        output_exchange.save()
-        output_exchange.save()
+
+        if output_exchange is None:
+            self.addExchanges({self: amount})
+        else:
+            output_exchange["amount"] = amount
+            output_exchange.save()
 
     @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
@@ -212,15 +217,14 @@ class ActivityExtended(Activity):
                 if not isinstance(updates, dict):
                     updates = dict(amount=updates)
 
+                exch_type = (
+                    labels.consumption_edge_default
+                    if sub_act.get("type") in labels.lci_node_types
+                    else labels.biosphere_edge_default
+                )
+
                 exch = self.new_exchange(
-                    input=sub_act.key,
-                    name=sub_act["name"],
-                    unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type=(
-                        labels.consumption_edge_default
-                        if sub_act.get("type") == labels.process_node_default
-                        else labels.biosphere_edge_default
-                    ),
+                    input=sub_act.key, name=sub_act["name"], unit=sub_act["unit"] if "unit" in sub_act else None, type=exch_type
                 )
 
                 self._update_exchange(exch, updates)
@@ -294,7 +298,7 @@ class ActivityExtended(Activity):
                 if not str(symbol) in all_symbols:
                     raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
 
-            res["formula"] = str(amount)
+            res[STORE_FORMULA_KEY] = str(amount)
             res["amount"] = 0
         elif isinstance(amount, float) or isinstance(amount, int):
             res["amount"] = amount
@@ -597,7 +601,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         code = activity.key[1]
 
     for key, value in activity.items():
-        if key not in ["database", "code"]:
+        if key not in ["database", "code", "id"]:
             res[key] = value
     for k, v in kwargs.items():
         res._data[k] = v
@@ -607,14 +611,22 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
     res["inherited_from"] = activity.key
     res.save()
 
+    def copy_exchange(exc):
+        nonlocal activity, res
+        data = copy(exc.as_dict())
+        if data["output"] == activity.key:
+            data["output"] = res.key
+        if data["input"] == activity.key:
+            data["input"] = res.key
+        ExchangeDataset.create(**dict_as_exchangedataset(data))
+
     if withExchanges:
         for exc in activity.exchanges():
-            data = deepcopy(exc._data)
-            data["output"] = res.key
-            # Change `input` for production exchanges
-            if exc["input"] == exc["output"]:
-                data["input"] = res.key
-            ExchangeDataset.create(**dict_as_exchangedataset(data))
+            copy_exchange(exc)
+    else:
+        for exc in activity.exchanges():
+            if (exc["input"] == activity.key) and (exc["output"] == activity.key):
+                copy_exchange(exc)
 
     return res
 
