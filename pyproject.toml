@@ -43,7 +43,7 @@ dependencies = [
 Homepage = "https://lca-algebraic.readthedocs.io/en/stable/"
 Repository = "https://github.com/oie-mines-paristech/lca_algebraic.git"
 Documentation = "https://lca-algebraic.readthedocs.io/"
-Changelog = "https://github.com/oie-mines-paristech/lca_algebraic/blob/main/RELEASE_NOTES.md"
+Changelog = "https://github.com/oie-mines-paristech/lca_algebraic/blob/bw25/RELEASE_NOTES.md"
 
 [tool.setuptools]
 packages = ["lca_algebraic"]
