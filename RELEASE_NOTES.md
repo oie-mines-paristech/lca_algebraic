@@ -1,3 +1,9 @@
+# *
+
+* Add ref_product as filter inf *findBio/TechAct()*
+* Fix bug of exchange wrongly tagged as biosphere when imported from excel
+* Add setting to prevent overriding parameters
+
 # 1.3
 
 * Added support for "loops" in fireground inventory : 

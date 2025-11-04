@@ -2,3 +2,4 @@
 class Settings:
     cache_enabled = True
     units_enabled = False
+    param_overriding_enabled = True

@@ -922,7 +922,12 @@ class ParamRegistry:
 
     def __setitem__(self, key, param: ParamDef):
         if param.dbname in self.params[key]:
-            warn("[ParamRegistry] Param %s was already defined in '%s' : overriding." % (param.name, param.dbname or "<project>"))
+            message = "[ParamRegistry] Param %s was already defined in '%s' " % (param.name, param.dbname or "<project>")
+
+            if Settings.param_overriding_enabled:
+                warn(message + " overriding")
+            else:
+                raise Exception(message +"overriding disabled in Settings" )
 
         self.params[key][param.dbname] = param
 

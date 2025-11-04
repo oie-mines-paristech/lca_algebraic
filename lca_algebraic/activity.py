@@ -36,6 +36,7 @@ from .units import unit_registry as u
 old_amount = symbols("old_amount")
 old_amount_with_unit = u.Quantity(old_amount, u.old_unit)
 
+TECHNO_TYPES = [None, "process", "product", "processwithreferenceproduct", "multifunctional"]
 
 def _exch_name(exch):
     return exch["name"] if "name" in exch else str(exch.input)
@@ -215,7 +216,7 @@ class ActivityExtended(Activity):
                     input=sub_act.key,
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type="technosphere" if sub_act.get("type") == "process" else "biosphere",
+                    type="technosphere" if sub_act.get("type") in TECHNO_TYPES else "biosphere",
                 )
 
                 self._update_exchange(exch, updates)
@@ -250,7 +251,7 @@ class ActivityExtended(Activity):
             raise Exception(f"Units should be the same in a switch activity {exchange_unit} != {act_unit}")
 
         # Using 'old_amount' ? => replace with requested unit
-        if amount.units == u.old_unit:
+        if is_equivalent(amount.units, u.old_unit):
             amount = u.Quantity(amount.magnitude, exchange_unit)
 
         # We try to transform either to the exchange unit, or ex_unit/act_unit
@@ -366,6 +367,7 @@ def findActivity(
     db_name=None,
     single=True,
     case_sensitive=False,
+    reference_product=None,
     unit=None,
     limit=1500,
 ) -> ActivityExtended:
@@ -382,6 +384,7 @@ def findActivity(
     :param single: If False, returns a list of matching activities. If True (default) fails if more than one activity fits.
     :param case_sensitive: If True (default) ignore the case
     :param unit: If provided, only match activities with provided unit
+    :param reference_product: If provided, only match activities with provided reference product
     :return: Either a single activity (if single is True) or a list of activities, possibly empty.
     """
 
@@ -410,10 +413,13 @@ def findActivity(
             return False
         if unit and not unit == act["unit"]:
             return False
+        if reference_product and not reference_product == act.get("reference product"):
+            return False
         if category and category not in act["categories"]:
             return False
         if categories and not tuple(categories) == tuple(act["categories"]):
             return False
+
         return True
 
     if code:
