@@ -30,7 +30,7 @@ from .units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
-STORE_FORMULA_KEY = "lca_algebraic_formula"
+STORE_FORMULA_KEY = "formula"
 
 
 class ParamType:
