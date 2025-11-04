@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from copy import deepcopy
+from copy import deepcopy, copy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
@@ -24,6 +24,7 @@ from lca_algebraic.params import (
     _complete_and_expand_params,
     _getAmountOrFormula,
     _param_registry,
+    STORE_FORMULA_KEY,
 )
 
 from .base_utils import ValueOrExpression, getActByCode
@@ -129,9 +130,12 @@ class ActivityExtended(Activity):
         """Set the amount for the single output exchange (1 by default)"""
 
         output_exchange = self.getOutputExchange()
-        output_exchange["amount"] = amount
-        output_exchange.save()
-        output_exchange.save()
+
+        if output_exchange is None:
+            self.addExchanges({self: amount})
+        else:
+            output_exchange["amount"] = amount
+            output_exchange.save()
 
     @with_db_context
     def updateExchanges(self, updates: Dict[str, any] = dict()):
@@ -290,7 +294,7 @@ class ActivityExtended(Activity):
                 if not str(symbol) in all_symbols:
                     raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
 
-            res["formula"] = str(amount)
+            res[STORE_FORMULA_KEY] = str(amount)
             res["amount"] = 0
         elif isinstance(amount, float) or isinstance(amount, int):
             res["amount"] = amount
@@ -608,14 +612,22 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
     res["inherited_from"] = activity.key
     res.save()
 
+    def copy_exchange(exc):
+        nonlocal activity, res
+        data = copy(exc.as_dict())
+        if data["output"] == activity.key:
+            data["output"] = res.key
+        if data["input"] == activity.key:
+            data["input"] = res.key
+        ExchangeDataset.create(**dict_as_exchangedataset(data))
+
     if withExchanges:
         for exc in activity.exchanges():
-            data = deepcopy(exc._data)
-            data["output"] = res.key
-            # Change `input` for production exchanges
-            if exc["input"] == exc["output"]:
-                data["input"] = res.key
-            ExchangeDataset.create(**dict_as_exchangedataset(data))
+            copy_exchange(exc)
+    else:
+        for exc in activity.exchanges():
+            if (exc["input"] == activity.key) and (exc["output"] == activity.key):
+                copy_exchange(exc)
 
     return res
 

@@ -631,5 +631,47 @@ def test_named_parameters_for_with_db_context(data):
     m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
 
 
+def test_setoutput_amount_doesnt_duplicate_output_exchange(data):
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 1})
+
+    m1.setOutputAmount(1.0)
+    res = multiLCA(m1, [data.ibio1])
+
+    assert res.values[0][0] == 1.0
+
+    # Same for copy activity
+    act2 = copyActivity(USER_DB, data.bg_act1, withExchanges=False)
+    act2.addExchanges({data.bio1: 1.0})
+    act2.setOutputAmount(1.0)
+
+    res = multiLCA(act2, [data.ibio1])
+    assert res.values[0][0] == 1.0
+
+
+def test_bg_loops(data):
+    """
+    Test for bug #72
+    Ensure that a BG activity with direct and deep loops, copied to FG, provides the same results
+    """
+
+    # Create background activity wih loop
+    # The bio1 impact of produce 1 kg of net "loop2" should be 2
+    bg_loop_root = newActivity(BG_DB, "bg_loop_root", "kg", {data.bio1: 1})
+    bg_loop_bis = newActivity(BG_DB, "bg_loop_bis", "kg", {bg_loop_root: 0.1, data.bio1: 1})
+
+    bg_loop_root.addExchanges({bg_loop_root: 0.1, bg_loop_bis: 1})  # Direct loop on itself  # Deeper loop
+
+    bg_impacts = compute_impacts(bg_loop_root, [data.ibio1]).values.item()
+
+    # Copying this loop in foreground
+    loop_root_copy = copyActivity(USER_DB, bg_loop_root, code="loop_copy")
+
+    # Both should provide the same output
+    fg_impacts = compute_impacts(loop_root_copy, [data.ibio1]).values.item()
+
+    # Should show same results
+    assert abs(fg_impacts - bg_impacts) < 1e-8
+
+
 if __name__ == "__main__":
     pytest.main(sys.argv)
