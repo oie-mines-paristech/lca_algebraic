@@ -189,6 +189,10 @@ def test_compute_impact_on_empty_act(data):
     compute_impacts(act, data.ibio1)
 
 
+def test_compute_impact_on_bg_act(data):
+    compute_impacts(data.bg_act1, data.ibio1)
+
+
 def test_setforeground():
     setForeground(USER_DB)
 
