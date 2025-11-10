@@ -633,6 +633,31 @@ def test_brightway_lca(data):
     assert res.values[0] == 4.0
 
 
+def test_compute_impact_byaxis_bug82(data) :
+    """https://github.com/oie-mines-paristech/lca_algebraic/issues/82"""
+
+    # axis : Subsystem wind generator
+    nac = "Nacelle"
+
+    yawbearing = newActivity(USER_DB, name="Yaw Bearing", unit="unit", subsystem=nac,
+        exchanges={
+            data.bio1: 1,
+        })
+
+    frame = newActivity(USER_DB, name="Frame", unit="unit", subsystem=nac,
+        exchanges={
+            data.bio1: 1,
+        })
+
+    nacelle = newActivity(USER_DB, name="Nacelle", unit="unit", subsystem=nac,
+        exchanges={
+            yawbearing: 1,
+            frame: 1,
+        })
+
+    compute_impacts(nacelle, methods=[data.ibio1], axis="subsystem")
+
+
 def test_brightway_lca_with_type_processwithreferenceproduct(data):
     """Test for bug https://github.com/oie-mines-paristech/lca_algebraic/issues/79"""
 

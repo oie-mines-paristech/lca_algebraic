@@ -1,3 +1,7 @@
+# 1.3.2 
+
+* Fix bug #82 impact computation by axis not working. For nested axes.
+
 # 1.3.1 
 
 * Improved speed of symbolic matrix inversion using sparse matrices and "LU" method for inverse

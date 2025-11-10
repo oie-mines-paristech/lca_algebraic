@@ -5,8 +5,35 @@ NO_AXIS_NAME = "_other_"
 NO_AXIS = symbols(NO_AXIS_NAME)
 
 
+def _combine_keys(key1, key2) :
+    if key1 == NO_AXIS:
+        return key2
+    if key2 == NO_AXIS:
+        return key1
+    if key1 == key2:
+        return key1
+    raise ValueError(f"AxisDict with two different nested keys :{key1} != {key2}")
+
+def _flatten_nested_dicts(_dict: dict) :
+    res = dict()
+    for key, val in _dict.items() :
+        if not isinstance(val, AxisDict) :
+            res[key] = val
+        else:
+            for key2, val2 in val._dict.items() :
+                res[_combine_keys(key, key2)] = val2
+    return res
+
 class AxisDict(SympyDict):
     """This class acts like a dict with arithmetic operations. It is useful to process 'axes' LCA computations"""
+
+    def __new__(cls, *args, **kwargs):
+        if len(args) == 1 and isinstance(args[0], dict):
+            arg = _flatten_nested_dicts(args[0])
+            return SympyDict.__new__(cls, arg)
+        else :
+            return SympyDict.__new__(cls, *args)
+
 
     def _apply_op(self, other, fop, null_val):
         # None is the key for non flagged values

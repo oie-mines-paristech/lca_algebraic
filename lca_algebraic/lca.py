@@ -956,8 +956,10 @@ class ActMatrix(defaultdict):
 
 def _force_reduce(expr):
     """Force reduction of sum and multiplication : usefull for AxisDict"""
+    if isinstance(expr, AxisDict):
+        return AxisDict({key: _force_reduce(val) for key, val in expr._dict.items()})
     if isinstance(expr, dict):
-        return AxisDict(expr)
+        return _force_reduce(AxisDict(expr))
     if isinstance(expr, Add):
         res = 0.0
         for arg in expr.args:
