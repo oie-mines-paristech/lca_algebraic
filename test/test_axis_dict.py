@@ -46,6 +46,15 @@ def test_mul():
     assert simplify(a1 / 2) == AxisDict({a: 1})
 
 
+def test_nested():
+    a, b = symbols("a,b")
+
+    a1 = AxisDict({a: 1})
+    nested = AxisDict({b: 2, NO_AXIS: a1})
+
+    assert nested == AxisDict({a: 1, b: 2})
+
+
 def test_equals():
     a = symbols("a")
 
