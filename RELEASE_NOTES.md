@@ -1,3 +1,7 @@
+# 1.3.2 
+
+* Fix bug #82 impact computation by axis not working. For nested axes.
+
 # 1.3
 
 * Added support for "loops" in fireground inventory : 
@@ -5,6 +9,13 @@
   Internally, we now build a dict of <BG-Act, Expression> rarther than a single big expression that used custom 
   symbols as BG activities. This makes the code much cleaner and may tackle some performance issues with big inventories.
 * Added support of brightway 25 is a separate branch/package lca_algebraic_bw25
+
+
+# 1.2.2
+
+* Fix bug #78 : setOutputAmount() duplicates output exchange.
+* Backported fix for bug #66 : Fix freezeParam to use user defined functions
+* Backported #76 : Fix and improve copyActivity(withExchange=False)
 
 # 1.2 
 

@@ -16,7 +16,7 @@ from bw2data.parameters import (
 from IPython.core.display import HTML
 from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
-from sympy import Basic, Expr, Symbol, lambdify, parse_expr
+from sympy import Basic, Expr, Symbol, parse_expr
 from tabulate import tabulate
 
 from lca_algebraic.base_utils import ExceptionContext, ValueOrExpression
@@ -30,6 +30,7 @@ from .units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
+STORE_FORMULA_KEY = "lca_algebraic_formula"
 
 
 class ParamType:
@@ -1131,8 +1132,10 @@ def list_parameters(name_type=NameType.NAME, as_dataframe=False):
 
 def compute_expr_value(expr: Expr, param_values: Dict):
     """Compute value of an expression for given set of parameter values"""
+    from .lca import _lambdify
+
     free_symbols = [str(symbol) for symbol in expr.free_symbols]
-    lambd = lambdify(free_symbols, expr)
+    lambd = _lambdify(expr, free_symbols)
 
     required_params = _expanded_names_to_names(free_symbols)
 
@@ -1246,12 +1249,12 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
-    if "formula" in ex:
+    if STORE_FORMULA_KEY in ex:
         try:
             # We don't want support for units there
-            return _parse_formula(ex["formula"])
+            return _parse_formula(ex[STORE_FORMULA_KEY])
         except Exception as e:
-            warn(f"Error '{e}' while parsing formula {ex['formula']} : backing to amount")
+            warn(f"Error '{e}' while parsing formula {ex[STORE_FORMULA_KEY]} : backing to amount")
 
     return ex["amount"]
 

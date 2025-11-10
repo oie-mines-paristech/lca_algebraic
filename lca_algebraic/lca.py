@@ -13,7 +13,17 @@ from bw2data.backends.peewee import Activity
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr
+from sympy import (
+    Add,
+    Basic,
+    Expr,
+    ImmutableMatrix,
+    ImmutableSparseMatrix,
+    Mul,
+    Symbol,
+    lambdify,
+    parse_expr,
+)
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
@@ -31,7 +41,7 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
-from .log import logger, warn
+from .log import debug, logger, warn
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
@@ -177,6 +187,10 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
     """
 
     db_name = model["database"]
+
+    if not _isForeground(db_name):
+        # Already Bg activity ?
+        return {model: 1}
 
     # Try to load from cache
     with ExprCache() as cache:
@@ -548,7 +562,12 @@ SingleOrMultipleFloat = Union[float, List[float], np.ndarray]
 
 
 def compute_inventory(
-    model: ActivityExtended, functional_unit=1, as_dict=False, fields=["database", "name", "location", "unit"], **params
+    model: ActivityExtended,
+    functional_unit=1,
+    as_dict=False,
+    impact_method=None,
+    fields=["database", "name", "location", "unit"],
+    **params,
 ):
     """
 
@@ -568,6 +587,9 @@ def compute_inventory(
     fields:
         List of fields to be added in the ouput dataframe
 
+    impact_method:
+        If provided, return the impact for each activity, rather that its quantity
+
     params:
         All other attributes are treated as values of lca_algebraic parameters.
         If not specified, each parameters takes its default value.
@@ -584,6 +606,12 @@ def compute_inventory(
     val_by_act = dict()
     for bg_act, expr in exprs_by_bg_act.items():
         val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
+
+    if impact_method is not None:
+        # Compute LCA of background activities
+        impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
+
+        val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
 
     if as_dict:
         return val_by_act
@@ -889,7 +917,7 @@ class ActMatrix(defaultdict):
             rows.append(row)
             for col_act in self.cols_acts():
                 row.append(self.get((row_act, col_act), 0.0))
-        return ImmutableMatrix(rows)
+        return ImmutableSparseMatrix(rows)
 
     def to_dataframe(self):
         res = dict()
@@ -903,8 +931,10 @@ class ActMatrix(defaultdict):
 
 def _force_reduce(expr):
     """Force reduction of sum and multiplication : usefull for AxisDict"""
+    if isinstance(expr, AxisDict):
+        return AxisDict({key: _force_reduce(val) for key, val in expr._dict.items()})
     if isinstance(expr, dict):
-        return AxisDict(expr)
+        return _force_reduce(AxisDict(expr))
     if isinstance(expr, Add):
         res = 0.0
         for arg in expr.args:
@@ -931,12 +961,16 @@ def _solve_expression(
     A = fg_matrix.to_sympy()
     B = bg_matrix.to_sympy()
 
+    debug(f"FG matrix : {A}")
+
     # BG
     if len(bg_matrix.cols_acts()) == 0:
         # Case of empty matrix
         res_mat = ImmutableMatrix([[]])
     else:
-        res_mat = (A**-1) * B
+        # Inverse using LU method : the matrix might be triangular or almost
+        inv_A = A.inv(method="LU")
+        res_mat = inv_A * B
 
     # Transform to dict of dict
     res = dict()
