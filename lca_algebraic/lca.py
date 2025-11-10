@@ -14,12 +14,20 @@ from bw2data.backends import Activity
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
 from pint import Quantity, Unit
-from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr, ImmutableSparseMatrix
+from sympy import (
+    Add,
+    Basic,
+    Expr,
+    ImmutableMatrix,
+    ImmutableSparseMatrix,
+    Mul,
+    Symbol,
+    lambdify,
+    parse_expr,
+)
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
-
-from .log import debug
 from . import newActivity
 from .activity import ActivityExtended
 from .axis_dict import AxisDict
@@ -34,7 +42,7 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
-from .log import logger, warn
+from .log import debug, logger, warn
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,

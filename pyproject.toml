@@ -1,5 +1,6 @@
 [build-system]
 requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "lca_algebraic_bw25"
@@ -32,7 +33,7 @@ dependencies = [
   "sympy",
   "matplotlib",
   "deprecation",
-  "brightway25",
+  "brightway2",
   "SALib",
   "pint",
   "typing-extensions",
@@ -43,7 +44,7 @@ dependencies = [
 Homepage = "https://lca-algebraic.readthedocs.io/en/stable/"
 Repository = "https://github.com/oie-mines-paristech/lca_algebraic.git"
 Documentation = "https://lca-algebraic.readthedocs.io/"
-Changelog = "https://github.com/oie-mines-paristech/lca_algebraic/blob/bw25/RELEASE_NOTES.md"
+Changelog = "https://github.com/oie-mines-paristech/lca_algebraic/blob/main/RELEASE_NOTES.md"
 
 [tool.setuptools]
 packages = ["lca_algebraic"]
@@ -54,7 +55,7 @@ lca_algebraic = ["README.md"]
 
 [tool.tox]
 requires = ["tox>=4"]
-env_list = ["py310-bw25", "py311-bw25", "py312-bw25"]
+env_list = ["py310", "py311", "py312"]
 
 [tool.tox.env_run_base]
 description = "Run test under {base_python}"
