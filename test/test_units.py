@@ -14,7 +14,7 @@ def enable_units():
 
     yield
 
-    # Enable units
+    # Disable units
     Settings.units_enabled = False
 
 

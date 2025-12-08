@@ -36,6 +36,7 @@ dependencies = [
   "brightway2",
   "SALib",
   "pint",
+  "cloudpickle",
   "typing-extensions",
   "pypardiso; platform_machine == 'x86_64'"
 ]

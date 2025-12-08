@@ -1,8 +1,9 @@
 import os
-import pickle
+from cloudpickle import dump, load
 from os import path
 
 import brightway2 as bw
+from sympy.core.function import UndefinedFunction
 
 from .log import logger
 from .settings import Settings
@@ -12,16 +13,17 @@ EXPR_CACHE = "expr"
 
 
 # Overide the behaviour for pickling sympy.UndefineFunction
-class Pickler(pickle.Pickler):
+"""
+class MyCloudPickler(cloudpickle.CloudPickler):
     from sympy.core.function import UndefinedFunction
 
     def reducer_override(self, obj):
         # FIXME: maybe too gready, we may check if obj is an instance of
         #        registered functions instead.
-        if obj.__class__ is Pickler.UndefinedFunction:
+        if obj.__class__ is UndefinedFunction:
             return type, (obj.__name__, obj.__bases__, dict(obj.__dict__))
         return NotImplemented
-
+"""
 
 def last_db_update():
     """Get the last update of current database project"""
@@ -64,7 +66,7 @@ class _CacheDict:
                 if name not in _Caches.caches:
                     # Load cache from disk
                     with open(filename, "rb") as pickleFile:
-                        _Caches.caches[name] = pickle.load(pickleFile)
+                        _Caches.caches[name] = load(pickleFile)
         else:
             # No file yet, init local cache
             _Caches.caches[name] = dict()
@@ -79,7 +81,7 @@ class _CacheDict:
         # Save data on exit
         if Settings.cache_enabled and self.data:
             with open(_CacheDict.filename(self.name), "wb") as pickleFile:
-                self.data = Pickler(pickleFile).dump(self.data)
+                self.data = dump(self.data, pickleFile)
 
     @classmethod
     def filename(cls, name):
