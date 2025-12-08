@@ -25,6 +25,7 @@ from sympy import (
     Number,
     Piecewise,
     Sum,
+    Symbol,
     simplify,
     symbols,
 )
@@ -49,7 +50,6 @@ from .lca import (
     lambdify,
     pd,
 )
-from sympy import Symbol
 from .log import warn
 from .methods import method_name, method_unit
 from .params import (

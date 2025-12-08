@@ -1,10 +1,11 @@
 import concurrent.futures
+import functools
 import re
 from collections import defaultdict
 from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
-import functools
+
 import brightway2 as bw
 import numpy as np
 import pandas as pd
@@ -21,7 +22,7 @@ from sympy import (
     ImmutableSparseMatrix,
     Mul,
     lambdify,
-    parse_expr
+    parse_expr,
 )
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
@@ -162,9 +163,6 @@ def _multiLCAWithCache(acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey]
         return {(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods}
 
 
-
-
-
 def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrExpression]:
     """
     For a given activity return a dict of bg _activity => expression
@@ -193,6 +191,7 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
 
     return res_by_act[model]
 
+
 @dataclass
 class ValueContext:
     """Represents a result value, with all parameters values used in context"""
@@ -201,10 +200,8 @@ class ValueContext:
     context: Dict[str, float]
 
 
-
 def lambdify_expr(expr):
     return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
-
 
 
 class LambdaWithParamNames:
@@ -297,7 +294,9 @@ class LambdaWithParamNames:
         return self.expr._repr_latex_()
 
 
-def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None) -> list[LambdaWithParamNames]:
+def _preMultiLCAAlgebric(
+    model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
+) -> list[LambdaWithParamNames]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -306,24 +305,22 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: Val
     """
 
     with DbContext(model):
-
         if isinstance(alpha, Quantity):
             alpha = alpha.magnitude
 
-        def _key(method) :
+        def _key(method):
             return (model, axis, method, alpha)
 
         with ExprCache() as cache:
             missing_methods = [method for method in methods if not _key(method) in cache.data]
             if len(missing_methods) > 0:
-                exprs = _modelToExpr(model, methods=missing_methods, axis = axis)
+                exprs = _modelToExpr(model, methods=missing_methods, axis=axis)
                 for method, expr in zip(missing_methods, exprs):
                     cache.data[_key(method)] = LambdaWithParamNames(expr * alpha)
 
             # At this point, everything is in cache
             # REturn the list in order
-            return list(
-                cache.data[_key(method)] for method in methods)
+            return list(cache.data[_key(method)] for method in methods)
 
 
 def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
@@ -343,16 +340,12 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
     # Compute LCA for background activities
     impacts = _multiLCAWithCache(bg_acts, methods)
 
-
     # Create numpy matrix of impact values
     # Rows are methods, columns are bg acts
-    impact_matrix = np.array([
-        [impacts[bg_act, method] for bg_act in bg_acts] for method in methods
-    ])
+    impact_matrix = np.array([[impacts[bg_act, method] for bg_act in bg_acts] for method in methods])
 
     # Create immutable sympy vector of bg expression, in the same order :
-    bg_expr_vector = ImmutableMatrix([
-        [expr_by_bg_act[bg_act]] for bg_act in bg_acts])
+    bg_expr_vector = ImmutableMatrix([[expr_by_bg_act[bg_act]] for bg_act in bg_acts])
 
     # Multiply the two => returns a vector of impact expression
     impacts_vector = impact_matrix * bg_expr_vector
@@ -360,7 +353,7 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
     def _get_expr(i):
         if len(bg_acts) == 0:
             return 0.0
-        else :
+        else:
             return impacts_vector[i]
 
     # For each method, compute an algebric expression with activities replaced by their values
@@ -402,10 +395,10 @@ def _lambdify(expr: Basic, expanded_params):
         return func
 
     else:
-
         # Not an expression : return static func
         def static_func(*args, **kargs):
             return expr
+
         return static_func
 
 

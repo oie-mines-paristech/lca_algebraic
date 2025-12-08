@@ -1,8 +1,8 @@
 import os
-from cloudpickle import dump, load
 from os import path
 
 import brightway2 as bw
+from cloudpickle import dump, load
 from sympy.core.function import UndefinedFunction
 
 from .log import logger
@@ -24,6 +24,7 @@ class MyCloudPickler(cloudpickle.CloudPickler):
             return type, (obj.__name__, obj.__bases__, dict(obj.__dict__))
         return NotImplemented
 """
+
 
 def last_db_update():
     """Get the last update of current database project"""
