@@ -13,12 +13,20 @@ from bw2data.backends.peewee import Activity
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr, ImmutableSparseMatrix
+from sympy import (
+    Add,
+    Basic,
+    Expr,
+    ImmutableMatrix,
+    ImmutableSparseMatrix,
+    Mul,
+    Symbol,
+    lambdify,
+    parse_expr,
+)
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
-
-from .log import debug
 from . import newActivity
 from .activity import ActivityExtended
 from .axis_dict import AxisDict
@@ -33,7 +41,7 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
-from .log import logger, warn
+from .log import debug, logger, warn
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
@@ -923,8 +931,10 @@ class ActMatrix(defaultdict):
 
 def _force_reduce(expr):
     """Force reduction of sum and multiplication : usefull for AxisDict"""
+    if isinstance(expr, AxisDict):
+        return AxisDict({key: _force_reduce(val) for key, val in expr._dict.items()})
     if isinstance(expr, dict):
-        return AxisDict(expr)
+        return _force_reduce(AxisDict(expr))
     if isinstance(expr, Add):
         res = 0.0
         for arg in expr.args:

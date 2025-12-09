@@ -1,12 +1,8 @@
-# *
-
-* Add ref_product as filter inf *findBio/TechAct()*
-* Fix bug of exchange wrongly tagged as biosphere when imported from excel
-* Add setting to prevent overriding parameters
-
-# 1.3.1 
+# ** 
 
 * Improved speed of symbolic matrix inversion using sparse matrices and "LU" method for inverse
+* Fix bug #82 impact computation by axis not working. For nested axes.
+
 
 # 1.3
 

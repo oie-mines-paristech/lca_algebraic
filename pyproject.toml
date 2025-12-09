@@ -67,5 +67,3 @@ max-line-length = 130
 exclude = ["tests/*", "doc/*"]
 per-file-ignores = { "**/__init__.py" = ["F403", "F405", "F401"] }
 
-[tool.hatch.version]
-source = "vcs"
