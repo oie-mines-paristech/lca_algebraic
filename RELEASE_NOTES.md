@@ -1,3 +1,9 @@
+# **
+
+* Improved performance :
+  - Better cache of LambdaWithParams
+  - Skip check of inversability when inverting matrices with LU method
+
 # 1.3.2 
 
 * Fix bug #82 impact computation by axis not working. For nested axes.
