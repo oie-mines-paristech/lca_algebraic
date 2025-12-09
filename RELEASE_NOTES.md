@@ -1,8 +1,16 @@
-# ** 
+# RTE
 
-* Improved speed of symbolic matrix inversion using sparse matrices and "LU" method for inverse
+* Added parameter 'reference_product' to findActivity
+
+# **
+
+* Improved performance :
+  - Better cache of LambdaWithParams
+  - Skip check of inversability when inverting matrices with LU method
+
+# 1.3.2 
+
 * Fix bug #82 impact computation by axis not working. For nested axes.
-
 
 # 1.3
 
