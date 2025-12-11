@@ -605,6 +605,20 @@ def test_multiLCAAlgebric_with_dict(data):
     assert res.iloc[1, 0] == 0.0
 
 
+def test_compute_mult_impacts_multi_bg(data):
+    """Necessary to test current handling of compute based on matrix multiplication"""
+
+    p1 = newFloatParam("p1", 1, min=0, max=3)
+    p2 = newFloatParam("p2", 1, min=0, max=3)
+    p3 = newFloatParam("p3", 1, min=0, max=3)
+
+    model = newActivity(USER_DB, "model", "kg", {data.bio1: p1, data.bio2: p2, data.bio3: p3})
+
+    res = compute_impacts(models=model, methods=[data.ibio1, data.ibio2], p1=1, p2=2, p3=3)
+
+    assert_array_equal(res.values, np.array([[1, 2]]))
+
+
 def test_params_as_power(data):
     """Tests parameters can be used in 'power'"""
 

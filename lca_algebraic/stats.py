@@ -25,6 +25,7 @@ from sympy import (
     Number,
     Piecewise,
     Sum,
+    Symbol,
     simplify,
     symbols,
 )
@@ -39,10 +40,8 @@ from .base_utils import (
 from .database import DbContext, with_db_context
 from .lca import (
     LambdaWithParamNames,
-    Symbol,
     _expanded_names_to_names,
     _filter_param_values,
-    _modelToExpr,
     _postMultiLCAAlgebric,
     _preMultiLCAAlgebric,
     _replace_fixed_params,
@@ -889,7 +888,8 @@ def sobol_simplify_model(
     res = []
 
     # Generate simplified model
-    exprs = _modelToExpr(model, methods, alpha=1 / functional_unit)
+    lambdas = _preMultiLCAAlgebric(model, methods, alpha=1 / functional_unit)
+    exprs = [lambd.expr for lambd in lambdas]
 
     for imethod, method in enumerate(methods):
         print("> Method : ", method_name(method))

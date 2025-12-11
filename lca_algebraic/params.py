@@ -1032,7 +1032,9 @@ def _complete_params(params: Dict[str, ParamValues], required_params):
                 logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
             else:
                 params[param_name] = param.default
-                logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
+                logger.debug(
+                    "Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default))
+                )
 
     return params
 

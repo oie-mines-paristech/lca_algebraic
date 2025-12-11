@@ -1,4 +1,5 @@
 import concurrent.futures
+import functools
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -20,7 +21,6 @@ from sympy import (
     ImmutableMatrix,
     ImmutableSparseMatrix,
     Mul,
-    Symbol,
     lambdify,
     parse_expr,
 )
@@ -163,24 +163,6 @@ def _multiLCAWithCache(acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey]
         return {(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods}
 
 
-def _replace_symbols_with_params_in_exp(expr: Basic):
-    """After unpickling, the Symbols in the expression with same named are not the same object than Parameters.
-    This is problematic for xreplace wich relies on it :
-    Here we replace them.
-    """
-
-    if not isinstance(expr, Basic):
-        return expr
-
-    all_params = _param_registry().as_dict()
-    subs = {symb: all_params[symb.name] for symb in expr.free_symbols if isinstance(symb, Symbol) and symb.name in all_params}
-
-    logger.debug("Replace: %s", subs)
-
-    expr = expr.xreplace(subs)
-    return expr
-
-
 def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrExpression]:
     """
     For a given activity return a dict of bg _activity => expression
@@ -207,88 +189,7 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
 
         res_by_act = cache.data[key]
 
-    res = res_by_act[model]
-
-    return res
-
-
-def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1):
-    """
-    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
-
-    Return
-    ------
-    <list of expressions (one per impact)>, <list of required param names>
-
-    """
-
-    expr_by_bg_act = _actToExpressionDict(model, axis=axis)
-
-    bg_acts = list(expr_by_bg_act.keys())
-
-    # Compute LCA for background activities
-    impacts = _multiLCAWithCache(bg_acts, methods)
-
-    # For each method, compute an algebric expression with activities replaced by their values
-    exprs = []
-    for method in methods:
-        expr = 0.0
-        for bg_act, _expr in expr_by_bg_act.items():
-            impact = impacts[(bg_act, method)]
-            expr += _expr * impact
-
-        # Ensure symbols are params
-        expr = _replace_symbols_with_params_in_exp(expr)
-
-        if isinstance(alpha, Quantity):
-            alpha = alpha.magnitude
-        expr *= alpha
-
-        exprs.append(expr)
-
-    return exprs
-
-
-def _filter_param_values(params, expanded_param_names):
-    return {key: val for key, val in params.items() if key in expanded_param_names}
-
-
-def _free_symbols(expr: Basic):
-    if isinstance(expr, Basic):
-        return set([str(symb) for symb in expr.free_symbols])
-    else:
-        # Static value
-        return set()
-
-
-def _lambdify(expr: Basic, expanded_params):
-    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
-
-    printer = NumPyPrinter(
-        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
-    )
-
-    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
-
-    if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
-
-        def func(*arg, **kwargs):
-            res = lambd(*arg, **kwargs)
-            if isinstance(res, dict):
-                # Transform key symbols into Str
-                return {str(k): v for k, v in res.items()}
-            else:
-                return res
-
-        return func
-
-    else:
-        # Not an expression : return static func
-        def static_func(*args, **kargs):
-            return expr
-
-        return static_func
+    return res_by_act[model]
 
 
 @dataclass
@@ -297,6 +198,10 @@ class ValueContext:
 
     value: float
     context: Dict[str, float]
+
+
+def lambdify_expr(expr):
+    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
 
 
 class LambdaWithParamNames:
@@ -389,11 +294,9 @@ class LambdaWithParamNames:
         return self.expr._repr_latex_()
 
 
-def lambdify_expr(expr):
-    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
-
-
-def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None):
+def _preMultiLCAAlgebric(
+    model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
+) -> list[LambdaWithParamNames]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -402,10 +305,101 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: Val
     """
 
     with DbContext(model):
-        exprs = _modelToExpr(model, methods, alpha=alpha, axis=axis)
+        if isinstance(alpha, Quantity):
+            alpha = alpha.magnitude
 
-        # Lambdify (compile) expressions
-        return [LambdaWithParamNames(expr) for expr in exprs]
+        def _key(method):
+            return (model, axis, method, alpha)
+
+        with ExprCache() as cache:
+            missing_methods = [method for method in methods if not _key(method) in cache.data]
+            if len(missing_methods) > 0:
+                exprs = _modelToExpr(model, methods=missing_methods, axis=axis)
+                for method, expr in zip(missing_methods, exprs):
+                    cache.data[_key(method)] = LambdaWithParamNames(expr * alpha)
+
+            # At this point, everything is in cache
+            # REturn the list in order
+            return list(cache.data[_key(method)] for method in methods)
+
+
+def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
+    """
+    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
+
+    Return
+    ------
+    <list of expressions (one per impact)>, <list of required param names>
+    """
+
+    expr_by_bg_act = _actToExpressionDict(model, axis=axis)
+
+    # Keep them in same order
+    bg_acts = list(expr_by_bg_act.keys())
+
+    # Compute LCA for background activities
+    impacts = _multiLCAWithCache(bg_acts, methods)
+
+    # Create numpy matrix of impact values
+    # Rows are methods, columns are bg acts
+    impact_matrix = np.array([[impacts[bg_act, method] for bg_act in bg_acts] for method in methods])
+
+    # Create immutable sympy vector of bg expression, in the same order :
+    bg_expr_vector = ImmutableMatrix([[expr_by_bg_act[bg_act]] for bg_act in bg_acts])
+
+    # Multiply the two => returns a vector of impact expression
+    impacts_vector = impact_matrix * bg_expr_vector
+
+    def _get_expr(i):
+        if len(bg_acts) == 0:
+            return 0.0
+        else:
+            return impacts_vector[i]
+
+    # For each method, compute an algebric expression with activities replaced by their values
+    return [_get_expr(i) for i, method in enumerate(methods)]
+
+
+def _filter_param_values(params, expanded_param_names):
+    return {key: val for key, val in params.items() if key in expanded_param_names}
+
+
+def _free_symbols(expr: Basic):
+    if isinstance(expr, Basic):
+        return set([str(symb) for symb in expr.free_symbols])
+    else:
+        # Static value
+        return set()
+
+
+def _lambdify(expr: Basic, expanded_params):
+    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
+
+    printer = NumPyPrinter(
+        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
+    )
+
+    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
+
+    if isinstance(expr, Basic):
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
+
+        def func(*arg, **kwargs):
+            res = lambd(*arg, **kwargs)
+            if isinstance(res, dict):
+                # Transform key symbols into Str
+                return {str(k): v for k, v in res.items()}
+            else:
+                return res
+
+        return func
+
+    else:
+        # Not an expression : return static func
+        def static_func(*args, **kargs):
+            return expr
+
+        return static_func
 
 
 def _slugify(str):
@@ -447,11 +441,8 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
     context_params = dict()
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    def process(args):
+    def process(lamba):
         nonlocal context_params
-
-        imethod = args[0]
-        lambd: LambdaWithParamNames = args[1]
 
         value_context = lambd.compute(**params)
 
@@ -468,12 +459,12 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
             axes = lambdas[0].axis_keys
             value = list(float(value[axis]) if axis in value else 0.0 for axis in axes)
 
-        return (imethod, value)
+        return value
 
     # Use multithread for that
-    with concurrent.futures.ThreadPoolExecutor() as exec:
-        for imethod, value in exec.map(process, enumerate(lambdas)):
-            res[imethod, :] = value
+    for imethod, lambd in enumerate(lambdas):
+        value = process(lambd)
+        res[imethod, :] = value
 
     result = pd.DataFrame(
         res,
