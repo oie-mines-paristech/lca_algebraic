@@ -39,6 +39,7 @@ old_amount_with_unit = u.Quantity(old_amount, u.old_unit)
 
 TECHNO_TYPES = [None, "process", "product", "processwithreferenceproduct", "multifunctional"]
 
+
 def _exch_name(exch):
     return exch["name"] if "name" in exch else str(exch.input)
 

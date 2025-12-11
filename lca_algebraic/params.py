@@ -928,7 +928,7 @@ class ParamRegistry:
             if Settings.param_overriding_enabled:
                 warn(message + " overriding")
             else:
-                raise Exception(message +"overriding disabled in Settings" )
+                raise Exception(message + "overriding disabled in Settings")
 
         self.params[key][param.dbname] = param
 

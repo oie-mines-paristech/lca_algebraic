@@ -1,5 +1,6 @@
 import os
 from os import path
+from pickle import UnpicklingError
 
 import brightway2 as bw
 from cloudpickle import dump, load
@@ -67,7 +68,11 @@ class _CacheDict:
                 if name not in _Caches.caches:
                     # Load cache from disk
                     with open(filename, "rb") as pickleFile:
-                        _Caches.caches[name] = load(pickleFile)
+                        try:
+                            _Caches.caches[name] = load(pickleFile)
+                        except UnpicklingError as e:
+                            logger.warn(f"Error while unpickling cache {filename}. Ignoring/overwriting it")
+
         else:
             # No file yet, init local cache
             _Caches.caches[name] = dict()
