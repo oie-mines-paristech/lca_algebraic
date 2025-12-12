@@ -4,11 +4,18 @@ from typing import Dict
 from sympy import Piecewise, simplify
 
 from lca_algebraic import ParamDef, newActivity, warn
+import pint
 
+from .units import parse_db_unit
+from .settings import Settings
 
-def _segments_to_piecewise(param, segments):
+def _segments_to_piecewise(act, param, segments):
     conds = []
     for start, end, val in segments:
+        val = act._transform_unit(val, act["unit"])
+        # BUG ? Cannot store quantity in Piecewise.
+        if isinstance(val, pint.Quantity):
+            val = val.m
         cond = True
         if start is not None:
             cond = cond & (param >= start)
@@ -101,7 +108,10 @@ def interpolate_activities(
         )  # Will equal 0 at current point and 1 at next point
 
     # Transform segments into piecewize expressions
-    exchanges = {act: _segments_to_piecewise(param, segs) for act, segs in segments.items() if act is not None}
+    exchanges = {act: _segments_to_piecewise(act, param, segs) for act, segs in segments.items() if act is not None}
+
+    if Settings.units_enabled:
+        exchanges = {act: amount|parse_db_unit(act["unit"]) for act, amount in exchanges.items()}
 
     # Find unit
     units = list(act["unit"] for act in exchanges.keys())
