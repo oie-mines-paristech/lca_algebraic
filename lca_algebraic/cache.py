@@ -1,9 +1,11 @@
 import os
+import time
+from collections.abc import MutableMapping
 from os import path
-from pickle import UnpicklingError
+from pickle import Pickler, UnpicklingError, dump, load
+from typing import Dict
 
 import brightway2 as bw
-from cloudpickle import dump, load
 from sympy.core.function import UndefinedFunction
 
 from .log import logger
@@ -14,23 +16,18 @@ EXPR_CACHE = "expr"
 
 
 # Overide the behaviour for pickling sympy.UndefineFunction
-"""
-class MyCloudPickler(cloudpickle.CloudPickler):
-    from sympy.core.function import UndefinedFunction
-
+class MyPickler(Pickler):
     def reducer_override(self, obj):
         # FIXME: maybe too gready, we may check if obj is an instance of
         #        registered functions instead.
         if obj.__class__ is UndefinedFunction:
             return type, (obj.__name__, obj.__bases__, dict(obj.__dict__))
         return NotImplemented
-"""
 
 
 def last_db_update():
     """Get the last update of current database project"""
     filename = path.join(bw.projects.dir, "lci", "databases.db")
-
     return path.getmtime(filename)
 
 
@@ -38,9 +35,97 @@ def disable_cache():
     Settings.cache_enabled = False
 
 
+class SyncDict(MutableMapping):
+    """
+    A dict tat loads its values from a file, track the latest updates, and sync its content to a file
+    """
+
+    def __init__(self, name):
+        self._data = {}
+        self.name = name
+        self.last_update = 0.0
+        self.load()
+
+    def _filename(self):
+        return path.join(bw.projects.dir, f"lca_algebraic_cache-{self.name}.pickle")
+
+    # ---------- core MutableMapping ----------
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+        self._touch()
+
+    def __delitem__(self, key):
+        del self._data[key]
+        self._touch()
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    # ---------- mutation helpers ----------
+    def _touch(self):
+        self.last_update = time.time()
+
+    def clear(self, disk=False):
+        self._data.clear()
+        if disk:
+            if os.path.exists(self._filename()):
+                os.remove(self._filename())
+        self._touch()
+
+    def update(self, *args, **kwargs):
+        self._data.update(*args, **kwargs)
+        self._touch()
+
+    # ---------- persistence ----------
+    def load(self):
+        if not Settings.cache_enabled:
+            return
+
+        if not os.path.exists(self._filename()):
+            return
+
+        with open(self._filename(), "rb") as f:
+            try:
+                self._data = load(f)
+            except Exception as e:
+                logger.warn(f"Error while loading cache {self._filename()}: {e}. Ignoring")
+
+        self.last_update = os.path.getmtime(self._filename())
+
+    def sync(self):
+        if not Settings.cache_enabled:
+            return
+
+        if len(self._data) == 0:
+            return
+
+        if os.path.exists(self._filename()):
+            file_mtime = os.path.getmtime(self._filename())
+        else:
+            file_mtime = 0.0
+
+        if self.last_update <= file_mtime:
+            return
+
+        tmp = self._filename() + ".tmp"
+        with open(tmp, "wb") as f:
+            pickler = MyPickler(f)
+            pickler.dump(self._data)
+
+        os.replace(tmp, self._filename())
+        return True
+
+
 class _Caches:
-    "Singleton instance holding caches"
-    caches = dict()
+    """Singleton instance holding caches"""
+
+    caches: Dict[str, SyncDict] = dict()
 
 
 class _CacheDict:
@@ -49,49 +134,25 @@ class _CacheDict:
     def __init__(self, name):
         self.name = name
 
-        # No cache ? => LOCAL DICT
-        if not Settings.cache_enabled:
-            self.data = dict()
-            return
+        # Not initialized yet ?
+        # Not initialized yet ?
+        if not name in _Caches.caches:
+            _Caches.caches[name] = SyncDict(name)
 
-        filename = _CacheDict.filename(self.name)
-        if path.exists(filename):
-            if last_db_update() > path.getmtime(filename):
-                logger.info(f"Db changed recently, clearing cache {self.name}")
-
-                # Reset cache on disk and locally
-                os.remove(filename)
-                _Caches.caches[name] = dict()
-
-            else:
-                # Cache not already loaded in memory ?
-                if name not in _Caches.caches:
-                    # Load cache from disk
-                    with open(filename, "rb") as pickleFile:
-                        try:
-                            _Caches.caches[name] = load(pickleFile)
-                        except UnpicklingError as e:
-                            logger.warn(f"Error while unpickling cache {filename}. Ignoring/overwriting it")
-
-        else:
-            # No file yet, init local cache
-            _Caches.caches[name] = dict()
-
-        # Point to local cache
+        # Data points to cache
         self.data = _Caches.caches[name]
+
+        # Db more recent ? clean it
+        if os.path.exists(self.data._filename()) and (last_db_update() > self.data.last_update):
+            logger.info(f"Db changed recently, clearing cache {self.name}")
+            self.data.clear(disk=True)
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Save data on exit
-        if Settings.cache_enabled and self.data:
-            with open(_CacheDict.filename(self.name), "wb") as pickleFile:
-                self.data = dump(self.data, pickleFile)
-
-    @classmethod
-    def filename(cls, name):
-        return path.join(bw.projects.dir, f"lca_algebraic_cache-{name}.pickle")
+        self.data.sync()
 
 
 class LCIACache(_CacheDict):
@@ -105,11 +166,9 @@ class ExprCache(_CacheDict):
 
 
 def clear_caches(local=True, disk=True):
-    if local:
-        _Caches.caches = dict()
-
-    if disk:
-        for cache_name in [LCIA_CACHE, EXPR_CACHE]:
-            filename = _CacheDict.filename(cache_name)
-            if path.exists(filename):
-                os.remove(filename)
+    for cache_name in [LCIA_CACHE, EXPR_CACHE]:
+        cache = SyncDict(cache_name)
+        if disk:
+            cache.clear(disk=True)
+        if local and cache_name in _Caches.caches:
+            del _Caches.caches[cache_name]

@@ -293,6 +293,20 @@ class LambdaWithParamNames:
     def _repr_latex_(self):
         return self.expr._repr_latex_()
 
+    def __getstate__(self):
+        """For pickling/unpicling"""
+        state = self.__dict__.copy()
+        # Retirer les attributs temporaires
+        if "lambd" in state:
+            del state["lambd"]
+        return state
+
+    def __setstate__(self, state):
+        """For pickling/unpicling"""
+        self.__dict__.update(state)
+
+        self.lambd = _lambdify(self.expr, self.expanded_params)
+
 
 def _preMultiLCAAlgebric(
     model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
