@@ -83,7 +83,8 @@ def interpolate_activities(
     act_per_value = act_per_value.copy()
 
     if add_zero:
-        act_per_value[0.0] = None
+        # Trick to keep the unit.
+        act_per_value[0.0 * next(iter(act_per_value))] = None
 
     # List of segments : triplet of (start, end, expression)
     segments = defaultdict(list)
