@@ -83,8 +83,14 @@ def interpolate_activities(
     act_per_value = act_per_value.copy()
 
     if add_zero:
-        # Trick to keep the unit.
         act_per_value[0.0 * next(iter(act_per_value))] = None
+
+    # Find unit
+    units = [act["unit"] for act in act_per_value.values() if act is not None]
+    same_unit = all(x == units[0] for x in units)
+
+    if not same_unit:
+        warn("Warning : units of activities should be the same : %s" % str(units))
 
     # List of segments : triplet of (start, end, expression)
     segments = defaultdict(list)
@@ -100,7 +106,7 @@ def interpolate_activities(
         if l_act == r_act:
             unit_amount = 1.0
             if Settings.units_enabled:
-                unit_amount |= parse_db_unit(l_act["unit"])
+                unit_amount |= parse_db_unit(units[0])
             segments[l_act].append([l_val, r_val, unit_amount])
             continue
 
@@ -119,12 +125,6 @@ def interpolate_activities(
     if Settings.units_enabled:
         exchanges = {act: amount|parse_db_unit(act["unit"]) for act, amount in exchanges.items()}
 
-    # Find unit
-    units = list(act["unit"] for act in exchanges.keys())
-    same_unit = all(x == units[0] for x in units)
-
-    if not same_unit:
-        warn("Warning : units of activities should be the same : %s" % str(units))
 
     # Create act
     new_act = newActivity(db_name=db_name, name=act_name, unit=units[0], exchanges=exchanges)
