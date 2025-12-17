@@ -380,26 +380,39 @@ def test_interpolation(data):
     # Common helper to check results
     def check_impacts(model, p_values, expected_results):
         # Compute impacts for several values of p
-        impacts = compute_impacts(model, [data.ibio1], p=p_values)
-
-        values = impacts[impacts.columns[0]]
-        assert_array_equal(values, expected_results)
+        methods = list(expected_results)
+        impacts = compute_impacts(model, methods, p=p_values)
+        print(impacts)
+        for i, k in enumerate(methods):
+            values = impacts.iloc[:,i]
+            assert_array_equal(values, expected_results[k])
 
     # Define param
     p = newFloatParam("p", 1.0, min=1, max=3)
 
     # Create act1 act2 and act4 having respectively 1.0, 2.0 units of bio1
-    act1, act2 = [newActivity(USER_DB, "act%d" % v, "unit", {data.bio1: v}) for v in [1.0, 2.0]]
+    act1 = newActivity(USER_DB, "act1", "unit", {data.bio1: 1.0})
+    act2 = newActivity(USER_DB, "act2", "unit", {data.bio2: 1.0})
 
     # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
     interp1 = interpolate_activities(USER_DB, "interp1", p, {1.0: act1, 3.0: act2})
 
-    check_impacts(interp1, [0.0, 1.0, 2.0, 3.0, 5.0], [0.5, 1.0, 1.5, 2.0, 3.0])
+    check_impacts(interp1,
+                    [0.0, 1.0, 2.0, 3.0, 4.0],
+    {
+        data.ibio1: [1.0, 1.0,  .5, 0.0, 0.0],
+        data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
+    })
 
     # Interpolate including zero
-    interp_with_zero = interpolate_activities(USER_DB, "interp_w_zero", p, {1.0: act1, 3.0: act2}, add_zero=True)
+    interp_with_zero = interpolate_activities(USER_DB, "interp_with_zero", p, {1.0: act1, 3.0: act2}, add_zero=True)
 
-    check_impacts(interp_with_zero, [0.0, 0.5, 1.0, 3.0], [0.0, 0.5, 1.0, 2.0])
+    check_impacts(interp_with_zero,
+                    [0.0, 1.0, 2.0, 3.0, 4.0],
+    {
+        data.ibio1: [0.0, 1.0,  .5, 0.0, 0.0],
+        data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
+    })
 
 
 def test_user_function(data):
