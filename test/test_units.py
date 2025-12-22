@@ -133,7 +133,7 @@ def test_interpolation_with_units(data):
 
     check_impacts(
         interp_with_zero,
-        p_values=[0.0 , 1.0 , 2.0 , 3.0, 4.0] | u.m,
+        p_values=[0.0 , 1.0 , 2.0 , 3.0, 4.0],
         expected_results={
             data.ibio1: [0.0, 1.0,  .5, 0.0, 0.0],
             data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
