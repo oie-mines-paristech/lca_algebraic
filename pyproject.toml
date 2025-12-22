@@ -65,5 +65,8 @@ commands = [["pytest"]]
 [tool.flake8]
 max-line-length = 130
 exclude = ["tests/*", "doc/*"]
-per-file-ignores = { "**/__init__.py" = ["F403", "F405", "F401"] }
+ignore = ["E303", "E302", "W503", "E226", "W291"]
+per-file-ignores = [
+    "**/__init__.py:F403,F405,F401"
+]
 

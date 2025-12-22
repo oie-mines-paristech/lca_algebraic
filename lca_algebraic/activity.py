@@ -1,12 +1,11 @@
 import re
 from collections import defaultdict
-from copy import copy, deepcopy
+from copy import copy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
 import bw2data
 import pandas as pd
-from bw2data import labels
 from bw2data.backends import Activity, ExchangeDataset
 from bw2data.backends.utils import dict_as_exchangedataset
 from bw2data.configuration import labels

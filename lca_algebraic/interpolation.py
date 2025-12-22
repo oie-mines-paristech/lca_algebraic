@@ -55,8 +55,10 @@ def interpolate_activities(
         Dictionnary of value => Activitiy [Dict]
         Notes:
             * Acticity may be None, it's equivalent to an activity without exchanges.
-            * If parameter is lower than the lowest bound in act_per_value then this activity is equal to to the activity at lower bound
-            * If parameter is higher than the highest bound in act_per_value then this activity is equal to to the activity at highest bound
+            * If parameter is lower than the lowest bound in act_per_value
+                        then this activity is equal to the activity at lower bound
+            * If parameter is higher than the highest bound in act_per_value
+                        then this activity is equal to the activity at highest bound
 
     add_zero:
         If True add the "Zero" point to the data, i.e. add act_per_value[0.0] = None
