@@ -1,9 +1,10 @@
 import pytest
+from numpy.ma.testutils import assert_array_equal
 
 from lca_algebraic.params import _getAmountOrFormula
 from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
-from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity, compute_impacts
+from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity, compute_impacts, interpolate_activities
 from test.conftest import USER_DB
 
 
@@ -100,6 +101,43 @@ def test_update_exchanges(data):
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_ton})
 
     assert _getAmountOrFormula(act1.getExchange(name="bg_act1")) == 2000.0 * p2
+
+def test_interpolation_with_units(data):
+
+    # Common helper to check results
+    def check_impacts(model, p_values, expected_results):
+        # Compute impacts for several values of p
+        methods = list(expected_results)
+
+        impacts = compute_impacts(model, methods, p=p_values)
+        print(impacts)
+        for i, k in enumerate(methods):
+            values = impacts.iloc[:,i]
+            assert_array_equal(values, expected_results[k])
+
+    # The param is in meter
+    p = newFloatParam("p", 1.0, min=1, max=3, unit="m")
+
+    # Create act1 act2  having respectively 1.0, 2.0 kg of bio1, output unit : kg too
+    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: 1.0 | u.kg})
+    act2 = newActivity(USER_DB, "act2", "kg", {data.bio2: 1.0 | u.kg})
+
+    # Interpolate including zero
+    interp_with_zero = interpolate_activities(
+        USER_DB,
+        "interp_with_zero", p,
+        {
+            1.0 | u.m : act1,
+            3.0 | u.m : act2},
+        add_zero=True)
+
+    check_impacts(
+        interp_with_zero,
+        p_values=[0.0 , 1.0 , 2.0 , 3.0, 4.0],
+        expected_results={
+            data.ibio1: [0.0, 1.0,  .5, 0.0, 0.0],
+            data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
+        })
 
 
 def test_compute_impact_with_functional_unit(data):
