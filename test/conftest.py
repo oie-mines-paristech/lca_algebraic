@@ -1,4 +1,6 @@
+import warnings
 from dataclasses import dataclass
+from logging import info
 
 from bw2data.backends import Activity
 
@@ -39,11 +41,15 @@ def data() -> DataFixture:
     """Setup background data"""
 
     # Reset func project, empty DB
-    if TST_PROJECT_NAME not in bw2data.projects:
-        bw2data.projects.set_current("base_9c7d6b13-62eb-407e-84fa-a48a7cae1e03")
-        bw2data.projects.copy_project(TST_PROJECT_NAME, switch=False)
+    if TST_PROJECT_NAME in bw2data.projects:
+        info("Deleting old tests project")
+        try:
+            bw2data.projects.delete_project(TST_PROJECT_NAME, delete_dir=True)
+        except Exception:
+            warnings.warn("Couldn't remove previous test project.", e)
 
     bw2data.projects.set_current(TST_PROJECT_NAME)
+    bw2data.projects
 
     # Clear DB
     resetDb(BG_DB, False)
