@@ -51,10 +51,14 @@ def interpolate_activities(
     param:
         Parameter controlling the interpolation
     act_per_value:
-        Dictionnary of value => activitiy [Dict]
+        Dictionnary of value => Activitiy [Dict]
+        Notes: 
+            * Acticity may be None, it's equivalent to an activity without exchanges.
+            * If parameter is lower than the lowest bound in act_per_value then this activity is equal to to the activity at lower bound
+            * If parameter is higher than the highest bound in act_per_value then this activity is equal to to the activity at highest bound
 
     add_zero:
-        If True add the "Zero" point to the data.
+        If True add the "Zero" point to the data, i.e. add act_per_value[0.0] = None
         Useful for linear interpolation of a single activity / point
 
     Returns
@@ -79,7 +83,14 @@ def interpolate_activities(
     act_per_value = act_per_value.copy()
 
     if add_zero:
-        act_per_value[0.0] = None
+        act_per_value[0.0 * next(iter(act_per_value))] = None
+
+    # Find unit
+    units = [act["unit"] for act in act_per_value.values() if act is not None]
+    same_unit = all(x == units[0] for x in units)
+
+    if not same_unit:
+        warn("Warning : units of activities should be the same : %s" % str(units))
 
     # List of segments : triplet of (start, end, expression)
     segments = defaultdict(list)
@@ -95,7 +106,7 @@ def interpolate_activities(
         if l_act == r_act:
             unit_amount = 1.0
             if Settings.units_enabled:
-                unit_amount |= parse_db_unit(l_act["unit"])
+                unit_amount |= parse_db_unit(units[0])
             segments[l_act].append([l_val, r_val, unit_amount])
             continue
 
@@ -114,12 +125,6 @@ def interpolate_activities(
     if Settings.units_enabled:
         exchanges = {act: amount|parse_db_unit(act["unit"]) for act, amount in exchanges.items()}
 
-    # Find unit
-    units = list(act["unit"] for act in exchanges.keys())
-    same_unit = all(x == units[0] for x in units)
-
-    if not same_unit:
-        warn("Warning : units of activities should be the same : %s" % str(units))
 
     # Create act
     new_act = newActivity(db_name=db_name, name=act_name, unit=units[0], exchanges=exchanges)
