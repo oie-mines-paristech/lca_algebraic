@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from logging import info
 
 from bw2data.backends.peewee import Activity
 
@@ -39,8 +40,11 @@ def data() -> DataFixture:
     """Setup background data"""
 
     # Reset func project, empty DB
+    if "tests" in bw.projects:
+        info("Deleting old tests project")
+        bw.projects.delete_project("tests", delete_dir=True)
+
     bw.projects.set_current("tests")
-    bw.bw2setup()
 
     # Clear DB
     resetDb(BG_DB, False)
