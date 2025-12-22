@@ -384,7 +384,7 @@ def test_interpolation(data):
         impacts = compute_impacts(model, methods, p=p_values)
         print(impacts)
         for i, k in enumerate(methods):
-            values = impacts.iloc[:,i]
+            values = impacts.iloc[:, i]
             assert_array_equal(values, expected_results[k])
 
     # Define param
@@ -397,22 +397,26 @@ def test_interpolation(data):
     # Interpolate between 1 : act1 (1 bio1) and 3 : act2 (2 bio1)
     interp1 = interpolate_activities(USER_DB, "interp1", p, {1.0: act1, 3.0: act2})
 
-    check_impacts(interp1,
-                    [0.0, 1.0, 2.0, 3.0, 4.0],
-    {
-        data.ibio1: [1.0, 1.0,  .5, 0.0, 0.0],
-        data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
-    })
+    check_impacts(
+        interp1,
+        [0.0, 1.0, 2.0, 3.0, 4.0],
+        {
+            data.ibio1: [1.0, 1.0, 0.5, 0.0, 0.0],
+            data.ibio2: [0.0, 0.0, 0.5, 1.0, 1.0],
+        },
+    )
 
     # Interpolate including zero
     interp_with_zero = interpolate_activities(USER_DB, "interp_with_zero", p, {1.0: act1, 3.0: act2}, add_zero=True)
 
-    check_impacts(interp_with_zero,
-                    [0.0, 1.0, 2.0, 3.0, 4.0],
-    {
-        data.ibio1: [0.0, 1.0,  .5, 0.0, 0.0],
-        data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
-    })
+    check_impacts(
+        interp_with_zero,
+        [0.0, 1.0, 2.0, 3.0, 4.0],
+        {
+            data.ibio1: [0.0, 1.0, 0.5, 0.0, 0.0],
+            data.ibio2: [0.0, 0.0, 0.5, 1.0, 1.0],
+        },
+    )
 
 
 def test_user_function(data):

@@ -1,13 +1,14 @@
 from collections import defaultdict
 from typing import Dict
 
+import pint
 from sympy import Piecewise, simplify
 
 from lca_algebraic import ParamDef, newActivity, warn
-import pint
 
-from .units import parse_db_unit
 from .settings import Settings
+from .units import parse_db_unit
+
 
 def _segments_to_piecewise(act, param, segments):
     conds = []
@@ -52,10 +53,12 @@ def interpolate_activities(
         Parameter controlling the interpolation
     act_per_value:
         Dictionnary of value => Activitiy [Dict]
-        Notes: 
+        Notes:
             * Acticity may be None, it's equivalent to an activity without exchanges.
-            * If parameter is lower than the lowest bound in act_per_value then this activity is equal to to the activity at lower bound
-            * If parameter is higher than the highest bound in act_per_value then this activity is equal to to the activity at highest bound
+            * If parameter is lower than the lowest bound in act_per_value
+                        then this activity is equal to the activity at lower bound
+            * If parameter is higher than the highest bound in act_per_value
+                        then this activity is equal to the activity at highest bound
 
     add_zero:
         If True add the "Zero" point to the data, i.e. add act_per_value[0.0] = None
@@ -97,9 +100,8 @@ def interpolate_activities(
 
     # Transform to sorted list of value => activity
     sorted_points = list(sorted(act_per_value.items(), key=lambda item: item[0]))
-    sorted_points = [(None, sorted_points[0][1])]+sorted_points+[(None, sorted_points[-1][1])]
-    for (l_val, l_act), (r_val, r_act) in zip(sorted_points[0:-1],sorted_points[1:]):
-
+    sorted_points = [(None, sorted_points[0][1])] + sorted_points + [(None, sorted_points[-1][1])]
+    for (l_val, l_act), (r_val, r_act) in zip(sorted_points[0:-1], sorted_points[1:]):
         # Add segment for current activity
 
         # Left bound, right bound or same activity on left or right
@@ -123,8 +125,7 @@ def interpolate_activities(
     exchanges = {act: _segments_to_piecewise(act, param, segs) for act, segs in segments.items() if act is not None}
 
     if Settings.units_enabled:
-        exchanges = {act: amount|parse_db_unit(act["unit"]) for act, amount in exchanges.items()}
-
+        exchanges = {act: amount | parse_db_unit(act["unit"]) for act, amount in exchanges.items()}
 
     # Create act
     new_act = newActivity(db_name=db_name, name=act_name, unit=units[0], exchanges=exchanges)

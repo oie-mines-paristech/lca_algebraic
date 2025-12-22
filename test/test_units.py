@@ -102,8 +102,8 @@ def test_update_exchanges(data):
 
     assert _getAmountOrFormula(act1.getExchange(name="bg_act1")) == 2000.0 * p2
 
-def test_interpolation_with_units(data):
 
+def test_interpolation_with_units(data):
     # Common helper to check results
     def check_impacts(model, p_values, expected_results):
         # Compute impacts for several values of p
@@ -112,7 +112,7 @@ def test_interpolation_with_units(data):
         impacts = compute_impacts(model, methods, p=p_values)
         print(impacts)
         for i, k in enumerate(methods):
-            values = impacts.iloc[:,i]
+            values = impacts.iloc[:, i]
             assert_array_equal(values, expected_results[k])
 
     # The param is in meter
@@ -123,21 +123,16 @@ def test_interpolation_with_units(data):
     act2 = newActivity(USER_DB, "act2", "kg", {data.bio2: 1.0 | u.kg})
 
     # Interpolate including zero
-    interp_with_zero = interpolate_activities(
-        USER_DB,
-        "interp_with_zero", p,
-        {
-            1.0 | u.m : act1,
-            3.0 | u.m : act2},
-        add_zero=True)
+    interp_with_zero = interpolate_activities(USER_DB, "interp_with_zero", p, {1.0 | u.m: act1, 3.0 | u.m: act2}, add_zero=True)
 
     check_impacts(
         interp_with_zero,
-        p_values=[0.0 , 1.0 , 2.0 , 3.0, 4.0],
+        p_values=[0.0, 1.0, 2.0, 3.0, 4.0],
         expected_results={
-            data.ibio1: [0.0, 1.0,  .5, 0.0, 0.0],
-            data.ibio2: [0.0, 0.0,  .5, 1.0, 1.0],
-        })
+            data.ibio1: [0.0, 1.0, 0.5, 0.0, 0.0],
+            data.ibio2: [0.0, 0.0, 0.5, 1.0, 1.0],
+        },
+    )
 
 
 def test_compute_impact_with_functional_unit(data):
