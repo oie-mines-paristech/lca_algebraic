@@ -1,15 +1,19 @@
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 from bw2data.backends.peewee import Activity
 
-from test.fixtures import init_methods
-from types import SimpleNamespace
+from .fixtures import init_methods
 
 import brightway2 as bw
 import pytest
 
 from lca_algebraic import resetDb, resetParams, newActivity
 from lca_algebraic.cache import clear_caches
+
+from lib.config import PROJECT_FOLDER
+from lib.setup import set_root_bw2folder
 
 USER_DB = "fg"
 BG_DB = "bg"
@@ -38,9 +42,14 @@ class DataFixture:
 def data() -> DataFixture:
     """Setup background data"""
 
+    set_root_bw2folder()
+
+    #if "tests" in bw.projects:
+    #    bw.projects.delete_project("tests", delete_dir=True)
+
     # Reset func project, empty DB
     bw.projects.set_current("tests")
-    bw.bw2setup()
+    #bw.bw2setup()
 
     # Clear DB
     resetDb(BG_DB, False)

@@ -357,7 +357,7 @@ class ActivityExtended(Activity):
     def updateMeta(self, **kwargs):
         """Update any property. Useful to update axes"""
         for key, val in kwargs.items():
-            self._data[key] = val
+            self[key] = val
         self.save()
 
 
@@ -548,6 +548,7 @@ def newActivity(
         act["switch"] = True
 
     act.update(argv)
+    act.save()
 
     # Add single production exchange
     if type == "process":
@@ -600,7 +601,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
             res[key] = value
     for k, v in kwargs.items():
         res._data[k] = v
-    res._data["code"] = code
+    res["code"] = code
     res["name"] = code
     res["type"] = "process"
     res["inherited_from"] = activity.key
