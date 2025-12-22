@@ -1002,7 +1002,12 @@ def _solve_expression(
         res_mat = ImmutableMatrix([[]])
     else:
         # Inverse using LU method : the matrix might be triangular or almost
-        inv_A = A.inv(method="LU")
+        # inv_A = A.inv(method="LU")
+
+        # Inverse A using LU method and skipping the test of inversability
+        # See : https://github.com/sympy/sympy/issues/28723
+        inv_A = A.LUsolve(A.eye(A.rows))
+
         res_mat = inv_A * B
 
     # Transform to dict of dict
