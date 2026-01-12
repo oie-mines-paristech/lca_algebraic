@@ -203,6 +203,17 @@ def test_setforeground():
     assert _isForeground(USER_DB) == False
 
 
+def test_pudate_exchanges_by_input(data):
+    input_act = newActivity(USER_DB, "act1", unit="kg")
+    act = newActivity(USER_DB, "act2", unit="kg", exchanges={input_act: 1.0})
+
+    act.updateExchanges({input_act: 2.0})
+
+    ex = act.findExchangesByInput(input_act)[0]
+
+    assert ex["amount"] == 2.0
+
+
 def test_reset_params():
     # Define 3 variables with same name, attached to project or db (user or bg)
     newBoolParam("p1", False)

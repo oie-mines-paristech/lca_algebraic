@@ -6,7 +6,7 @@ from typing import Dict, Tuple, Union
 
 import brightway2 as bw
 import pandas as pd
-from bw2data.backends.peewee import Activity, ExchangeDataset
+from bw2data.backends.peewee import Activity, Exchange, ExchangeDataset
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from pint import DimensionalityError, Quantity
 from sympy import Basic, simplify, symbols
@@ -139,16 +139,18 @@ class ActivityExtended(Activity):
             output_exchange.save()
 
     @with_db_context
-    def updateExchanges(self, updates: Dict[str, any] = dict()):
+    def updateExchanges(self, updates: Dict[Union[str, Activity], any] = dict()):
         """Update existing exchanges, by name.
 
         Parameters
         ----------
-        updates : Dict of "<exchange name>" => <new value>
+        updates : Dict of "<exchange name>|activity" => <new value>
 
             <exchange name> can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
             It can also be suffixed by '*' to match an exchange starting with this name. Location can be a negative match '!'
             Example : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
+
+            The key can also be the target activity itself.
 
             <New Value>  : either single value (float or SympPy expression) for updating only amount, \
                 or activity for updating only input,
@@ -157,7 +159,7 @@ class ActivityExtended(Activity):
         """
 
         # Update exchanges
-        for ex_name, updates in updates.items():
+        for ex_target_or_name, updates in updates.items():
             # Build input & amount
             if updates is not None and not isinstance(updates, dict):
                 if isinstance(updates, Activity):
@@ -165,10 +167,15 @@ class ActivityExtended(Activity):
                 else:
                     updates = dict(amount=updates)
 
-            # Find echzanges matching name
-            matching_exchanges = self.getExchange(ex_name, single="*" not in ex_name)
-            if not isinstance(matching_exchanges, list):
-                matching_exchanges = [matching_exchanges]
+            if isinstance(ex_target_or_name, Activity):
+                matching_exchanges = self.findExchangesByInput(ex_target_or_name)
+            elif isinstance(ex_target_or_name, str):
+                # Find echanges matching name
+                matching_exchanges = self.getExchange(ex_target_or_name, single="*" not in ex_target_or_name)
+                if not isinstance(matching_exchanges, list):
+                    matching_exchanges = [matching_exchanges]
+            else:
+                raise Exception(f"Expected Activity or str, but got {type(ex_target_or_name)}")
 
             # Loop on matching echanges to update
             for exch in matching_exchanges:
@@ -179,6 +186,12 @@ class ActivityExtended(Activity):
                     continue
                 else:
                     self._update_exchange(exch, updates)
+
+    def findExchangesByInput(self, inputAct: Activity) -> list[Exchange]:
+        res = list(ex for ex in self.exchanges() if ex["input"] == inputAct.key)
+        if len(res) == 0:
+            raise Exception(f"Found no exchange with input {inputAct} in {self}")
+        return res
 
     def deleteExchanges(self, name, single=True):
         """Remove matching exchanges

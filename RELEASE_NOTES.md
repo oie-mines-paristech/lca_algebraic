@@ -1,6 +1,9 @@
 # RTE
 
 * Added parameter 'reference_product' to findActivity
+* Improved cache of impacts : trakc per-database modificiation time. Put bio proxies in a separate database.
+* Added possibility to use target activity as key in updateExchange()
+
 
 # **
 
