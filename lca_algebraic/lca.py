@@ -850,15 +850,16 @@ def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtend
         if not _isBioAct(act):
             proxy_act = act
         else:
+            proxy_db = _getProxyDbName(act["database"])
             proxy_code = act["code"] + "#asTech"
             try:
-                proxy_act = _getDb(act["database"]).get(proxy_code)
+                proxy_act = _getDb(proxy_db).get(proxy_code)
             except DoesNotExist:
                 name = act["name"] + " # asTech"
 
                 # Create biosphere proxy in User Db
                 proxy_act = newActivity(
-                    db_name=_getProxyDbName(act["database"]),
+                    db_name=proxy_db,
                     name=name,
                     code=proxy_code,
                     switchActivity=True,

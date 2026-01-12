@@ -1,3 +1,4 @@
+import concurrent
 import math
 import random
 import warnings
@@ -46,7 +47,6 @@ from .lca import (
     _preMultiLCAAlgebric,
     _replace_fixed_params,
     compute_impacts,
-    concurrent,
     lambdify,
     pd,
 )

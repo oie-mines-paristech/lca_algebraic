@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from logging import info
 
 from bw2data.backends.peewee import Activity
+import pandas as pd
 
 from test.fixtures import init_methods
 from types import SimpleNamespace
@@ -79,3 +80,7 @@ def reset_db():
     resetDb(USER_DB, foreground=True)
     resetParams()
     clear_caches()
+
+
+def assert_impacts(res: pd.DataFrame, value: float):
+    assert res.values[0][0] == value
