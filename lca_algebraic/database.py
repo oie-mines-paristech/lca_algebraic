@@ -11,6 +11,7 @@ from bw2data.proxies import ActivityProxyBase
 from typing_extensions import deprecated
 
 from .log import logger
+from .settings import PROXY_DB_FLAG
 
 BIOSPHERE_PREFIX = "biosphere"
 FOREGROUND_KEY = "fg"
@@ -158,7 +159,7 @@ def _listTechBackgroundDbs():
 
 def _find_biosphere_db():
     """List all background databases technosphere (non biosphere) batabases"""
-    res = list(name for name in bw.databases if BIOSPHERE_PREFIX in name)
+    res = list(name for name in bw.databases if BIOSPHERE_PREFIX in name and not _getMeta(name, PROXY_DB_FLAG))
     if len(res) != 1:
         raise Exception(f"Excepted a single biopshere but found {len(res)} : {res}")
     return res[0]

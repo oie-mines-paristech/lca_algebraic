@@ -39,7 +39,7 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
-from .log import debug, logger, warn
+from .log import debug, info, logger, warn
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
@@ -161,11 +161,20 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
                 if any(method for method in methods if (proxy_act, method) not in cache.data)
             )
 
+            # list methods with at least one missing value
+            remaining_methods = list(
+                method
+                for method in methods
+                if any(proxy_act for proxy_act in proxy_acts.values() if (proxy_act, method) not in cache.data)
+            )
+
             if len(remaining_acts) > 0:
-                lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
+                info(f"Computing LCA for {len(remaining_acts)} background acts on methods {remaining_methods}")
+
+                lca = _multiLCA([{act: 1} for act in remaining_acts], remaining_methods)
 
                 # Set output from dataframe
-                for imethod, method in enumerate(methods):
+                for imethod, method in enumerate(remaining_methods):
                     for iact, act in enumerate(remaining_acts):
                         cache.data[(act, method)] = lca.iloc[imethod, iact]
 
