@@ -2,3 +2,7 @@
 class Settings:
     cache_enabled = True
     units_enabled = False
+
+
+# Flag used on Db to set it as proxy
+PROXY_DB_FLAG = "isProxy"

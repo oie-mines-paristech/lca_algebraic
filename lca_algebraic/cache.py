@@ -1,11 +1,14 @@
 import os
 import pickle
+from datetime import datetime
 from os import path
 
 import brightway2 as bw
+import brightway2 as bw2
 
+from .database import _getMeta
 from .log import logger
-from .settings import Settings
+from .settings import PROXY_DB_FLAG, Settings
 
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
@@ -39,61 +42,83 @@ class _Caches:
     caches = dict()
 
 
+def get_dependant_dbs(db_name):
+    """Recursively get list of dependant db names, including the current one"""
+
+    # Skip proxy databases
+    if _getMeta(db_name, PROXY_DB_FLAG):
+        res = set()
+    else:
+        res = set([db_name])
+
+    for dep in bw2.databases[db_name]["depends"]:
+        res.update(get_dependant_dbs(dep))
+    return res
+
+
+def get_last_update(db_name):
+    def last_update(db_name):
+        return datetime.fromisoformat(bw2.databases[db_name]["modified"])
+
+    res = max(last_update(db) for db in get_dependant_dbs(db_name))
+    return res.timestamp()
+
+
 class _CacheDict:
     """A smart cache that get cleared whenever database changes, and dumped to file whenever we exit from it"""
 
-    def __init__(self, name):
+    def __init__(self, name, db_name):
         self.name = name
+        self.db_name = db_name
 
+    def __enter__(self):
         # No cache ? => LOCAL DICT
         if not Settings.cache_enabled:
             self.data = dict()
             return
 
-        filename = _CacheDict.filename(self.name)
+        filename = self.filename()
         if path.exists(filename):
-            if last_db_update() > path.getmtime(filename):
-                logger.info(f"Db changed recently, clearing cache {self.name}")
+            if get_last_update(self.db_name) > path.getmtime(filename):
+                logger.info(f"Db {self.db_name} changed recently, clearing cache {self.name}")
 
                 # Reset cache on disk and locally
                 os.remove(filename)
-                _Caches.caches[name] = dict()
+                _Caches.caches[(self.name, self.db_name)] = dict()
 
             else:
                 # Cache not already loaded in memory ?
-                if name not in _Caches.caches:
+                if self.name not in _Caches.caches:
                     # Load cache from disk
                     with open(filename, "rb") as pickleFile:
-                        _Caches.caches[name] = pickle.load(pickleFile)
+                        _Caches.caches[(self.name, self.db_name)] = pickle.load(pickleFile)
         else:
             # No file yet, init local cache
-            _Caches.caches[name] = dict()
+            _Caches.caches[(self.name, self.db_name)] = dict()
 
         # Point to local cache
-        self.data = _Caches.caches[name]
+        self.data = _Caches.caches[(self.name, self.db_name)]
 
-    def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Save data on exit
         if Settings.cache_enabled and self.data:
-            with open(_CacheDict.filename(self.name), "wb") as pickleFile:
+            with open(self.filename(), "wb") as pickleFile:
                 self.data = Pickler(pickleFile).dump(self.data)
 
-    @classmethod
-    def filename(cls, name):
-        return path.join(bw.projects.dir, f"lca_algebraic_cache-{name}.pickle")
+    def filename(self):
+        return path.join(bw.projects.dir, f"lca_algebraic_cache-{self.name}-{self.db_name}.pickle")
 
 
 class LCIACache(_CacheDict):
-    def __init__(self):
-        _CacheDict.__init__(self, LCIA_CACHE)
+    def __init__(self, db_name):
+        super().__init__(LCIA_CACHE, db_name)
 
 
 class ExprCache(_CacheDict):
-    def __init__(self):
-        _CacheDict.__init__(self, EXPR_CACHE)
+    def __init__(self, db_name):
+        super().__init__(EXPR_CACHE, db_name)
 
 
 def clear_caches(local=True, disk=True):
@@ -101,7 +126,8 @@ def clear_caches(local=True, disk=True):
         _Caches.caches = dict()
 
     if disk:
-        for cache_name in [LCIA_CACHE, EXPR_CACHE]:
-            filename = _CacheDict.filename(cache_name)
-            if path.exists(filename):
-                os.remove(filename)
+        for db_name in bw2.databases:
+            for cache_name in [LCIA_CACHE, EXPR_CACHE]:
+                filename = _CacheDict(cache_name, db_name).filename()
+                if path.exists(filename):
+                    os.remove(filename)

@@ -40,7 +40,7 @@ from .base_utils import (
     _user_functions,
 )
 from .cache import ExprCache, LCIACache
-from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
+from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
 from .log import debug, logger, warn
 from .methods import method_name, method_unit
 from .params import (
@@ -57,6 +57,7 @@ from .params import (
     all_params,
     freezeParams,
 )
+from .settings import PROXY_DB_FLAG
 
 
 def register_user_function(sym, func):
@@ -139,28 +140,41 @@ def multiLCA(models, methods, **params):
 """ Compute LCA and return (act, method) => value """
 
 
-def _multiLCAWithCache(acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
-    # Create proxys for bio activities
-    proxy_acts = _createTechProxysForBio(acts)
+def _group_acts_by_db(acts: list[ActivityExtended]):
+    res = defaultdict(list)
+    for act in acts:
+        res[act["database"]].append(act)
+    return res
 
-    with LCIACache() as cache:
-        # List activities with at least one missing value
-        remaining_acts = list(
-            proxy_act
-            for proxy_act in proxy_acts.values()
-            if any(method for method in methods if (proxy_act, method) not in cache.data)
-        )
 
-        if len(remaining_acts) > 0:
-            lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
+def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
+    res = dict()
 
-            # Set output from dataframe
-            for imethod, method in enumerate(methods):
-                for iact, act in enumerate(remaining_acts):
-                    cache.data[(act, method)] = lca.iloc[imethod, iact]
+    # Split activities by db_name
+    for db_name, acts in _group_acts_by_db(all_acts).items():
+        # Create proxys for bio activities
+        proxy_acts = _createTechProxysForBio(acts)
 
-        # Return a copy of the cache for selected impacts and activities
-        return {(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods}
+        with LCIACache(db_name) as cache:
+            # List activities with at least one missing value
+            remaining_acts = list(
+                proxy_act
+                for proxy_act in proxy_acts.values()
+                if any(method for method in methods if (proxy_act, method) not in cache.data)
+            )
+
+            if len(remaining_acts) > 0:
+                lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
+
+                # Set output from dataframe
+                for imethod, method in enumerate(methods):
+                    for iact, act in enumerate(remaining_acts):
+                        cache.data[(act, method)] = lca.iloc[imethod, iact]
+
+            # Update res with a copy of the cache for selected impacts and activities
+            res.update({(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods})
+
+    return res
 
 
 def _replace_symbols_with_params_in_exp(expr: Basic):
@@ -193,8 +207,8 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
         return {model: 1}
 
     # Try to load from cache
-    with ExprCache() as cache:
-        key = (db_name, axis)
+    with ExprCache(db_name) as cache:
+        key = axis
 
         if key not in cache.data:
             logger.debug(f"{db_name} was not in expression cache, computing...")
@@ -812,11 +826,22 @@ def _isBioAct(act: ActivityExtended):
     return (BIOSPHERE_PREFIX in db_name) or ("type" in act and act["type"] in ["emission", "natural resource"])
 
 
+def _getProxyDbName(db_name):
+    """Init proxy db to biosphere if not done yet"""
+    proxyname = db_name + "-proxy"
+    if proxyname not in bw.databases:
+        db = bw.Database(proxyname)
+        db.write(dict())
+        _setMeta(proxyname, PROXY_DB_FLAG, True)
+    return proxyname
+
+
 def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtended, ActivityExtended]:
     """
     Potentially create tech proxys for bio activity (brightway cannot proces LCIA on them
     Returns a dict of [OriginalAct -> OriginalOrProxyAct]
     """
+
     res = dict()
     for act in acts:
         if not _isBioAct(act):
@@ -830,7 +855,7 @@ def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtend
 
                 # Create biosphere proxy in User Db
                 proxy_act = newActivity(
-                    db_name=act["database"],
+                    db_name=_getProxyDbName(act["database"]),
                     name=name,
                     code=proxy_code,
                     switchActivity=True,
