@@ -4,6 +4,8 @@ from tempfile import mkstemp
 
 import numpy as np
 
+from lca_algebraic.settings import temp_settings
+
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
@@ -212,6 +214,21 @@ def test_pudate_exchanges_by_input(data):
     ex = act.findExchangesByInput(input_act)[0]
 
     assert ex["amount"] == 2.0
+
+
+def test_strict_mode(data):
+    with temp_settings(strict_mode=True):
+        try:
+            newActivity(BG_DB, "act1", unit="kg")
+            raise Exception("Should not be permitted")
+        except Exception as e:
+            assert "background" in str(e).lower()
+
+        try:
+            data.bg_act1.updateExchanges({"bio1": 2.0})
+            raise Exception("Should not be permitted")
+        except Exception as e:
+            assert "background" in str(e).lower()
 
 
 def test_reset_params():

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import brightway2 as bw
 import pytest
 
-from lca_algebraic import resetDb, resetParams, newActivity
+from lca_algebraic import resetDb, resetParams, newActivity, ActivityExtended
 from lca_algebraic.cache import clear_caches
 
 USER_DB = "fg"
@@ -22,13 +22,13 @@ MethodKey = tuple[str, str, str]
 
 @dataclass
 class DataFixture:
-    bio1: Activity
-    bio2: Activity
-    bio3: Activity
+    bio1: ActivityExtended
+    bio2: ActivityExtended
+    bio3: ActivityExtended
 
-    bg_act1: Activity
-    bg_act2: Activity
-    bg_act3: Activity
+    bg_act1: ActivityExtended
+    bg_act2: ActivityExtended
+    bg_act3: ActivityExtended
 
     ibio1: MethodKey
     ibio2: MethodKey

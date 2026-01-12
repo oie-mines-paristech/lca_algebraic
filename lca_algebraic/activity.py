@@ -158,6 +158,13 @@ class ActivityExtended(Activity):
             The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
         """
 
+        if not _isForeground(self["database"]):
+            msg = f"You are updating a background activisty in {self['database']}. Use copyActivity() in a foregrouhd db instead."
+            if Settings.strict_mode:
+                raise Exception(msg)
+            else:
+                warn(msg)
+
         # Update exchanges
         for ex_target_or_name, updates in updates.items():
             # Build input & amount
@@ -504,10 +511,11 @@ def _equals(val1: ValueOrExpression, val2: ValueOrExpression):
 
 def _newAct(db_name, code):
     if not _isForeground(db_name):
-        warn(
-            "WARNING: You are creating activity in background DB. You should only do it in your foreground / user DB : ",
-            db_name,
-        )
+        msg = f"You are creating activity in background DB {db_name}. Use copyActivity() in a foreground db instead."
+        if Settings.strict_mode:
+            raise Exception(msg)
+        else:
+            warn(msg)
 
     db = _getDb(db_name)
     # Already present : delete it ?
