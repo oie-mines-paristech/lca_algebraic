@@ -1,15 +1,17 @@
 import os
 import time
 from collections.abc import MutableMapping
+from datetime import datetime
 from os import path
-from pickle import Pickler, UnpicklingError, dump, load
-from typing import Dict
+from pickle import Pickler, load
+from typing import Dict, Tuple
 
 import brightway2 as bw
 from sympy.core.function import UndefinedFunction
 
+from .database import _getMeta
 from .log import logger
-from .settings import Settings
+from .settings import PROXY_DB_FLAG, Settings
 
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
@@ -35,19 +37,42 @@ def disable_cache():
     Settings.cache_enabled = False
 
 
+def get_dependant_dbs(db_name):
+    """Recursively get list of dependant db names, including the current one"""
+
+    # Skip proxy databases
+    if _getMeta(db_name, PROXY_DB_FLAG):
+        res = set()
+    else:
+        res = set([db_name])
+
+    for dep in bw.databases[db_name]["depends"]:
+        res.update(get_dependant_dbs(dep))
+    return res
+
+
+def get_last_update(db_name):
+    def last_update(db_name):
+        return datetime.fromisoformat(bw.databases[db_name]["modified"])
+
+    res = max(last_update(db) for db in get_dependant_dbs(db_name))
+    return res.timestamp()
+
+
 class SyncDict(MutableMapping):
     """
     A dict tat loads its values from a file, track the latest updates, and sync its content to a file
     """
 
-    def __init__(self, name):
+    def __init__(self, name, db_name):
         self._data = {}
         self.name = name
+        self.db_name = db_name
         self.last_update = 0.0
         self.load()
 
     def _filename(self):
-        return path.join(bw.projects.dir, f"lca_algebraic_cache-{self.name}.pickle")
+        return path.join(bw.projects.dir, f"lca_algebraic_cache-{self.name}-{self.db_name}.pickle")
 
     # ---------- core MutableMapping ----------
     def __getitem__(self, key):
@@ -125,25 +150,28 @@ class SyncDict(MutableMapping):
 class _Caches:
     """Singleton instance holding caches"""
 
-    caches: Dict[str, SyncDict] = dict()
+    caches: Dict[Tuple[str, str], SyncDict] = dict()
 
 
 class _CacheDict:
     """A smart cache that get cleared whenever database changes, and dumped to file whenever we exit from it"""
 
-    def __init__(self, name):
+    def __init__(self, name, db_name):
         self.name = name
+        self.db_name = db_name
+
+        key = (name, db_name)
 
         # Not initialized yet ?
-        # Not initialized yet ?
-        if not name in _Caches.caches:
-            _Caches.caches[name] = SyncDict(name)
+
+        if key not in _Caches.caches:
+            _Caches.caches[key] = SyncDict(name, db_name)
 
         # Data points to cache
-        self.data = _Caches.caches[name]
+        self.data = _Caches.caches[key]
 
         # Db more recent ? clean it
-        if os.path.exists(self.data._filename()) and (last_db_update() > self.data.last_update):
+        if os.path.exists(self.data._filename()) and (get_last_update(db_name) > self.data.last_update):
             logger.info(f"Db changed recently, clearing cache {self.name}")
             self.data.clear(disk=True)
 
@@ -156,19 +184,21 @@ class _CacheDict:
 
 
 class LCIACache(_CacheDict):
-    def __init__(self):
-        _CacheDict.__init__(self, LCIA_CACHE)
+    def __init__(self, db_name):
+        super().__init__(LCIA_CACHE, db_name)
 
 
 class ExprCache(_CacheDict):
-    def __init__(self):
-        _CacheDict.__init__(self, EXPR_CACHE)
+    def __init__(self, db_name):
+        super().__init__(EXPR_CACHE, db_name)
 
 
 def clear_caches(local=True, disk=True):
     for cache_name in [LCIA_CACHE, EXPR_CACHE]:
-        cache = SyncDict(cache_name)
-        if disk:
-            cache.clear(disk=True)
-        if local and cache_name in _Caches.caches:
-            del _Caches.caches[cache_name]
+        for db_name in bw.databases:
+            cache = SyncDict(cache_name, db_name)
+            if disk:
+                cache.clear(disk=True)
+            key = (cache_name, db_name)
+            if local and key in _Caches.caches:
+                del _Caches.caches[key]

@@ -1,13 +1,14 @@
 from lca_algebraic import newFloatParam, resetParams
 from lca_algebraic.cache import ExprCache, clear_caches
+from test.conftest import BG_DB
 
 
-def test_cached_param_should_bind_to_live_param():
+def test_cached_param_should_bind_to_live_param(data):
     """Check that parameters are bound to unique param values"""
 
     KEY = "key"
 
-    with ExprCache() as cache:
+    with ExprCache(BG_DB) as cache:
         p1 = newFloatParam("p1", default=1.0, min=0.0, max=3.0)
         cache.data[KEY] = 2 * p1
 
@@ -19,7 +20,7 @@ def test_cached_param_should_bind_to_live_param():
     # Override p1. Default value is 2 now.
     p1_bis = newFloatParam("p1", default=2.0, min=0.0, max=3.0)
 
-    with ExprCache() as cache:
+    with ExprCache(BG_DB) as cache:
         expr = cache.data[KEY]
 
     p1_from_disk = list(expr.free_symbols)[0]

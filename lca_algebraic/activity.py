@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from copy import deepcopy, copy
+from copy import copy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
@@ -19,12 +19,12 @@ from lca_algebraic.database import (
     with_db_context,
 )
 from lca_algebraic.params import (
+    STORE_FORMULA_KEY,
     DbContext,
     ParamDef,
     _complete_and_expand_params,
     _getAmountOrFormula,
     _param_registry,
-    STORE_FORMULA_KEY,
 )
 
 from .base_utils import ValueOrExpression, getActByCode

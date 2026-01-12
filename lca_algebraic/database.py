@@ -10,7 +10,6 @@ from bw2data.backends import LCIBackend
 from bw2data.proxies import ActivityProxyBase
 from typing_extensions import deprecated
 
-from .base_utils import one
 from .log import logger
 
 BIOSPHERE_PREFIX = "biosphere"
@@ -159,7 +158,10 @@ def _listTechBackgroundDbs():
 
 def _find_biosphere_db():
     """List all background databases technosphere (non biosphere) batabases"""
-    return one(name for name in bw.databases if BIOSPHERE_PREFIX in name)
+    res = list(name for name in bw.databases if BIOSPHERE_PREFIX in name)
+    if len(res) != 1:
+        raise Exception(f"Excepted a single biopshere but found {len(res)} : {res}")
+    return res[0]
 
 
 def list_databases():
