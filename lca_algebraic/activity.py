@@ -648,6 +648,11 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
             data["output"] = res.key
         if data["input"] == activity.key:
             data["input"] = res.key
+
+        # Chemical formulas might be in ecoinvent technosphere
+        # We don't want them
+        if "formula" in data:
+            del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 
     if withExchanges:
