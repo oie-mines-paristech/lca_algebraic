@@ -116,6 +116,9 @@ class ActivityExtended(Activity):
             if input:
                 return input == exch["input"]
 
+            # No criteria given : match on everything
+            return True
+
         exchs = list(exch for exch in self.non_production_exchanges() if match(exch))
         if len(exchs) == 0:
             raise Exception("Found no exchange matching name : %s" % name)
@@ -159,7 +162,7 @@ class ActivityExtended(Activity):
         """
 
         if not _isForeground(self["database"]):
-            msg = f"You are updating a background activisty in {self['database']}. Use copyActivity() in a foregrouhd db instead."
+            msg = f"You are updating a background activity in {self['database']}. Use copyActivity() in a foreground db instead."
             if Settings.strict_mode:
                 raise Exception(msg)
             else:
@@ -200,7 +203,7 @@ class ActivityExtended(Activity):
             raise Exception(f"Found no exchange with input {inputAct} in {self}")
         return res
 
-    def deleteExchanges(self, name, single=True):
+    def deleteExchanges(self, name=None, single=True):
         """Remove matching exchanges
 
         Parameters
@@ -211,6 +214,10 @@ class ActivityExtended(Activity):
         single:
             If true (default) expect to only delete a single exchange
         """
+
+        if name is None:
+            single = False
+
         exchs = self.getExchange(name, single=single)
         if not isinstance(exchs, list):
             exchs = [exchs]

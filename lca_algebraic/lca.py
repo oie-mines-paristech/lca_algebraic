@@ -25,7 +25,7 @@ from sympy import (
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
-from . import newActivity
+from . import Settings, newActivity
 from .activity import ActivityExtended
 from .axis_dict import AxisDict
 from .base_utils import (
@@ -34,6 +34,7 @@ from .base_utils import (
     ValueOrExpression,
     _actName,
     _getDb,
+    _isnumber,
     _isOutputExch,
     _user_functions,
 )
@@ -55,7 +56,7 @@ from .params import (
     all_params,
     freezeParams,
 )
-from .settings import PROXY_DB_FLAG
+from .settings import PROXY_DB_FLAG, temp_settings
 
 
 def register_user_function(sym, func):
@@ -197,7 +198,7 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
 
     # Try to load from cache
     with ExprCache(db_name) as cache:
-        key = axis
+        key = (axis, "factorized") if Settings.factorize_static_bg else (axis)
 
         if key not in cache.data:
             logger.debug(f"{db_name} was not in expression cache, computing...")
@@ -626,33 +627,34 @@ def compute_inventory(
 
     """
 
-    exprs_by_bg_act = _actToExpressionDict(model)
+    with temp_settings(factorize_static_bg=False):
+        exprs_by_bg_act = _actToExpressionDict(model)
 
-    # Transform to dict of act => value
-    val_by_act = dict()
-    for bg_act, expr in exprs_by_bg_act.items():
-        val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
+        # Transform to dict of act => value
+        val_by_act = dict()
+        for bg_act, expr in exprs_by_bg_act.items():
+            val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
 
-    if impact_method is not None:
-        # Compute LCA of background activities
-        impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
+        if impact_method is not None:
+            # Compute LCA of background activities
+            impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
 
-        val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
+            val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
 
-    if as_dict:
-        return val_by_act
+        if as_dict:
+            return val_by_act
 
-    # Transform to dataframe
-    items = []
-    for act, value in val_by_act.items():
-        item = dict()
+        # Transform to dataframe
+        items = []
+        for act, value in val_by_act.items():
+            item = dict()
 
-        for field in fields:
-            if field in act:
-                item[field] = act[field]
+            for field in fields:
+                if field in act:
+                    item[field] = act[field]
 
-        item["value"] = value
-        items.append(item)
+            item["value"] = value
+            items.append(item)
 
     return DataFrame(items)
 
@@ -838,7 +840,7 @@ def _isBioAct(act: ActivityExtended):
     return (BIOSPHERE_PREFIX in db_name) or ("type" in act and act["type"] in ["emission", "natural resource"])
 
 
-def _getProxyDbName(db_name):
+def _getOrCreateProxyDb(db_name):
     """Init proxy db to biosphere if not done yet"""
     proxyname = db_name + "-proxy"
     if proxyname not in bw.databases:
@@ -848,36 +850,48 @@ def _getProxyDbName(db_name):
     return proxyname
 
 
+def _getOrCreateProxy(act: ActivityExtended, exchanges: Dict[ActivityExtended, float]):
+    proxy_db = _getOrCreateProxyDb(act["database"])
+    proxy_code = act["code"] + "#proxy"
+    with temp_settings(strict_mode=False):
+        try:
+            proxy = _getDb(proxy_db).get(proxy_code)
+
+            # Check exchanges
+            existing_exchanges = {ex[1]: ex[2] for ex in proxy.listExchanges()}
+
+            if existing_exchanges != exchanges:
+                info(f"Proxy exchanges differ in {proxy['name']}, updating them")
+
+                if len(existing_exchanges) > 0:
+                    proxy.deleteExchanges()
+                proxy.addExchanges(exchanges)
+
+        except DoesNotExist:
+            name = act["name"] + " # proxy"
+
+            # Create biosphere proxy in User Db
+            proxy = newActivity(
+                db_name=proxy_db,
+                name=name,
+                code=proxy_code,
+                switchActivity=True,
+                isProxy=True,
+                unit=act["unit"],
+                exchanges=exchanges,
+            )
+
+    return proxy
+
+
 def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtended, ActivityExtended]:
     """
     Potentially create tech proxys for bio activity (brightway cannot proces LCIA on them
     Returns a dict of [OriginalAct -> OriginalOrProxyAct]
     """
-
     res = dict()
     for act in acts:
-        if not _isBioAct(act):
-            proxy_act = act
-        else:
-            proxy_db = _getProxyDbName(act["database"])
-            proxy_code = act["code"] + "#asTech"
-            try:
-                proxy_act = _getDb(proxy_db).get(proxy_code)
-            except DoesNotExist:
-                name = act["name"] + " # asTech"
-
-                # Create biosphere proxy in User Db
-                proxy_act = newActivity(
-                    db_name=proxy_db,
-                    name=name,
-                    code=proxy_code,
-                    switchActivity=True,
-                    isProxy=True,
-                    unit=act["unit"],
-                    exchanges={act: 1},
-                )
-        res[act] = proxy_act
-
+        res[act] = act if not _isBioAct(act) else _getOrCreateProxy(act, {act: 1})
     return res
 
 
@@ -1065,6 +1079,8 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
         fg_matrix.add_col(act)
         bg_matrix.add_row(act)
 
+        static_bg_amounts = dict()
+
         for exch in act.exchanges():
             amount = _getAmountOrFormula(exch)
 
@@ -1092,7 +1108,15 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
                 if axis_tag is not None:
                     amount = AxisDict({axis_tag: amount})
 
-                bg_matrix[act, sub_act] += amount
+                if Settings.factorize_static_bg and _isnumber(amount):
+                    static_bg_amounts[sub_act] = amount
+                else:
+                    bg_matrix[act, sub_act] += amount
+
+        # Static bg amount not empty ? create and reference it
+        if len(static_bg_amounts) > 0:
+            proxy_act = _getOrCreateProxy(act, static_bg_amounts)
+            bg_matrix[act, proxy_act] = 1.0
 
     # Fill the matrices exploring everything
     for act in bw.Database(db_name):

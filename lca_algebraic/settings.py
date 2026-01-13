@@ -7,6 +7,9 @@ class Settings:
     units_enabled: bool = False
     param_overriding_enabled: bool = True
 
+    # If true, upon computation, static background activities would be
+    factorize_static_bg: bool = False
+
     # When activted, forbids any creation or update in background database
     strict_mode: bool = False
 

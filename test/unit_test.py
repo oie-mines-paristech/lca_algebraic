@@ -5,6 +5,7 @@ from tempfile import mkstemp
 import numpy as np
 
 from lca_algebraic.settings import temp_settings
+from test.conftest import assert_impacts
 
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "test"))
@@ -749,6 +750,24 @@ def test_setoutput_amount_doesnt_duplicate_output_exchange(data):
 
     res = multiLCA(act2, [data.ibio1])
     assert res.values[0][0] == 1.0
+
+
+def test_compute_with_factorize_static_bg(data):
+    p = newFloatParam("p", 1, min=0, max=3)
+
+    act = newActivity(
+        USER_DB,
+        "act",
+        "kg",
+        {data.bio1: 1, data.bg_act1: 1, data.bio3: p},  # The first two static background exchange will be grouped in proxy
+    )
+
+    with temp_settings(factorize_static_bg=True):
+        res = compute_impacts(act, [data.ibio1])
+        assert_impacts(res, 2.0)
+
+        res = compute_impacts(act, [data.ibio3], p=3.0)
+        assert_impacts(res, 3.0)
 
 
 def test_bg_loops(data):
