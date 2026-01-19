@@ -1,4 +1,3 @@
-import concurrent.futures
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -21,14 +20,13 @@ from sympy import (
     ImmutableMatrix,
     ImmutableSparseMatrix,
     Mul,
-    Symbol,
     lambdify,
     parse_expr,
 )
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
-from . import newActivity
+from . import Settings, newActivity
 from .activity import ActivityExtended
 from .axis_dict import AxisDict
 from .base_utils import (
@@ -37,12 +35,13 @@ from .base_utils import (
     ValueOrExpression,
     _actName,
     _getDb,
+    _isnumber,
     _isOutputExch,
     _user_functions,
 )
 from .cache import ExprCache, LCIACache
-from .database import BIOSPHERE_PREFIX, DbContext, _isForeground
-from .log import debug, logger, warn
+from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
+from .log import debug, info, logger, warn
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
@@ -58,6 +57,7 @@ from .params import (
     all_params,
     freezeParams,
 )
+from .settings import PROXY_DB_FLAG, temp_settings
 
 
 def register_user_function(sym, func):
@@ -155,46 +155,50 @@ def multiLCA(models, methods, **params):
 """ Compute LCA and return (act, method) => value """
 
 
-def _multiLCAWithCache(acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
-    # Create proxys for bio activities
-    proxy_acts = _createTechProxysForBio(acts)
-
-    with LCIACache() as cache:
-        # List activities with at least one missing value
-        remaining_acts = list(
-            proxy_act
-            for proxy_act in proxy_acts.values()
-            if any(method for method in methods if (proxy_act, method) not in cache.data)
-        )
-
-        if len(remaining_acts) > 0:
-            lca = _multiLCA([{act: 1} for act in remaining_acts], methods)
-
-            # Set output from dataframe
-            for imethod, method in enumerate(methods):
-                for iact, act in enumerate(remaining_acts):
-                    cache.data[(act, method)] = lca.iloc[imethod, iact]
-
-        # Return a copy of the cache for selected impacts and activities
-        return {(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods}
+def _group_acts_by_db(acts: list[ActivityExtended]):
+    res = defaultdict(list)
+    for act in acts:
+        res[act["database"]].append(act)
+    return res
 
 
-def _replace_symbols_with_params_in_exp(expr: Basic):
-    """After unpickling, the Symbols in the expression with same named are not the same object than Parameters.
-    This is problematic for xreplace wich relies on it :
-    Here we replace them.
-    """
+def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
+    res = dict()
 
-    if not isinstance(expr, Basic):
-        return expr
+    # Split activities by db_name
+    for db_name, acts in _group_acts_by_db(all_acts).items():
+        # Create proxys for bio activities
+        proxy_acts = _createTechProxysForBio(acts)
 
-    all_params = _param_registry().as_dict()
-    subs = {symb: all_params[symb.name] for symb in expr.free_symbols if isinstance(symb, Symbol) and symb.name in all_params}
+        with LCIACache(db_name) as cache:
+            # List activities with at least one missing value
+            remaining_acts = list(
+                proxy_act
+                for proxy_act in proxy_acts.values()
+                if any(method for method in methods if (proxy_act, method) not in cache.data)
+            )
 
-    logger.debug("Replace: %s", subs)
+            # list methods with at least one missing value
+            remaining_methods = list(
+                method
+                for method in methods
+                if any(proxy_act for proxy_act in proxy_acts.values() if (proxy_act, method) not in cache.data)
+            )
 
-    expr = expr.xreplace(subs)
-    return expr
+            if len(remaining_acts) > 0:
+                info(f"Computing LCA for {len(remaining_acts)} background acts on methods {remaining_methods}")
+
+                lca = _multiLCA([{act: 1} for act in remaining_acts], remaining_methods)
+
+                # Set output from dataframe
+                for imethod, method in enumerate(remaining_methods):
+                    for iact, act in enumerate(remaining_acts):
+                        cache.data[(act, method)] = lca.iloc[imethod, iact]
+
+            # Update res with a copy of the cache for selected impacts and activities
+            res.update({(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods})
+
+    return res
 
 
 def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrExpression]:
@@ -209,8 +213,8 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
         return {model: 1}
 
     # Try to load from cache
-    with ExprCache() as cache:
-        key = (db_name, axis)
+    with ExprCache(db_name) as cache:
+        key = (axis, "factorized") if Settings.factorize_static_bg else (axis)
 
         if key not in cache.data:
             logger.debug(f"{db_name} was not in expression cache, computing...")
@@ -223,99 +227,7 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
 
         res_by_act = cache.data[key]
 
-    res = res_by_act[model]
-
-    return res
-
-
-def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1):
-    """
-    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
-
-    Return
-    ------
-    <list of expressions (one per impact)>, <list of required param names>
-
-    """
-
-    expr_by_bg_act = _actToExpressionDict(model, axis=axis)
-
-    bg_acts = list(expr_by_bg_act.keys())
-
-    # Compute LCA for background activities
-    impacts = _multiLCAWithCache(bg_acts, methods)
-
-    # For each method, compute an algebric expression with activities replaced by their values
-    exprs = []
-    for method in methods:
-        expr = 0.0
-        for bg_act, _expr in expr_by_bg_act.items():
-            impact = impacts[(bg_act, method)]
-            expr += _expr * impact
-
-        # Ensure symbols are params
-        expr = _replace_symbols_with_params_in_exp(expr)
-
-        if isinstance(alpha, Quantity):
-            alpha = alpha.magnitude
-        expr *= alpha
-
-        exprs.append(expr)
-
-    return exprs
-
-
-def _filter_param_values(params, expanded_param_names):
-    return {key: val for key, val in params.items() if key in expanded_param_names}
-
-
-def _free_symbols(expr: Basic):
-    if isinstance(expr, Basic):
-        return set([str(symb) for symb in expr.free_symbols])
-    else:
-        # Static value
-        return set()
-
-
-def _lambdify(expr: Basic, expanded_params):
-    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
-
-    printer = NumPyPrinter(
-        {
-            "fully_qualified_modules": False,
-            "inline": True,
-            "allow_unknown_functions": True,
-            "user_functions": dict(),
-        }
-    )
-
-    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
-
-    if isinstance(expr, Basic):
-        lambd = lambdify(
-            expanded_params,
-            expr,
-            modules,
-            printer=printer,
-            cse=LambdaWithParamNames._use_sympy_cse,
-        )
-
-        def func(*arg, **kwargs):
-            res = lambd(*arg, **kwargs)
-            if isinstance(res, dict):
-                # Transform key symbols into Str
-                return {str(k): v for k, v in res.items()}
-            else:
-                return res
-
-        return func
-
-    else:
-        # Not an expression : return static func
-        def static_func(*args, **kargs):
-            return expr
-
-        return static_func
+    return res_by_act[model]
 
 
 @dataclass
@@ -324,6 +236,10 @@ class ValueContext:
 
     value: float
     context: Dict[str, float]
+
+
+def lambdify_expr(expr):
+    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
 
 
 class LambdaWithParamNames:
@@ -415,12 +331,24 @@ class LambdaWithParamNames:
     def _repr_latex_(self):
         return self.expr._repr_latex_()
 
+    def __getstate__(self):
+        """For pickling/unpicling"""
+        state = self.__dict__.copy()
+        # Retirer les attributs temporaires
+        if "lambd" in state:
+            del state["lambd"]
+        return state
 
-def lambdify_expr(expr):
-    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
+    def __setstate__(self, state):
+        """For pickling/unpicling"""
+        self.__dict__.update(state)
+
+        self.lambd = _lambdify(self.expr, self.expanded_params)
 
 
-def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None):
+def _preMultiLCAAlgebric(
+    model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
+) -> list[LambdaWithParamNames]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -429,10 +357,101 @@ def _preMultiLCAAlgebric(model: ActivityExtended, methods: MethodKey, alpha: Val
     """
 
     with DbContext(model):
-        exprs = _modelToExpr(model, methods, alpha=alpha, axis=axis)
+        if isinstance(alpha, Quantity):
+            alpha = alpha.magnitude
 
-        # Lambdify (compile) expressions
-        return [LambdaWithParamNames(expr) for expr in exprs]
+        def _key(method):
+            return (model, axis, method, alpha)
+
+        with ExprCache(model["database"]) as cache:
+            missing_methods = [method for method in methods if not _key(method) in cache.data]
+            if len(missing_methods) > 0:
+                exprs = _modelToExpr(model, methods=missing_methods, axis=axis)
+                for method, expr in zip(missing_methods, exprs):
+                    cache.data[_key(method)] = LambdaWithParamNames(expr * alpha)
+
+            # At this point, everything is in cache
+            # REturn the list in order
+            return list(cache.data[_key(method)] for method in methods)
+
+
+def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
+    """
+    Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
+
+    Return
+    ------
+    <list of expressions (one per impact)>, <list of required param names>
+    """
+
+    expr_by_bg_act = _actToExpressionDict(model, axis=axis)
+
+    # Keep them in same order
+    bg_acts = list(expr_by_bg_act.keys())
+
+    # Compute LCA for background activities
+    impacts = _multiLCAWithCache(bg_acts, methods)
+
+    # Create numpy matrix of impact values
+    # Rows are methods, columns are bg acts
+    impact_matrix = np.array([[impacts[bg_act, method] for bg_act in bg_acts] for method in methods])
+
+    # Create immutable sympy vector of bg expression, in the same order :
+    bg_expr_vector = ImmutableMatrix([[expr_by_bg_act[bg_act]] for bg_act in bg_acts])
+
+    # Multiply the two => returns a vector of impact expression
+    impacts_vector = impact_matrix * bg_expr_vector
+
+    def _get_expr(i):
+        if len(bg_acts) == 0:
+            return 0.0
+        else:
+            return impacts_vector[i]
+
+    # For each method, compute an algebric expression with activities replaced by their values
+    return [_get_expr(i) for i, method in enumerate(methods)]
+
+
+def _filter_param_values(params, expanded_param_names):
+    return {key: val for key, val in params.items() if key in expanded_param_names}
+
+
+def _free_symbols(expr: Basic):
+    if isinstance(expr, Basic):
+        return set([str(symb) for symb in expr.free_symbols])
+    else:
+        # Static value
+        return set()
+
+
+def _lambdify(expr: Basic, expanded_params):
+    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
+
+    printer = NumPyPrinter(
+        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
+    )
+
+    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
+
+    if isinstance(expr, Basic):
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
+
+        def func(*arg, **kwargs):
+            res = lambd(*arg, **kwargs)
+            if isinstance(res, dict):
+                # Transform key symbols into Str
+                return {str(k): v for k, v in res.items()}
+            else:
+                return res
+
+        return func
+
+    else:
+        # Not an expression : return static func
+        def static_func(*args, **kargs):
+            return expr
+
+        return static_func
 
 
 def _slugify(str):
@@ -480,11 +499,8 @@ def _postMultiLCAAlgebric(
     context_params = dict()
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    def process(args):
+    def process(lamba):
         nonlocal context_params
-
-        imethod = args[0]
-        lambd: LambdaWithParamNames = args[1]
 
         value_context = lambd.compute(**params)
 
@@ -501,12 +517,12 @@ def _postMultiLCAAlgebric(
             axes = lambdas[0].axis_keys
             value = list(float(value[axis]) if axis in value else 0.0 for axis in axes)
 
-        return (imethod, value)
+        return value
 
     # Use multithread for that
-    with concurrent.futures.ThreadPoolExecutor() as exec:
-        for imethod, value in exec.map(process, enumerate(lambdas)):
-            res[imethod, :] = value
+    for imethod, lambd in enumerate(lambdas):
+        value = process(lambd)
+        res[imethod, :] = value
 
     result = pd.DataFrame(
         res,
@@ -633,33 +649,34 @@ def compute_inventory(
 
     """
 
-    exprs_by_bg_act = _actToExpressionDict(model)
+    with temp_settings(factorize_static_bg=False):
+        exprs_by_bg_act = _actToExpressionDict(model)
 
-    # Transform to dict of act => value
-    val_by_act = dict()
-    for bg_act, expr in exprs_by_bg_act.items():
-        val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
+        # Transform to dict of act => value
+        val_by_act = dict()
+        for bg_act, expr in exprs_by_bg_act.items():
+            val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
 
-    if impact_method is not None:
-        # Compute LCA of background activities
-        impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
+        if impact_method is not None:
+            # Compute LCA of background activities
+            impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
 
-        val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
+            val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
 
-    if as_dict:
-        return val_by_act
+        if as_dict:
+            return val_by_act
 
-    # Transform to dataframe
-    items = []
-    for act, value in val_by_act.items():
-        item = dict()
+        # Transform to dataframe
+        items = []
+        for act, value in val_by_act.items():
+            item = dict()
 
-        for field in fields:
-            if field in act:
-                item[field] = act[field]
+            for field in fields:
+                if field in act:
+                    item[field] = act[field]
 
-        item["value"] = value
-        items.append(item)
+            item["value"] = value
+            items.append(item)
 
     return DataFrame(items)
 
@@ -845,6 +862,50 @@ def _isBioAct(act: ActivityExtended):
     return (BIOSPHERE_PREFIX in db_name) or ("type" in act and act["type"] in ["emission", "natural resource"])
 
 
+def _getOrCreateProxyDb(db_name):
+    """Init proxy db to biosphere if not done yet"""
+    proxyname = db_name + "-proxy"
+    if proxyname not in bw2data.databases:
+        db = bw2data.Database(proxyname)
+        db.write(dict())
+        _setMeta(proxyname, PROXY_DB_FLAG, True)
+    return proxyname
+
+
+def _getOrCreateProxy(act: ActivityExtended, exchanges: Dict[ActivityExtended, float]):
+    proxy_db = _getOrCreateProxyDb(act["database"])
+    proxy_code = act["code"] + "#proxy"
+    with temp_settings(strict_mode=False):
+        try:
+            proxy = _getDb(proxy_db).get(proxy_code)
+
+            # Check exchanges
+            existing_exchanges = {ex[1]: ex[2] for ex in proxy.listExchanges()}
+
+            if existing_exchanges != exchanges:
+                info(f"Proxy exchanges differ in {proxy['name']}, updating them")
+
+                if len(existing_exchanges) > 0:
+                    proxy.deleteExchanges()
+                proxy.addExchanges(exchanges)
+
+        except UnknownObject:
+            name = act["name"] + " # proxy"
+
+            # Create biosphere proxy in User Db
+            proxy = newActivity(
+                db_name=proxy_db,
+                name=name,
+                code=proxy_code,
+                switchActivity=True,
+                isProxy=True,
+                unit=act["unit"],
+                exchanges=exchanges,
+            )
+
+    return proxy
+
+
 def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtended, ActivityExtended]:
     """
     Potentially create tech proxys for bio activity (brightway cannot proces LCIA on them
@@ -852,27 +913,7 @@ def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtend
     """
     res = dict()
     for act in acts:
-        if not _isBioAct(act):
-            proxy_act = act
-        else:
-            proxy_code = act["code"] + "#asTech"
-            try:
-                proxy_act = _getDb(act["database"]).get(proxy_code)
-            except UnknownObject:
-                name = act["name"] + " # asTech"
-
-                # Create biosphere proxy in User Db
-                proxy_act = newActivity(
-                    db_name=act["database"],
-                    name=name,
-                    code=proxy_code,
-                    switchActivity=True,
-                    isProxy=True,
-                    unit=act["unit"],
-                    exchanges={act: 1},
-                )
-        res[act] = proxy_act
-
+        res[act] = act if not _isBioAct(act) else _getOrCreateProxy(act, {act: 1})
     return res
 
 
@@ -1060,6 +1101,8 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
         fg_matrix.add_col(act)
         bg_matrix.add_row(act)
 
+        static_bg_amounts = dict()
+
         for exch in act.exchanges():
             amount = _getAmountOrFormula(exch)
 
@@ -1087,7 +1130,15 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
                 if axis_tag is not None:
                     amount = AxisDict({axis_tag: amount})
 
-                bg_matrix[act, sub_act] += amount
+                if Settings.factorize_static_bg and _isnumber(amount):
+                    static_bg_amounts[sub_act] = amount
+                else:
+                    bg_matrix[act, sub_act] += amount
+
+        # Static bg amount not empty ? create and reference it
+        if len(static_bg_amounts) > 0:
+            proxy_act = _getOrCreateProxy(act, static_bg_amounts)
+            bg_matrix[act, proxy_act] = 1.0
 
     # Fill the matrices exploring everything
     for act in bw2data.Database(db_name):

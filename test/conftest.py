@@ -3,13 +3,14 @@ from dataclasses import dataclass
 from logging import info
 
 from bw2data.backends import Activity
+import pandas as pd
 
 from test.fixtures import init_methods
 
 import bw2data
 import pytest
 
-from lca_algebraic import newActivity, resetDb, resetParams
+from lca_algebraic import resetDb, resetParams, newActivity, ActivityExtended
 from lca_algebraic.cache import clear_caches
 
 USER_DB = "fg"
@@ -22,13 +23,13 @@ MethodKey = tuple[str, str, str]
 
 @dataclass
 class DataFixture:
-    bio1: Activity
-    bio2: Activity
-    bio3: Activity
+    bio1: ActivityExtended
+    bio2: ActivityExtended
+    bio3: ActivityExtended
 
-    bg_act1: Activity
-    bg_act2: Activity
-    bg_act3: Activity
+    bg_act1: ActivityExtended
+    bg_act2: ActivityExtended
+    bg_act3: ActivityExtended
 
     ibio1: MethodKey
     ibio2: MethodKey
@@ -84,3 +85,7 @@ def reset_db():
     resetDb(USER_DB, foreground=True)
     resetParams()
     clear_caches()
+
+
+def assert_impacts(res: pd.DataFrame, value: float):
+    assert res.values[0][0] == value

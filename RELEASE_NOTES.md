@@ -1,3 +1,13 @@
+# RTE
+
+* Added parameter 'reference_product' to findActivity
+* Improved cache of impacts : trakc per-database modificiation time. Put bio proxies in a separate database.
+* Added possibility to use target activity as key in updateExchange()
+* Add 'strict_mode' in Settings to forbid any creation or update of activity in background database
+* Add 'factorize_static_bg' option in Settings to factorize static background exchange during compute_impact.
+  This improves performance on large model copying big Background activities in the foreground and changing a few things only
+* Delete chemical formula from "formula" field when doing copyActivity() : This was caugin bug since ei310
+
 # **
 
 * Improved performance :

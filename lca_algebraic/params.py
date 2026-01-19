@@ -31,7 +31,7 @@ from .units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
-STORE_FORMULA_KEY = "lca_algebraic_formula"
+STORE_FORMULA_KEY = "formula"
 
 
 class ParamType:
@@ -932,7 +932,12 @@ class ParamRegistry:
 
     def __setitem__(self, key, param: ParamDef):
         if param.dbname in self.params[key]:
-            warn("[ParamRegistry] Param %s was already defined in '%s' : overriding." % (param.name, param.dbname or "<project>"))
+            message = "[ParamRegistry] Param %s was already defined in '%s' " % (param.name, param.dbname or "<project>")
+
+            if Settings.param_overriding_enabled:
+                warn(message + " overriding")
+            else:
+                raise Exception(message + "overriding disabled in Settings")
 
         self.params[key][param.dbname] = param
 
@@ -1036,7 +1041,9 @@ def _complete_params(params: Dict[str, ParamValues], required_params):
                 logger.info(f"Param {param_name} was not set. Computing its value from formula :  {params[param_name]}")
             else:
                 params[param_name] = param.default
-                logger.info("Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default)))
+                logger.debug(
+                    "Required param '%s' was missing, replacing by default value : %s" % (param_name, str(param.default))
+                )
 
     return params
 
