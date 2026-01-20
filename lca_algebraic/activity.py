@@ -16,6 +16,7 @@ from lca_algebraic.database import (
     _find_biosphere_db,
     _isForeground,
     _listTechBackgroundDbs,
+    atomic,
     with_db_context,
 )
 from lca_algebraic.params import (
@@ -142,6 +143,7 @@ class ActivityExtended(Activity):
             output_exchange.save()
 
     @with_db_context
+    @atomic
     def updateExchanges(self, updates: Dict[Union[str, Activity], any] = dict()):
         """Update existing exchanges, by name.
 
@@ -457,22 +459,30 @@ def findActivity(
     if code:
         acts = [getActByCode(db_name, code)]
     else:
-        search = name if name is not None else in_name
 
-        search = search.lower()
-        search = search.replace(",", " ")
+        def search_with_limit(limit):
+            search = name if name is not None else in_name
 
-        # Find candidates via index
-        # candidates = _find_candidates(db_name, name_key)
-        candidates = _getDb(db_name).search(search, limit=limit)
+            search = search.lower()
+            search = search.replace(",", " ")
 
-        if len(candidates) == 0:
-            # Try again removing strange caracters
-            search = re.sub(r"\w*[^a-zA-Z ]+\w*", " ", search)
+            # Find candidates via index
+            # candidates = _find_candidates(db_name, name_key)
             candidates = _getDb(db_name).search(search, limit=limit)
 
-        # Exact match
-        acts = list(filter(act_filter, candidates))
+            if len(candidates) == 0:
+                # Try again removing strange caracters
+                search = re.sub(r"\w*[^a-zA-Z ]+\w*", " ", search)
+                candidates = _getDb(db_name).search(search, limit=limit)
+
+            # Exact match
+            return list(filter(act_filter, candidates))
+
+        # First try with small set, then increase limit
+        for limit in [20, 100, limit]:
+            acts = search_with_limit(limit)
+            if len(acts) > 0:
+                break
 
     if single and len(acts) == 0:
         any_name = name if name else in_name
@@ -604,6 +614,7 @@ def newActivity(
     return act
 
 
+@atomic
 def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
@@ -623,7 +634,6 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         The new activity. note that is is flagged with the custom property **inherited_from**, providing the full key of the
         initial activity.
     """
-
     res = _newAct(db_name, code)
 
     # Same code if not provided
