@@ -449,9 +449,12 @@ def findActivity(
             return False
         if reference_product and not reference_product == act.get("reference product"):
             return False
-        if category and category not in act["categories"]:
+
+        actual_cats = tuple(act.get("categories", []))
+
+        if category and category not in actual_cats:
             return False
-        if categories and not tuple(categories) == tuple(act["categories"]):
+        if categories and not tuple(categories) == actual_cats:
             return False
 
         return True
@@ -478,8 +481,11 @@ def findActivity(
             # Exact match
             return list(filter(act_filter, candidates))
 
+        # Small limits first for single search : improve performance
+        limits = [20, 100, limit] if single else [limit]
+
         # First try with small set, then increase limit
-        for limit in [20, 100, limit]:
+        for limit in limits:
             acts = search_with_limit(limit)
             if len(acts) > 0:
                 break
