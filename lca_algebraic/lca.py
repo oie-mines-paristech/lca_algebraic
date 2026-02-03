@@ -40,6 +40,7 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
+from .edges_utils import compute_edge_impacts, get_edge_methods_metadata
 from .log import debug, info, logger, warn
 from .methods import method_name, method_unit
 from .params import (
@@ -169,7 +170,18 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
                 if any(proxy_act for proxy_act in proxy_acts.values() if (proxy_act, method) not in cache.data)
             )
 
-            if len(remaining_acts) > 0:
+            # Compute lcia of edge methods separately
+            edge_metadata = get_edge_methods_metadata()
+            edge_methods = [method for method in remaining_methods if method in edge_metadata]
+            remaining_methods = [method for method in remaining_methods if method not in edge_metadata]
+
+            for edge_method in edge_methods:
+                edge_result = compute_edge_impacts(db_name=db_name, method=edge_method, acts=remaining_acts)
+
+                for act, value in edge_result.items():
+                    cache.data[(act, edge_method)] = value
+
+            if len(remaining_acts) > 0 and len(remaining_methods) > 0:
                 info(f"Computing LCA for {len(remaining_acts)} background acts on methods {remaining_methods}")
 
                 lca = _multiLCA([{act: 1} for act in remaining_acts], remaining_methods)

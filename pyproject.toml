@@ -37,6 +37,7 @@ dependencies = [
   "SALib",
   "pint",
   "typing-extensions",
+  "edges",
   "pypardiso; platform_machine == 'x86_64'"
 ]
 

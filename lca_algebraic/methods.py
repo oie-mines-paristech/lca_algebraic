@@ -4,6 +4,8 @@ from typing import Dict, Tuple
 import brightway2 as bw
 from pint import Unit
 
+from lca_algebraic.edges_utils import get_edge_methods_metadata
+
 
 def _impact_labels():
     """Dictionnary of custom impact names
@@ -55,7 +57,11 @@ def findMethods(search=None, mainCat=None):
 def method_unit(method: Tuple, fu_unit: Unit = None):
     """Get the unit of an impact method"""
 
-    res = bw.Method(method).metadata["unit"]
+    edge_meta = get_edge_methods_metadata()
+    if method in edge_meta:
+        res = edge_meta[method]["unit"]
+    else:
+        res = bw.Method(method).metadata["unit"]
 
     if fu_unit is not None:
         res += f" / {fu_unit}"

@@ -12,12 +12,12 @@ sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
 import pytest
 from conftest import BG_DB, METHOD_PREFIX, USER_DB
-from fixtures import *
 from numpy.testing import assert_array_equal
 
 from lca_algebraic.database import _isForeground, setForeground, setBackground
 from lca_algebraic.params import _param_registry
 from pandas.testing import assert_frame_equal
+from lca_algebraic import *
 
 
 def test_load_params():
