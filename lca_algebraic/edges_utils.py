@@ -3,8 +3,10 @@ from functools import cache
 from os import path
 from typing import Dict
 
+from bw2calc import LCA
 from edges import EdgeLCIA, get_available_methods
 from edges.filesystem_constants import DATA_DIR
+from edges.georesolver import GeoResolver
 from pypardiso import factorized
 
 from lca_algebraic import ActivityExtended
@@ -49,51 +51,43 @@ def _load_builtin_metadata():
 def setup_edges_serialization():
     """Function for settings custom methods to enable pickling / unpickling of EdgeLCIA"""
 
-    def post_load(lcia: EdgeLCIA):
-        if lcia.logger is None:
-            lcia.logger = logger
-        if lcia.lca:
-            if lcia.lca.logger is None:
-                lcia.lca.logger = logger
-            if lcia.lca.solver is None:
-                lcia.lca.solver = factorized(lcia.lca.technosphere_matrix.tocsc())
-        if lcia._geo and lcia._geo.logger is None:
-            lcia._geo.logger = logger
+    def _getstate_remove_logger(obj):
+        state = obj.__dict__.copy()
+        del state["logger"]
+        return state
 
-    def get_state(lcia: EdgeLCIA):
-        lcia.logger = None
-        if lcia.lca:
-            lcia.lca.logger = None
-        if lcia._geo:
-            lcia._geo.logger = None
-        if lcia.lca.solver:
-            lcia.lca.solver = None
-        try:
-            return lcia
-        finally:
-            # Executed even after the return
-            post_load(lcia)
+    def _setstate_reset_logger(obj, state: dict):
+        obj.__dict__.update(state)
+        obj.logger = logger
 
-    def set_state(lcia, state):
-        lcia.__dict__.update(state)
-        post_load(lcia)
+    EdgeLCIA.__getstate__ = _getstate_remove_logger
+    EdgeLCIA.__setstate__ = _setstate_reset_logger
+    GeoResolver.__getstate__ = _getstate_remove_logger
+    GeoResolver.__setstate__ = _setstate_reset_logger
 
-    EdgeLCIA.__getstate__ = get_state
-    EdgeLCIA.__setstate__ = set_state
+    def _getstate_lca(lca: LCA):
+        state = _getstate_remove_logger(lca)
+        del state["solver"]
+        return state
+
+    def _setstate_lca(lca: LCA, state: dict):
+        _setstate_reset_logger(lca, state)
+        lca.solver = factorized(lca.technosphere_matrix.tocsc())
+
+    LCA.__getstate__ = _getstate_lca
+    LCA.__setstate__ = _setstate_lca
 
 
 class EdgeCache(_CacheDict):
     """Custom cache for EdgeLCIA. We use one separate cache per method, because each pickled file is big (100Mb)"""
 
     def __init__(self, db_name, method: tuple):
-        key = "_".join(item for item in method)
+        key = "_".join(method)
         super().__init__(f"edge_lcia_{key}", db_name)
 
 
 def setup_edge_lcia(method_key, act: ActivityExtended):
     """Done once then cached"""
-
-    info(f"Edge LCIA not found for {method_key}. Building it once.")
 
     # Pass either a tuple or file path
     method = method_key
@@ -121,6 +115,8 @@ def compute_edge_impacts(db_name: str, method: tuple, acts: list[ActivityExtende
     with EdgeCache(db_name, method) as cache:
         if MAIN_KEY not in cache.data:
             # Miss
+            info(f"Edge LCIA not found for {db_name} / {method}. Building it once.")
+
             cache.data[MAIN_KEY] = setup_edge_lcia(method, acts[0])
 
         lcia: EdgeLCIA = cache.data[MAIN_KEY]
