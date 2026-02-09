@@ -579,6 +579,20 @@ def test_inventory_loops_should_work(data):
     assert res.values[0] == 1.25  # (1/(80%))
 
 
+def test_large_loop(data):
+    act3 = newActivity(USER_DB, "act3", "kg", exchanges={data.bio1: 1})
+
+    act2 = newActivity(USER_DB, "act2", "kg", exchanges={act3: 1})
+
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={act2: 1})
+
+    # Close the loop
+    act3.addExchanges({act1: 0.2})
+    res = compute_impacts(act1, data.ibio1)
+
+    assert res.values[0] == 1.25  # (1/(80%))
+
+
 def test_inventory_loops_with_output_2(data):
     """Same as above with but doubles everything including the output amount of main_act"""
 
