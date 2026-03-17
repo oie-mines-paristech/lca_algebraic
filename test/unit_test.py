@@ -12,9 +12,9 @@ sys.path.insert(0, os.path.join(os.getcwd(), "test"))
 
 import pytest
 from conftest import BG_DB, METHOD_PREFIX, USER_DB
-from fixtures import *
 from numpy.testing import assert_array_equal
 from pandas.testing import assert_frame_equal
+from lca_algebraic import *
 
 from lca_algebraic.database import _isForeground, setBackground, setForeground
 from lca_algebraic.params import _param_registry
@@ -584,6 +584,20 @@ def test_inventory_loops_should_work(data):
     main_act.addExchanges({main_act: 0.2, third_act: 1})  # 20% of self consumption  # Link to background
 
     res = compute_impacts(main_act, data.ibio1)
+
+    assert res.values[0] == 1.25  # (1/(80%))
+
+
+def test_large_loop(data):
+    act3 = newActivity(USER_DB, "act3", "kg", exchanges={data.bio1: 1})
+
+    act2 = newActivity(USER_DB, "act2", "kg", exchanges={act3: 1})
+
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={act2: 1})
+
+    # Close the loop
+    act3.addExchanges({act1: 0.2})
+    res = compute_impacts(act1, data.ibio1)
 
     assert res.values[0] == 1.25  # (1/(80%))
 

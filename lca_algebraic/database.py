@@ -1,12 +1,14 @@
 import functools
 import inspect
 from collections import defaultdict
+from functools import wraps
 from typing import Union
 
 import pandas as pd
 from bw2data import Database
 from bw2data import databases as dbmeta
 from bw2data.backends import SQLiteBackend as LCIBackend
+from bw2data.backends import sqlite3_lci_db
 from bw2data.proxies import ActivityProxyBase
 
 from .log import logger
@@ -156,6 +158,17 @@ def list_databases():
 
     res = pd.DataFrame(data)
     return res.set_index("name")
+
+
+def atomic(func):
+    """Atomic Pewwe operation : will result in a single transaction"""
+
+    @wraps(func)
+    def wrapper(*arg, **args):
+        with sqlite3_lci_db.atomic():
+            return func(*arg, **args)
+
+    return wrapper
 
 
 def with_db_context(func=None, arg="self"):

@@ -1,24 +1,20 @@
-import warnings
 from dataclasses import dataclass
 from logging import info
-
-from bw2data.backends import Activity
+import os
 import pandas as pd
-
-from test.fixtures import init_methods
-
-import bw2data
 import pytest
-
+import bw2data as bw
 from lca_algebraic import resetDb, resetParams, newActivity, ActivityExtended
 from lca_algebraic.cache import clear_caches
+from lca_algebraic.base_utils import getActByCode
 
 USER_DB = "fg"
 BG_DB = "bg"
 METHOD_PREFIX = "tests"
-TST_PROJECT_NAME = "tests-bw25"
 
 MethodKey = tuple[str, str, str]
+
+TEST_FOLDER = os.path.dirname(__file__)
 
 
 @dataclass
@@ -42,15 +38,11 @@ def data() -> DataFixture:
     """Setup background data"""
 
     # Reset func project, empty DB
-    if TST_PROJECT_NAME in bw2data.projects:
+    if "tests" in bw.projects:
         info("Deleting old tests project")
-        try:
-            bw2data.projects.delete_project(TST_PROJECT_NAME, delete_dir=True)
-        except Exception:
-            warnings.warn("Couldn't remove previous test project.", e)
+        bw.projects.delete_project("tests", delete_dir=True)
 
-    bw2data.projects.set_current(TST_PROJECT_NAME)
-    bw2data.projects
+    bw.projects.set_current("tests")
 
     # Clear DB
     resetDb(BG_DB, False)
@@ -78,9 +70,9 @@ def data() -> DataFixture:
 def reset_db():
     """Before each test"""
 
-    for db_name in list(bw2data.databases):
-        if db_name != BG_DB and "biosphere" not in db_name:
-            del bw2data.databases[db_name]
+    for db_name in list(bw.databases):
+        if db_name != BG_DB and not db_name.startswith("bio"):
+            del bw.databases[db_name]
 
     resetDb(USER_DB, foreground=True)
     resetParams()
@@ -89,3 +81,34 @@ def reset_db():
 
 def assert_impacts(res: pd.DataFrame, value: float):
     assert res.values[0][0] == value
+
+
+def init_methods(db, prefix):
+    "Create impact methods for bio activities"
+    res = []
+
+    # One for each bio act
+    for nbio in range(1, 4):
+        bioname = "bio" + str(nbio)
+
+        act = getActByCode(db, bioname)
+
+        method = bw.Method((prefix, bioname, "total"))
+        method.register(unit="MJ-Eq", description="quantity of " + bioname)
+        method.write([(act.key, 1)])
+
+        res.append((prefix, bioname, "total"))
+
+    # Digital : one digit per bio activity
+    method = bw.Method((prefix, "all", "total"))
+    method.register(unit="1", description="quantity of " + bioname)
+    method.write(
+        [
+            ((db, "bio1"), 1),
+            ((db, "bio2"), 2),
+            ((db, "bio3"), 4),
+        ]
+    )
+    res.append((prefix, "all", "total"))
+
+    return res
