@@ -22,3 +22,8 @@ def debug(*args):
 def warn(*args):
     msg = " ".join(str(item) for item in args)
     logger.warning(msg)
+
+
+def info(*args):
+    msg = " ".join(str(item) for item in args)
+    logger.info(msg)

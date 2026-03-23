@@ -1,14 +1,12 @@
 from dataclasses import dataclass
-
-from bw2data.backends.peewee import Activity
-
-from test.fixtures import init_methods
-from types import SimpleNamespace
+from logging import info
+import pandas as pd
+import os
 
 import brightway2 as bw
 import pytest
 
-from lca_algebraic import resetDb, resetParams, newActivity
+from lca_algebraic import resetDb, resetParams, newActivity, ActivityExtended, getActByCode
 from lca_algebraic.cache import clear_caches
 
 USER_DB = "fg"
@@ -17,16 +15,18 @@ METHOD_PREFIX = "tests"
 
 MethodKey = tuple[str, str, str]
 
+TEST_FOLDER = os.path.dirname(__file__)
+
 
 @dataclass
 class DataFixture:
-    bio1: Activity
-    bio2: Activity
-    bio3: Activity
+    bio1: ActivityExtended
+    bio2: ActivityExtended
+    bio3: ActivityExtended
 
-    bg_act1: Activity
-    bg_act2: Activity
-    bg_act3: Activity
+    bg_act1: ActivityExtended
+    bg_act2: ActivityExtended
+    bg_act3: ActivityExtended
 
     ibio1: MethodKey
     ibio2: MethodKey
@@ -39,8 +39,11 @@ def data() -> DataFixture:
     """Setup background data"""
 
     # Reset func project, empty DB
+    if "tests" in bw.projects:
+        info("Deleting old tests project")
+        bw.projects.delete_project("tests", delete_dir=True)
+
     bw.projects.set_current("tests")
-    bw.bw2setup()
 
     # Clear DB
     resetDb(BG_DB, False)
@@ -75,3 +78,38 @@ def reset_db():
     resetDb(USER_DB, foreground=True)
     resetParams()
     clear_caches()
+
+
+def assert_impacts(res: pd.DataFrame, value: float):
+    assert res.values[0][0] == value
+
+
+def init_methods(db, prefix):
+    "Create impact methods for bio activities"
+    res = []
+
+    # One for each bio act
+    for nbio in range(1, 4):
+        bioname = "bio" + str(nbio)
+
+        act = getActByCode(db, bioname)
+
+        method = bw.Method((prefix, bioname, "total"))
+        method.register(unit="MJ-Eq", description="quantity of " + bioname)
+        method.write([(act.key, 1)])
+
+        res.append((prefix, bioname, "total"))
+
+    # Digital : one digit per bio activity
+    method = bw.Method((prefix, "all", "total"))
+    method.register(unit="1", description="quantity of " + bioname)
+    method.write(
+        [
+            ((db, "bio1"), 1),
+            ((db, "bio2"), 2),
+            ((db, "bio3"), 4),
+        ]
+    )
+    res.append((prefix, "all", "total"))
+
+    return res

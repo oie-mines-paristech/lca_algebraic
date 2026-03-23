@@ -56,7 +56,6 @@ def method_unit(method: Tuple, fu_unit: Unit = None):
     """Get the unit of an impact method"""
 
     res = bw.Method(method).metadata["unit"]
-
     if fu_unit is not None:
         res += f" / {fu_unit}"
 

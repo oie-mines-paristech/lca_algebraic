@@ -1,3 +1,22 @@
+# RTE
+
+* Added parameter 'reference_product' to findActivity
+* Improved cache of impacts : trakc per-database modificiation time. Put bio proxies in a separate database.
+* Added possibility to use target activity as key in updateExchange()
+* Add 'strict_mode' in Settings to forbid any creation or update of activity in background database
+* Add 'factorize_static_bg' option in Settings to factorize static background exchange during compute_impact.
+  This improves performance on large model copying big Background activities in the foreground and changing a few things only
+* Delete chemical formula from "formula" field when doing copyActivity() : This was caugin bug since ei310
+* Fix bug #54 : updateExchanges() unexpected behaviour with '*' wildcard and 'old_amount' parameter 
+
+# **
+
+* Improved performance :
+  - Better cache of LambdaWithParams
+  - Skip check of inversability when inverting matrices with LU method
+
+* Integrate PR #85 : Fix and improve interpolate with units 
+
 # 1.3.2 
 
 * Fix bug #82 impact computation by axis not working. For nested axes.

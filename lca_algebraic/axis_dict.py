@@ -97,6 +97,14 @@ class AxisDict(SympyDict):
     def equals(self, other):
         return isinstance(other, AxisDict) and self._dict == other._dict
 
+    def _sympyrepr(self, printer):
+        items = ", ".join(f"({printer._print(k)}, {printer._print(v)})" for k, v in self.items())
+        return f"AxisDict({items})"
+
+    def _sympystr(self, printer):
+        items = ", ".join(f"({printer._print(k)}, {printer._print(v)})" for k, v in self.items())
+        return f"AxisDict({items})"
+
     @property
     def free_symbols(self):
         """Only return free symbol for values (not keys)"""
