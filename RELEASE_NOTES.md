@@ -1,4 +1,4 @@
-# RTE
+# 1.4
 
 * Added parameter 'reference_product' to findActivity
 * Improved cache of impacts : trakc per-database modificiation time. Put bio proxies in a separate database.
@@ -8,14 +8,11 @@
   This improves performance on large model copying big Background activities in the foreground and changing a few things only
 * Delete chemical formula from "formula" field when doing copyActivity() : This was caugin bug since ei310
 * Fix bug #54 : updateExchanges() unexpected behaviour with '*' wildcard and 'old_amount' parameter 
-
-# **
-
 * Improved performance :
   - Better cache of LambdaWithParams
   - Skip check of inversability when inverting matrices with LU method
-
 * Integrate PR #85 : Fix and improve interpolate with units 
+
 
 # 1.3.2 
 
