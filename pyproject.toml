@@ -9,7 +9,7 @@ version = "1.4"
 description = "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"
 license = { text = "BSD" }
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 
 authors = [
   { name = "OIE - Mines ParisTech", email = "raphael.jolivet@mines-paristech.fr" }
