@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lca_algebraic_rte"
+name = "lca_algebraic"
 version = "1.3dev12"
 
 description = "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"
 license = { text = "BSD" }
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 
 authors = [
   { name = "OIE - Mines ParisTech", email = "raphael.jolivet@mines-paristech.fr" }
@@ -55,7 +55,7 @@ lca_algebraic = ["README.md"]
 
 [tool.tox]
 requires = ["tox>=4"]
-env_list = ["py310", "py311", "py312"]
+env_list = ["py310", "py311", "py312", "py313"]
 
 [tool.tox.env_run_base]
 description = "Run test under {base_python}"
