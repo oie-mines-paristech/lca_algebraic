@@ -13,18 +13,7 @@ from bw2data.backends import Activity
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
 from pint import Quantity, Unit
-from sympy import (
-    Add,
-    Basic,
-    Expr,
-    ImmutableMatrix,
-    ImmutableSparseMatrix,
-    MatrixBase,
-    Mul,
-    MutableSparseMatrix,
-    lambdify,
-    parse_expr,
-)
+from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, lambdify, parse_expr
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
@@ -43,8 +32,8 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
-from .edges_utils import compute_edge_impacts, get_edge_methods_metadata
 from .log import debug, info, logger, warn
+from .matrix import ActMatrix, invert
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
@@ -187,17 +176,6 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
                 for method in methods
                 if any(proxy_act for proxy_act in proxy_acts.values() if (proxy_act, method) not in cache.data)
             )
-
-            # Compute lcia of edge methods separately
-            edge_metadata = get_edge_methods_metadata()
-            edge_methods = [method for method in remaining_methods if method in edge_metadata]
-            remaining_methods = [method for method in remaining_methods if method not in edge_metadata]
-
-            for edge_method in edge_methods:
-                edge_result = compute_edge_impacts(db_name=db_name, method=edge_method, acts=remaining_acts)
-
-                for act, value in edge_result.items():
-                    cache.data[(act, edge_method)] = value
 
             if len(remaining_acts) > 0 and len(remaining_methods) > 0:
                 info(f"Computing LCA for {len(remaining_acts)} background acts on methods {remaining_methods}")
@@ -953,116 +931,6 @@ def _get_axis(act, axis_name: str):
         return re.sub("[^0-9a-zA-Z]+", "_", tag)
 
 
-class ActMatrix(defaultdict):
-    def __init__(self):
-        super().__init__(lambda: 0.0)
-        self._col_acts = list()
-        self._row_acts = list()
-
-    def __getitem__(self, key):
-        row_act, col_act = key
-        self.add_row(row_act)
-        self.add_col(col_act)
-        return super().__getitem__(key)
-
-    def __setitem__(self, key, value):
-        row_act, col_act = key
-        self.add_row(row_act)
-        self.add_col(col_act)
-        return super().__setitem__(key, value)
-
-    def add_col(self, col_act):
-        if col_act not in self._col_acts:
-            self._col_acts.append(col_act)
-            self._col_acts.sort()
-
-    def add_row(self, row_act):
-        if row_act not in self._row_acts:
-            self._row_acts.append(row_act)
-            self._row_acts.sort()
-
-    def demand_vector(self, act, value=1.0):
-        """Generate vector of len (rows) with zeros and 1 only at the index of act"""
-        act_idx = self.row_acts().index(act)
-        res = [0.0] * len(self._row_acts)
-        res[act_idx] = value
-        return ImmutableMatrix([res])
-
-    def row_acts(self):
-        return self._row_acts
-
-    def cols_acts(self):
-        return self._col_acts
-
-    def shape(self):
-        return len(self._row_acts), len(self._col_acts)
-
-    def to_sympy(self):
-        """Return an immutable sympy matrix"""
-        rows = list()
-        for row_act in self.row_acts():
-            row = list()
-            rows.append(row)
-            for col_act in self.cols_acts():
-                row.append(self.get((row_act, col_act), 0.0))
-        return ImmutableSparseMatrix(rows)
-
-    def to_dataframe(self):
-        res = dict()
-        for row_act in self.row_acts():
-            res[str(row_act)] = {str(col_act): self[(row_act, col_act)] for col_act in self.cols_acts()}
-        return pd.DataFrame(res)
-
-    def __repr__(self):
-        return self.to_dataframe().__repr__()
-
-
-class LoopException(Exception):
-    pass
-
-
-def _invert(mat: MatrixBase):
-    """Invert a matrix representing a DAG without loops, by recursion"""
-    n, _ = mat.shape
-
-    done_rows = set()
-    res = MutableSparseMatrix.zeros(*mat.shape)
-
-    def _process_row(row_idx, stack=set()):
-        """Recursively process a row"""
-        if row_idx in done_rows:
-            return res[row_idx, :]
-        if row_idx in stack:
-            raise LoopException(f"Loop found in matrice on row {row_idx}")
-        stack = stack | {row_idx}
-
-        # Factor is 1 / self_value
-        factor = 1 / mat[row_idx, row_idx]
-
-        res[row_idx, row_idx] = factor
-
-        for col_idx in range(n):
-            # Self col or null col => exit
-            if (col_idx == row_idx) or (mat[row_idx, col_idx] == 0) or (mat[row_idx, col_idx] == 0.0):
-                continue
-
-            # Recursively get the row to add, multiply by current cell and factor
-            row_to_add = mat[row_idx, col_idx] * _process_row(col_idx, stack=stack)
-            if (factor != 1) and (factor != 1.0):
-                row_to_add = row_to_add * factor
-
-            # Accumulate to output (substract)
-            res[row_idx, :] -= row_to_add
-
-        done_rows.add(row_idx)
-        return res[row_idx, :]
-
-    for i in range(n):
-        _process_row(i)
-
-    return res
-
-
 def _force_reduce(expr):
     """Force reduction of sum and multiplication : usefull for AxisDict"""
     if isinstance(expr, AxisDict):
@@ -1102,16 +970,8 @@ def _solve_expression(
         # Case of empty matrix
         res_mat = ImmutableMatrix([[]])
     else:
-        try:
-            inv_A = _invert(A)
-        except LoopException:
-            warn("Matrix had loop in it. Using LUSolve instead. Might take a while ...")
-            # Inverse using LU method : the matrix might be triangular or almost
-            # inv_A = A.inv(method="LU")
-
-            # Inverse A using LU method and skipping the test of inversability
-            # See : https://github.com/sympy/sympy/issues/28723
-            inv_A = A.LUsolve(A.eye(A.rows))
+        # Use fast inversion of sparse matrices
+        inv_A = invert(A)
 
         res_mat = inv_A * B
 

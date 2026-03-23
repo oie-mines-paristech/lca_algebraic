@@ -1,4 +1,4 @@
-from sympy import symbols, lambdify, simplify
+from sympy import symbols, lambdify, simplify, Mul
 
 from lca_algebraic.axis_dict import AxisDict, NO_AXIS
 
@@ -90,3 +90,15 @@ def test_lambdify():
     res = lambd(2)
 
     assert res == {a: 4}
+
+
+# def test_lambdify_factor():
+#    a, b = symbols("a b")
+# a1 = AxisDict({a: b})
+#    expr = Mul(2, a1)
+#
+#    lambd = lambdify([b], expr)
+#
+#    res = lambd(2)
+#
+#    assert res == {a: 8}

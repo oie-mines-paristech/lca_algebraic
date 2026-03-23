@@ -339,6 +339,8 @@ class ActivityExtended(Activity):
 
     def _update_exchange(self, exchange: ExchangeDataset, updates):
         """Update a single exchange. Take care of setting amount / formula accordingly"""
+        updates = updates.copy()
+
         amount = updates.pop("amount") if "amount" in updates else None
 
         if amount is not None:

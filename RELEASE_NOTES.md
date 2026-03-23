@@ -7,6 +7,7 @@
 * Add 'factorize_static_bg' option in Settings to factorize static background exchange during compute_impact.
   This improves performance on large model copying big Background activities in the foreground and changing a few things only
 * Delete chemical formula from "formula" field when doing copyActivity() : This was caugin bug since ei310
+* Fix bug #54 : updateExchanges() unexpected behaviour with '*' wildcard and 'old_amount' parameter 
 
 # **
 
