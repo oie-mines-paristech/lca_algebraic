@@ -809,5 +809,20 @@ def test_bg_loops(data):
     assert abs(fg_impacts - bg_impacts) < 1e-8
 
 
+def test_wildcard_update_exchanged_with_old_amount(data):
+    """TEsting this bug :
+    https://github.com/oie-mines-paristech/lca_algebraic/issues/54"""
+
+    act = newActivity(BG_DB, "test_act", "kg", {data.bg_act1: 1.0, data.bg_act2: 2.0})
+
+    # Will match on both exchanges
+    act.updateExchanges({"bg_*": old_amount * 2})
+
+    exchanges = act.listExchanges()
+    exchanges = {ex[0]: ex[2] for ex in exchanges}
+
+    assert exchanges == dict(bg_act1=2.0, bg_act2=4.0)
+
+
 if __name__ == "__main__":
     pytest.main(sys.argv)
