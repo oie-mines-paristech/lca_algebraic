@@ -19,6 +19,7 @@ from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, parse_expr
 from tabulate import tabulate
 
+from lca_algebraic.axis_dict import AxisDict
 from lca_algebraic.base_utils import ExceptionContext, ValueOrExpression
 from lca_algebraic.log import logger
 
@@ -1251,6 +1252,7 @@ def _expanded_names_to_names(param_names):
 
 def _parse_formula(formula):
     local_dict = {x[0].name: x[0] for x in _user_functions.values()}
+    local_dict["AxisDict"] = AxisDict
     return parse_expr(formula, local_dict=local_dict | _param_registry().as_dict())
 
 
