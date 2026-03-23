@@ -6,6 +6,7 @@
 ![Python 3.10](https://img.shields.io/badge/python-3.10-blue) 
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![Python 3.13](https://img.shields.io/badge/python-3.12-blue)
 
 [![Brightway 2.4](https://img.shields.io/badge/brightway-2.4-blue)](https://docs.brightway.dev/en/legacy/index.html)
 [![Brightway 2.5](https://img.shields.io/badge/brightway-2.5-blue)](https://docs.brightway.dev/en/latest/)

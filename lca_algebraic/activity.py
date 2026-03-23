@@ -1,13 +1,12 @@
 import re
 from collections import defaultdict
-from copy import copy, deepcopy
+from copy import copy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
 import bw2data
 import pandas as pd
-from bw2data import labels
-from bw2data.backends import Activity, ExchangeDataset
+from bw2data.backends import Activity, Exchange, ExchangeDataset
 from bw2data.backends.utils import dict_as_exchangedataset
 from bw2data.configuration import labels
 from pint import DimensionalityError, Quantity
@@ -18,6 +17,7 @@ from lca_algebraic.database import (
     _find_biosphere_db,
     _isForeground,
     _listTechBackgroundDbs,
+    atomic,
     with_db_context,
 )
 from lca_algebraic.params import (
@@ -116,6 +116,9 @@ class ActivityExtended(Activity):
             if input:
                 return input == exch["input"]
 
+            # No criteria given : match on everything
+            return True
+
         exchs = list(exch for exch in self.non_production_exchanges() if match(exch))
         if len(exchs) == 0:
             raise Exception("Found no exchange matching name : %s" % name)
@@ -139,16 +142,19 @@ class ActivityExtended(Activity):
             output_exchange.save()
 
     @with_db_context
-    def updateExchanges(self, updates: Dict[str, any] = dict()):
+    @atomic
+    def updateExchanges(self, updates: Dict[Union[str, Activity], any] = dict()):
         """Update existing exchanges, by name.
 
         Parameters
         ----------
-        updates : Dict of "<exchange name>" => <new value>
+        updates : Dict of "<exchange name>|activity" => <new value>
 
             <exchange name> can be suffixed with '#LOCATION' to distinguish several exchanges with same name. \
             It can also be suffixed by '*' to match an exchange starting with this name. Location can be a negative match '!'
             Example : "Wood*#!RoW" matches any exchange with name  containing Wood, and location not "RoW"
+
+            The key can also be the target activity itself.
 
             <New Value>  : either single value (float or SympPy expression) for updating only amount, \
                 or activity for updating only input,
@@ -156,8 +162,15 @@ class ActivityExtended(Activity):
             The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
         """
 
+        if not _isForeground(self["database"]):
+            msg = f"You are updating a background activity in {self['database']}. Use copyActivity() in a foreground db instead."
+            if Settings.strict_mode:
+                raise Exception(msg)
+            else:
+                warn(msg)
+
         # Update exchanges
-        for ex_name, updates in updates.items():
+        for ex_target_or_name, updates in updates.items():
             # Build input & amount
             if updates is not None and not isinstance(updates, dict):
                 if isinstance(updates, Activity):
@@ -165,10 +178,15 @@ class ActivityExtended(Activity):
                 else:
                     updates = dict(amount=updates)
 
-            # Find echzanges matching name
-            matching_exchanges = self.getExchange(ex_name, single="*" not in ex_name)
-            if not isinstance(matching_exchanges, list):
-                matching_exchanges = [matching_exchanges]
+            if isinstance(ex_target_or_name, Activity):
+                matching_exchanges = self.findExchangesByInput(ex_target_or_name)
+            elif isinstance(ex_target_or_name, str):
+                # Find echanges matching name
+                matching_exchanges = self.getExchange(ex_target_or_name, single="*" not in ex_target_or_name)
+                if not isinstance(matching_exchanges, list):
+                    matching_exchanges = [matching_exchanges]
+            else:
+                raise Exception(f"Expected Activity or str, but got {type(ex_target_or_name)}")
 
             # Loop on matching echanges to update
             for exch in matching_exchanges:
@@ -180,7 +198,13 @@ class ActivityExtended(Activity):
                 else:
                     self._update_exchange(exch, updates)
 
-    def deleteExchanges(self, name, single=True):
+    def findExchangesByInput(self, inputAct: Activity) -> list[Exchange]:
+        res = list(ex for ex in self.exchanges() if ex["input"] == inputAct.key)
+        if len(res) == 0:
+            raise Exception(f"Found no exchange with input {inputAct} in {self}")
+        return res
+
+    def deleteExchanges(self, name=None, single=True):
         """Remove matching exchanges
 
         Parameters
@@ -191,6 +215,10 @@ class ActivityExtended(Activity):
         single:
             If true (default) expect to only delete a single exchange
         """
+
+        if name is None:
+            single = False
+
         exchs = self.getExchange(name, single=single)
         if not isinstance(exchs, list):
             exchs = [exchs]
@@ -259,7 +287,7 @@ class ActivityExtended(Activity):
             raise Exception(f"Units should be the same in a switch activity {exchange_unit} != {act_unit}")
 
         # Using 'old_amount' ? => replace with requested unit
-        if amount.units == u.old_unit:
+        if is_equivalent(amount.units, u.old_unit):
             amount = u.Quantity(amount.magnitude, exchange_unit)
 
         # We try to transform either to the exchange unit, or ex_unit/act_unit
@@ -311,6 +339,8 @@ class ActivityExtended(Activity):
 
     def _update_exchange(self, exchange: ExchangeDataset, updates):
         """Update a single exchange. Take care of setting amount / formula accordingly"""
+        updates = updates.copy()
+
         amount = updates.pop("amount") if "amount" in updates else None
 
         if amount is not None:
@@ -375,6 +405,7 @@ def findActivity(
     db_name=None,
     single=True,
     case_sensitive=False,
+    reference_product=None,
     unit=None,
     limit=1500,
 ) -> ActivityExtended:
@@ -391,6 +422,7 @@ def findActivity(
     :param single: If False, returns a list of matching activities. If True (default) fails if more than one activity fits.
     :param case_sensitive: If True (default) ignore the case
     :param unit: If provided, only match activities with provided unit
+    :param reference_product: If provided, only match activities with provided reference product
     :return: Either a single activity (if single is True) or a list of activities, possibly empty.
     """
 
@@ -419,31 +451,48 @@ def findActivity(
             return False
         if unit and not unit == act["unit"]:
             return False
-        if category and category not in act["categories"]:
+        if reference_product and not reference_product == act.get("reference product"):
             return False
-        if categories and not tuple(categories) == tuple(act["categories"]):
+
+        actual_cats = tuple(act.get("categories", []))
+
+        if category and category not in actual_cats:
             return False
+        if categories and not tuple(categories) == actual_cats:
+            return False
+
         return True
 
     if code:
         acts = [getActByCode(db_name, code)]
     else:
-        search = name if name is not None else in_name
 
-        search = search.lower()
-        search = search.replace(",", " ")
+        def search_with_limit(limit):
+            search = name if name is not None else in_name
 
-        # Find candidates via index
-        # candidates = _find_candidates(db_name, name_key)
-        candidates = _getDb(db_name).search(search, limit=limit)
+            search = search.lower()
+            search = search.replace(",", " ")
 
-        if len(candidates) == 0:
-            # Try again removing strange caracters
-            search = re.sub(r"\w*[^a-zA-Z ]+\w*", " ", search)
+            # Find candidates via index
+            # candidates = _find_candidates(db_name, name_key)
             candidates = _getDb(db_name).search(search, limit=limit)
 
-        # Exact match
-        acts = list(filter(act_filter, candidates))
+            if len(candidates) == 0:
+                # Try again removing strange caracters
+                search = re.sub(r"\w*[^a-zA-Z ]+\w*", " ", search)
+                candidates = _getDb(db_name).search(search, limit=limit)
+
+            # Exact match
+            return list(filter(act_filter, candidates))
+
+        # Small limits first for single search : improve performance
+        limits = [20, 100, limit] if single else [limit]
+
+        # First try with small set, then increase limit
+        for limit in limits:
+            acts = search_with_limit(limit)
+            if len(acts) > 0:
+                break
 
     if single and len(acts) == 0:
         any_name = name if name else in_name
@@ -489,10 +538,11 @@ def _equals(val1: ValueOrExpression, val2: ValueOrExpression):
 
 def _newAct(db_name, code):
     if not _isForeground(db_name):
-        warn(
-            "WARNING: You are creating activity in background DB. You should only do it in your foreground / user DB : ",
-            db_name,
-        )
+        msg = f"You are creating activity in background DB {db_name}. Use copyActivity() in a foreground db instead."
+        if Settings.strict_mode:
+            raise Exception(msg)
+        else:
+            warn(msg)
 
     db = _getDb(db_name)
     # Already present : delete it ?
@@ -574,6 +624,7 @@ def newActivity(
     return act
 
 
+@atomic
 def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
@@ -593,7 +644,6 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         The new activity. note that is is flagged with the custom property **inherited_from**, providing the full key of the
         initial activity.
     """
-
     res = _newAct(db_name, code)
 
     # Same code if not provided
@@ -618,6 +668,11 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
             data["output"] = res.key
         if data["input"] == activity.key:
             data["input"] = res.key
+
+        # Chemical formulas might be in ecoinvent technosphere
+        # We don't want them
+        if "formula" in data:
+            del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 
     if withExchanges:

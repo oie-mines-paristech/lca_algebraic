@@ -1,0 +1,17 @@
+{
+  "name": "Test edge method - bio1",
+  "version": "1.0",
+  "unit": "kg",
+  "exchanges": [
+    {
+      "supplier": {
+        "name": "bio1",
+        "matrix": "biosphere"
+      },
+      "consumer": {
+        "matrix": "technosphere"
+      },
+      "value": 1.0
+    }
+  ]
+}

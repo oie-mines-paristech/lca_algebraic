@@ -1,6 +1,7 @@
 #
 # This file defines several utility functions above brightway2 to be used by notebooks
 #
+import numpy as np
 
 from .activity import *
 from .base_utils import *
@@ -40,3 +41,6 @@ except ImportError:
 # Global print options
 np.set_printoptions(threshold=30)
 pd.options.display.float_format = "{:,g}".format
+
+# Fix np.NaN for numpy2
+np.NaN = np.nan
