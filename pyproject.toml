@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lca_algebraic"
-version = "1.4"
+name = "lca_algebraic_dev"
+version = "1.4.dev0"
 
 description = "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"

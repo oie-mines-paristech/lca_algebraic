@@ -55,7 +55,13 @@ def get_last_update(db_name):
     def last_update(db_name):
         return datetime.fromisoformat(bw.databases[db_name]["modified"])
 
-    res = max(last_update(db) for db in get_dependant_dbs(db_name))
+    dependant_dbs = get_dependant_dbs(db_name)
+
+    if len(dependant_dbs) == 0:
+        logger.warning(f"Fonud no dependant dbs found for {db_name}. Returning empty update time")
+        return 0
+
+    res = max(last_update(db) for db in dependant_dbs)
     return res.timestamp()
 
 
