@@ -224,8 +224,6 @@ class LambdaWithParamNames:
     with the list of requirement parameters and the source expression
     """
 
-    _use_sympy_cse = False
-
     def __init__(self, expr: Expr, expanded_params=None, params=None, sobols=None):
         """Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
@@ -411,7 +409,7 @@ def _lambdify(expr: Basic, expanded_params):
     modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
 
     if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=Settings.lambdify_cse)
         return LambdWrapper(lambd=lambd)
 
     else:

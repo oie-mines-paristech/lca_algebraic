@@ -13,6 +13,9 @@ class Settings:
     # When activted, forbids any creation or update in background database
     strict_mode: bool = False
 
+    # Use "Common Sub expression patterns" in sympy lambdify
+    lambdify_cse = True
+
 
 # Flag used on Db to set it as proxy
 PROXY_DB_FLAG = "isProxy"

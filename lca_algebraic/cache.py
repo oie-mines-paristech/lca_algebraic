@@ -125,7 +125,7 @@ class SyncDict(MutableMapping):
             try:
                 self._data = load(f)
             except Exception as e:
-                logger.warn(f"Error while loading cache {self._filename()}: {e}. Ignoring")
+                logger.error(f"Error while loading cache {self._filename()}: {e}. Ignoring and overriding it")
 
         self.last_update = os.path.getmtime(self._filename())
 

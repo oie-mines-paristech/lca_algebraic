@@ -2,6 +2,7 @@
 
 * Added check to prevent the usage of underscore in enum options : as they break upon loading parameters from Brightway project
 * Move from pickle to "dill" to serialize lambda functions rather than lambdify them again at load of cache.
+* Activate CSE (common subexpression pattersn) in labmdify by default
 
 # 1.4
 
