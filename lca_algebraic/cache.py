@@ -3,10 +3,10 @@ import time
 from collections.abc import MutableMapping
 from datetime import datetime
 from os import path
-from pickle import Pickler, load
 from typing import Dict, Tuple
 
 import brightway2 as bw
+from dill import Pickler, load
 from sympy.core.function import UndefinedFunction
 
 from .database import _getMeta

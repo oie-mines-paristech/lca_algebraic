@@ -307,20 +307,6 @@ class LambdaWithParamNames:
     def _repr_latex_(self):
         return self.expr._repr_latex_()
 
-    def __getstate__(self):
-        """For pickling/unpicling"""
-        state = self.__dict__.copy()
-        # Retirer les attributs temporaires
-        if "lambd" in state:
-            del state["lambd"]
-        return state
-
-    def __setstate__(self, state):
-        """For pickling/unpicling"""
-        self.__dict__.update(state)
-
-        self.lambd = _lambdify(self.expr, self.expanded_params)
-
 
 def _preMultiLCAAlgebric(
     model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
@@ -400,6 +386,21 @@ def _free_symbols(expr: Basic):
         return set()
 
 
+class LambdWrapper:
+    """Wrapper of lambda function. required for pickling in cache"""
+
+    def __init__(self, lambd):
+        self.lambd = lambd
+
+    def __call__(self, *args, **kwargs):
+        res = self.lambd(*args, **kwargs)
+        if isinstance(res, dict):
+            # Transform key symbols into Str
+            return {str(k): v for k, v in res.items()}
+        else:
+            return res
+
+
 def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
 
@@ -411,16 +412,7 @@ def _lambdify(expr: Basic, expanded_params):
 
     if isinstance(expr, Basic):
         lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
-
-        def func(*arg, **kwargs):
-            res = lambd(*arg, **kwargs)
-            if isinstance(res, dict):
-                # Transform key symbols into Str
-                return {str(k): v for k, v in res.items()}
-            else:
-                return res
-
-        return func
+        return LambdWrapper(lambd=lambd)
 
     else:
         # Not an expression : return static func

@@ -17,3 +17,4 @@ pypardiso
 pyarrow
 pint==0.23
 typing-extensions
+dill

@@ -337,6 +337,10 @@ class EnumParam(ParamDef):
             self.values = list(values)
         self.sum = sum(self.weights.values())
 
+        for value in self.values:
+            if "_" in value:
+                raise ValueError(f"Bad option name '{value}'. Underscore re not allowed : they prevent proper reload from db")
+
     def expandParams(self, currValue=None):
         """
         Return a dictionarry of single enum values as sympy symbols, with only a single one set to 1.

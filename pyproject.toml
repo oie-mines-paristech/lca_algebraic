@@ -26,6 +26,7 @@ classifiers = [
 
 dependencies = [
   "tabulate",
+  "dill",
   "ipywidgets",
   "pandas",
   "pyarrow",

@@ -1,3 +1,8 @@
+# *
+
+* Added check to prevent the usage of underscore in enum options : as they break upon loading parameters from Brightway project
+* Move from pickle to "dill" to serialize lambda functions rather than lambdify them again at load of cache.
+
 # 1.4
 
 * Added parameter 'reference_product' to findActivity
