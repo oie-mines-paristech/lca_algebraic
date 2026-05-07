@@ -31,7 +31,7 @@ from .base_utils import (
 )
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
-from .log import debug, info, logger, warn
+from .log import info, logger, warn
 from .matrix import ActMatrix, invert
 from .methods import method_name, method_unit
 from .params import (
@@ -791,9 +791,10 @@ def compute_impacts(
                 df.loc["*sum*"] = df.sum(numeric_only=True)
 
             elif len(list_params) > 0:
-                for k, vals in list_params.items():
-                    df[k] = vals
-                df = df.set_index(list(list_params.keys()))
+                # Use param values as index
+                df.index = pd.MultiIndex.from_frame(pd.DataFrame(list_params))
+                if df.index.nlevels == 1:
+                    df.index = df.index.get_level_values(0)
 
             else:
                 # Single output ? => give the single row the name of the model activity
@@ -877,12 +878,14 @@ def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtend
     return res
 
 
-def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
+def _replace_fixed_params(expr: Expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
     """Replace fixed params with their value."""
     if not isinstance(expr, Basic):
         return expr
 
     sub = {key: val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
+    if len(sub) == 0:
+        return expr
     sub = _toSymbolDict(sub)
     return expr.xreplace(sub)
 
@@ -918,20 +921,20 @@ def _force_reduce(expr):
     return expr
 
 
-def _clean_expr(expr):
-    expr = _force_reduce(expr)
+def replace_fixed_params(expr: Expr):
     return _replace_fixed_params(expr, _fixed_params().values())
 
 
 def _solve_expression(
-    fg_matrix: ActMatrix, bg_matrix: ActMatrix
+    fg_matrix: ActMatrix, bg_matrix: ActMatrix, with_axis: bool
 ) -> Dict[ActivityExtended, Dict[ActivityExtended, ValueOrExpression]]:
     """solve the foreground inventory. Retrurn dict o"""
 
     A = fg_matrix.to_sympy()
     B = bg_matrix.to_sympy()
 
-    debug(f"FG matrix : {A}")
+    A = replace_fixed_params(A)
+    B = replace_fixed_params(B)
 
     # BG
     if len(bg_matrix.cols_acts()) == 0:
@@ -952,7 +955,11 @@ def _solve_expression(
             val = res_mat[i_fg, i_bg]
             if val == 0:
                 continue
-            row[bg_act] = _clean_expr(val)
+
+            if with_axis:
+                val = _force_reduce(val)
+
+            row[bg_act] = val
 
     return res
 
@@ -1037,7 +1044,7 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
         fill_matrices_rec(act)
 
     # solve the linear equation algebically
-    return _solve_expression(fg_matrix, bg_matrix)
+    return _solve_expression(fg_matrix, bg_matrix, with_axis=axis is not None)
 
 
 def _reverse_dict(dic):

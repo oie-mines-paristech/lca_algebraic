@@ -16,6 +16,10 @@ class Settings:
     # Use "Common Sub expression patterns" in sympy lambdify
     lambdify_cse = True
 
+    # If true, caches are flushed automatically but more frequently
+    # If set to flase, you shoudl ensure flushing caches yourself
+    auto_flush = True
+
 
 # Flag used on Db to set it as proxy
 PROXY_DB_FLAG = "isProxy"

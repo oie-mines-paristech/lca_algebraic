@@ -10,7 +10,7 @@ from dill import Pickler, load
 from sympy.core.function import UndefinedFunction
 
 from .database import _getMeta
-from .log import logger
+from .log import info, logger
 from .settings import PROXY_DB_FLAG, Settings
 
 LCIA_CACHE = "lcia"
@@ -35,6 +35,11 @@ def last_db_update():
 
 def disable_cache():
     Settings.cache_enabled = False
+
+
+def flush_caches():
+    for cache in _Caches.caches.values():
+        cache.sync()
 
 
 def get_dependant_dbs(db_name):
@@ -144,6 +149,8 @@ class SyncDict(MutableMapping):
         if self.last_update <= file_mtime:
             return
 
+        info(f"Flushing cache {self.name} / {self.db_name}")
+
         tmp = self._filename() + ".tmp"
         with open(tmp, "wb") as f:
             pickler = MyPickler(f)
@@ -185,8 +192,9 @@ class _CacheDict:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Save data on exit
-        self.data.sync()
+        # Save data when exiting the context manager (or only once at exit)
+        if Settings.auto_flush:
+            self.data.sync()
 
 
 class LCIACache(_CacheDict):
