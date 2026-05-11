@@ -20,14 +20,17 @@ from sympy import Basic, Expr, Symbol, parse_expr
 from tabulate import tabulate
 
 from lca_algebraic.axis_dict import AxisDict
-from lca_algebraic.base_utils import ExceptionContext, ValueOrExpression
-from lca_algebraic.log import logger
-
-from .base_utils import _snake2camel, _user_functions, as_np_array
-from .database import DbContext
-from .log import warn
-from .settings import Settings
-from .units import unit_registry as u
+from lca_algebraic.base_utils import (
+    ExceptionContext,
+    ValueOrExpression,
+    _snake2camel,
+    _user_functions,
+    as_np_array,
+)
+from lca_algebraic.database import DbContext
+from lca_algebraic.log import logger, warn
+from lca_algebraic.settings import Settings
+from lca_algebraic.units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
@@ -1144,7 +1147,7 @@ def list_parameters(name_type=NameType.NAME, as_dataframe=False):
 
 def compute_expr_value(expr: Expr, param_values: Dict):
     """Compute value of an expression for given set of parameter values"""
-    from .lca import _lambdify
+    from lca_algebraic.lambda_expression import _lambdify
 
     free_symbols = [str(symbol) for symbol in expr.free_symbols]
     lambd = _lambdify(expr, free_symbols)
