@@ -1157,7 +1157,6 @@ def compute_expr_value(expr: Expr, param_values: Dict):
     values = {name: val for name, val in values.items() if name in free_symbols}
 
     return lambd(**values)
-    # return expr.evalf(subs=_completeParamValues(param_values, required_params=required_params))
 
 
 def freezeParams(db_name, **params: Dict[str, float]):

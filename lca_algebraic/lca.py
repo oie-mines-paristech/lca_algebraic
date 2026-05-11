@@ -12,7 +12,16 @@ from bw2data.backends.peewee import Activity
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
-from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, lambdify, parse_expr
+from sympy import (
+    Add,
+    Basic,
+    Expr,
+    ImmutableMatrix,
+    MatrixBase,
+    Mul,
+    lambdify,
+    parse_expr,
+)
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
 
@@ -188,22 +197,26 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
         # Already Bg activity ?
         return {model: 1}
 
-    # Try to load from cache
+    # Key
+    base_key = (axis, "factorized") if Settings.factorize_static_bg else (axis)
+
+    # Cache around matrix computation
     with ExprCache(db_name) as cache:
-        key = (axis, "factorized") if Settings.factorize_static_bg else (axis)
+        matrix_key = (base_key, "matrices")
 
-        if key not in cache.data:
-            logger.debug(f"{db_name} was not in expression cache, computing...")
+        if matrix_key not in cache.data:
+            logger.debug(f"{db_name} matrices were not in expression cache, computing...")
+            matrices = _computeMatrices(db_name=db_name, axis=axis)
+            cache.data[matrix_key] = matrices
 
-            res_by_act = _computeDbExpressions(db_name=db_name, axis=axis)
+        matrices: MatricesResult = cache.data[matrix_key]
 
-            cache.data[key] = res_by_act
-        else:
-            logger.debug(f"{model} found in expression cache")
+        # Compute expression for a single fg model
+        model_key = (base_key, "model", str(model))
+        if model_key not in cache.data:
+            cache.data[model_key] = matrices.compute_expr_for_model(model, axis is not None)
 
-        res_by_act = cache.data[key]
-
-    return res_by_act[model]
+        return cache.data[model_key]
 
 
 @dataclass
@@ -925,46 +938,39 @@ def replace_fixed_params(expr: Expr):
     return _replace_fixed_params(expr, _fixed_params().values())
 
 
-def _solve_expression(
-    fg_matrix: ActMatrix, bg_matrix: ActMatrix, with_axis: bool
-) -> Dict[ActivityExtended, Dict[ActivityExtended, ValueOrExpression]]:
-    """solve the foreground inventory. Retrurn dict o"""
+@dataclass
+class MatricesResult:
+    bg_matrix: MatrixBase
+    inv_fg: MatrixBase
+    fg_acts: List[Activity]
+    bg_acts: List[Activity]
 
-    A = fg_matrix.to_sympy()
-    B = bg_matrix.to_sympy()
+    def compute_expr_for_model(self, model: Activity, with_axis: bool) -> Dict[Activity, ValueOrExpression]:
+        """Compute dict of bg_act => model for foreground model"""
 
-    A = replace_fixed_params(A)
-    B = replace_fixed_params(B)
+        model_idx = self.fg_acts.index(model)
 
-    # BG
-    if len(bg_matrix.cols_acts()) == 0:
-        # Case of empty matrix
-        res_mat = ImmutableMatrix([[]])
-    else:
-        # Use fast inversion of sparse matrices
-        inv_A = invert(A)
+        fg_col = self.inv_fg.row(model_idx)
 
-        res_mat = inv_A * B
+        row = fg_col * self.bg_matrix
 
-    # Transform to dict of dict
-    res = dict()
-    for i_fg, fg_act in enumerate(fg_matrix.cols_acts()):
-        row = dict()
-        res[fg_act] = row
-        for i_bg, bg_act in enumerate(bg_matrix.cols_acts()):
-            val = res_mat[i_fg, i_bg]
+        # Transform to dict
+        res = dict()
+
+        for i_bg, bg_act in enumerate(self.bg_acts):
+            val = row[i_bg]
             if val == 0:
                 continue
 
             if with_axis:
                 val = _force_reduce(val)
 
-            row[bg_act] = val
+            res[bg_act] = val
 
-    return res
+        return res
 
 
-def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, ValueOrExpression]]:
+def _computeMatrices(db_name, axis=None) -> MatricesResult:
     """
     Compute all expressions for a given DB
     Returns Dict[FgAct => Dict[BGAct => Expressions]]
@@ -1043,8 +1049,16 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
     for act in bw.Database(db_name):
         fill_matrices_rec(act)
 
-    # solve the linear equation algebically
-    return _solve_expression(fg_matrix, bg_matrix, with_axis=axis is not None)
+    A = fg_matrix.to_sympy()
+    A = replace_fixed_params(A)
+
+    B = bg_matrix.to_sympy()
+    B = replace_fixed_params(B)
+
+    # Invert foreground matrix
+    inv_A = invert(A)
+
+    return MatricesResult(bg_matrix=B, inv_fg=inv_A, fg_acts=fg_matrix.cols_acts(), bg_acts=bg_matrix.cols_acts())
 
 
 def _reverse_dict(dic):
