@@ -46,6 +46,7 @@ from .params import (
     freezeParams,
 )
 from .settings import PROXY_DB_FLAG, temp_settings
+from .sympy_utils import replace_and_cleanup
 
 # Symbol use in lambda expression to designate impact values
 IMPACTS_SYMBOL = IndexedBase("impacts")
@@ -738,7 +739,7 @@ def _replace_fixed_params(expr: Expr, fixed_params, fixed_mode=FixedParamMode.DE
     if len(sub) == 0:
         return expr
     sub = _toSymbolDict(sub)
-    return expr.xreplace(sub)
+    return replace_and_cleanup(expr, sub)
 
 
 def _get_axis(act, axis_name: str):
@@ -792,19 +793,20 @@ class MatricesResult:
 
         row = fg_col * self.bg_matrix
 
-        expr = 0
+        add_args = []
         for i_bg, bg_act in enumerate(self.bg_acts):
             val = row[i_bg]
             if val == 0:
                 continue
-
-            if with_axis:
-                val = _force_reduce(val)
-
             # In the final expression, impacts are integrated as vectorial param : impacts[i]
-            expr += val * IMPACTS_SYMBOL[i_bg]
+            add_args.append(Mul(val, IMPACTS_SYMBOL[i_bg]))
 
-        res = LambdaExpr(expr * alpha)
+        expr = Mul(Add(*add_args), alpha)
+
+        if with_axis:
+            expr = _force_reduce(expr)
+
+        res = LambdaExpr(expr)
         res.background_activities = self.bg_acts
 
         return res

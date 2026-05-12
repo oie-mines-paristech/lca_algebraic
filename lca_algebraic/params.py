@@ -30,6 +30,7 @@ from lca_algebraic.base_utils import (
 from lca_algebraic.database import DbContext
 from lca_algebraic.log import logger, warn
 from lca_algebraic.settings import Settings
+from lca_algebraic.sympy_utils import find_symbols
 from lca_algebraic.units import unit_registry as u
 
 DEFAULT_PARAM_GROUP = "acv"
@@ -1149,7 +1150,7 @@ def compute_expr_value(expr: Expr, param_values: Dict):
     """Compute value of an expression for given set of parameter values"""
     from lca_algebraic.lambda_expression import _lambdify
 
-    free_symbols = [str(symbol) for symbol in expr.free_symbols]
+    free_symbols = [str(symbol) for symbol in find_symbols(expr)]
     lambd = _lambdify(expr, free_symbols)
 
     required_params = _expanded_names_to_names(free_symbols)

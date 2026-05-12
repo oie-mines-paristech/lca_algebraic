@@ -1,5 +1,12 @@
 # This module holds global settings
 from contextlib import contextmanager
+from enum import StrEnum
+
+
+class CSE(StrEnum):
+    NONE = "none"
+    DEFAULT = "default"  # Default sympy one
+    DAG_REFS = "dag"  # Use existing refs in DAG pexresions
 
 
 class Settings:
@@ -14,7 +21,7 @@ class Settings:
     strict_mode: bool = False
 
     # Use "Common Sub expression patterns" in sympy lambdify
-    lambdify_cse = True
+    cse_mode = CSE.DEFAULT
 
     # If true, caches are flushed automatically but more frequently
     # If set to flase, you shoudl ensure flushing caches yourself

@@ -14,7 +14,8 @@ from lca_algebraic.params import (
     _expand_params,
     _expanded_names_to_names,
 )
-from lca_algebraic.settings import Settings
+from lca_algebraic.settings import CSE, Settings
+from lca_algebraic.sympy_utils import find_cses, find_symbols
 
 
 @dataclass
@@ -135,7 +136,7 @@ def _filter_param_values(params, expanded_param_names):
 
 def _free_symbols(expr: Basic):
     if isinstance(expr, Basic):
-        return set([str(symb) for symb in expr.free_symbols if "impacts" not in str(symb)])
+        return set([str(symb) for symb in find_symbols(expr) if "impacts" not in str(symb)])
     else:
         # Static value
         return set()
@@ -165,8 +166,16 @@ def _lambdify(expr: Basic, expanded_params):
 
     modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
 
+    cse = False
+    if Settings.cse_mode == CSE.DEFAULT:
+        cse = True
+    elif Settings.cse_mode == CSE.DAG_REFS:
+        # Custom CSE method that only find exiting refs in DAG graph
+        cse = find_cses
+
     if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=Settings.lambdify_cse)
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=cse)
+
         return LambdWrapper(lambd=lambd)
 
     else:
