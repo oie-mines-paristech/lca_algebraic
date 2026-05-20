@@ -15,6 +15,7 @@ from .settings import PROXY_DB_FLAG, Settings
 
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
+MAPPING_CACHE = "mapping"
 
 
 # Overide the behaviour for pickling sympy.UndefineFunction
@@ -205,6 +206,11 @@ class LCIACache(_CacheDict):
 class ExprCache(_CacheDict):
     def __init__(self, db_name):
         super().__init__(EXPR_CACHE, db_name)
+
+
+class MappingCache(_CacheDict):
+    def __init__(self, db_name):
+        super().__init__(MAPPING_CACHE, db_name)
 
 
 def clear_caches(local=True, disk=True):

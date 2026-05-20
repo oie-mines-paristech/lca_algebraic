@@ -8,7 +8,7 @@ import brightway2 as bw
 import numpy as np
 import pandas as pd
 import sympy
-from bw2data.backends.peewee import Activity
+from bw2data.backends.peewee import Activity, ActivityDataset
 from pandas import DataFrame
 from peewee import DoesNotExist
 from pint import Quantity, Unit
@@ -29,7 +29,8 @@ from lca_algebraic.base_utils import (
 from lca_algebraic.lambda_expression import LambdaExpr
 from lca_algebraic.settings import Settings
 
-from .cache import ExprCache, LCIACache
+from . import getActByCode
+from .cache import ExprCache, LCIACache, MappingCache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
 from .log import info, logger, warn
 from .matrix import ActMatrix, invert
@@ -50,6 +51,10 @@ from .sympy_utils import replace_and_cleanup
 
 # Symbol use in lambda expression to designate impact values
 IMPACTS_SYMBOL = IndexedBase("impacts")
+
+
+# Mapping for activities for premise / scenarios
+MAPPING_KEYS = ("name", "location", "unit", "reference product")
 
 
 def register_user_function(sym, func):
@@ -217,7 +222,7 @@ def lambdify_expr(expr):
 
 
 def _preMultiLCAAlgebric(
-    model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
+    model: ActivityExtended, methods: List[MethodKey], alpha: ValueOrExpression = 1, axis: str = None, scenario: str = None
 ) -> list[LambdaExpr]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -231,12 +236,15 @@ def _preMultiLCAAlgebric(
             alpha = alpha.magnitude
 
         def _key(method):
-            return (model, axis, method, alpha)
+            key = (model, axis, method, alpha)
+            if scenario:
+                key += (scenario,)
+            return key
 
         with ExprCache(model["database"]) as cache:
             missing_methods = [method for method in methods if not _key(method) in cache.data]
             if len(missing_methods) > 0:
-                exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha)
+                exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha, scenario=scenario)
                 for method, expr in zip(missing_methods, exprs):
                     cache.data[_key(method)] = expr
 
@@ -245,7 +253,69 @@ def _preMultiLCAAlgebric(
             return list(cache.data[_key(method)] for method in methods)
 
 
-def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1) -> List[LambdaExpr]:
+def _build_mapping_key(act: Activity):
+    return tuple(act.get(attr) for attr in MAPPING_KEYS)
+
+
+def _code_by_key(db_name: str) -> Dict[Tuple, str]:
+    """List all activities of a db by their keys => code"""
+    master_key = "all_acts"
+
+    info(f"Building mapping of all activities for {db_name}")
+
+    with MappingCache(db_name) as cache:
+        if master_key not in cache.data:
+            query = (
+                ActivityDataset.select(ActivityDataset.code, ActivityDataset.data)
+                .where(ActivityDataset.database == db_name)
+                .tuples()
+            )
+
+            mapping = dict()
+            for code, data in query:
+                key = _build_mapping_key(data)
+                if key in mapping:
+                    raise Exception(f"Duplicate key {key} in {db_name}")
+                mapping[key] = code
+
+            cache.data[master_key] = mapping
+
+        return cache.data[master_key]
+
+
+def _map_activities(acts: list[Activity], target_db: str):
+    code_by_key = _code_by_key(target_db)
+
+    def _get_target_act(act):
+        key = _build_mapping_key(act)
+        code = code_by_key[key]
+        return getActByCode(target_db, code)
+
+    return {act: _get_target_act(act) for act in acts}
+
+
+def _compute_scenario_mapping(acts: list[Activity], scenario: str = None):
+    """In case a scenario is requested"""
+
+    res = dict()
+
+    for db_name, acts in _group_acts_by_db(acts).items():
+        # Not premise Db or no scenario requested ? => no mapping
+        if Settings.scenario_separator not in db_name or scenario is None:
+            # Map all activities to themselves
+            res.update({act: act for act in acts})
+
+        else:
+            prefix, _ = db_name.split(Settings.scenario_separator)
+            target_db = prefix + Settings.scenario_separator + scenario
+            res.update(_map_activities(acts, target_db))
+
+    return res
+
+
+def _modelToExpr(
+    model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1, scenario: str = None
+) -> List[LambdaExpr]:
     """
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -256,13 +326,17 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: Va
 
     generic_lambda_expr = _actToLambdaExpr(model, axis=axis, alpha=alpha)
 
+    # Possibly map bg activities to another target scenario db
+    act_mapping = _compute_scenario_mapping(generic_lambda_expr.background_activities, scenario=scenario)
+
     # Compute LCA for background activities
-    all_impacts = _multiLCAWithCache(generic_lambda_expr.background_activities, methods)
+    all_impacts = _multiLCAWithCache(act_mapping.values(), methods)
 
     res = list()
 
     for method in methods:
-        impacts = {bg_act: all_impacts[bg_act, method] for bg_act in generic_lambda_expr.background_activities}
+        impacts = {bg_act: all_impacts[target_act, method] for bg_act, target_act in act_mapping.items()}
+
         res.append(generic_lambda_expr.with_impacts(impacts))
 
     return res
@@ -494,12 +568,18 @@ def compute_inventory(
 
 
 def compute_impacts(
-    models,
-    methods,
-    axis=None,
-    functional_unit=1,
+    models: Union[
+        Activity,
+        List[Activity],
+        List[Tuple[Activity, float]],
+        Dict[Activity, float],
+    ],
+    methods: Union[MethodKey, List[MethodKey]],
+    axis: str = None,
+    functional_unit: float = 1,
     return_params=False,
     description=None,
+    scenario: str = None,
     **params,
 ):
     """
@@ -519,7 +599,7 @@ def compute_impacts(
         In case of several models, you cannot use list of parameters
 
     methods :
-        List of methods / impacts to consider
+        Single method or list of methods / impacts to consider
 
     axis:
         Designates the name of a custom attribute of foreground activities.
@@ -533,6 +613,9 @@ def compute_impacts(
         Values can be either single float values, list or ndarray of values.
         In the later case, all parameters should have the same number of values.
         Paremeters that are not provided will have their default value set.
+
+    scenario:
+        Premise scenario to target (made of model, pathway and year)
 
     functional_unit:
         Quantity (static or Sympy formula) by which to divide impacts. Optional, 1 by default.
@@ -600,7 +683,7 @@ def compute_impacts(
             if functional_unit != 1:
                 alpha = alpha / functional_unit
 
-            lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
+            lambdas = _preMultiLCAAlgebric(model, methods, scenario=scenario, alpha=alpha, axis=axis)
 
             unit: Optional[Unit] = functional_unit.units if isinstance(functional_unit, Quantity) else None
 

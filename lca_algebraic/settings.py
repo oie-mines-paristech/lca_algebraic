@@ -27,6 +27,10 @@ class Settings:
     # If set to flase, you shoudl ensure flushing caches yourself
     auto_flush = True
 
+    # Separator considered in database name for scenarios
+    # You may chose another one with several safer catacters like "__" or "-scenario-"
+    scenario_separator = "#"
+
 
 # Flag used on Db to set it as proxy
 PROXY_DB_FLAG = "isProxy"
