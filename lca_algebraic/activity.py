@@ -623,7 +623,9 @@ def newActivity(
 
 
 @atomic
-def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
+def copyActivity(
+    db_name, activity: ActivityExtended, code=None, withExchanges=True, input_mapping=None, **kwargs
+) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
 
@@ -666,6 +668,9 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
             data["output"] = res.key
         if data["input"] == activity.key:
             data["input"] = res.key
+        if input_mapping and data["input"] in input_mapping:
+            # Input mapping, used to migrate proxy db linked to premise scenarios
+            data["input"] = input_mapping[data["input"]]
 
         # Chemical formulas might be in ecoinvent technosphere
         # We don't want them

@@ -29,8 +29,14 @@ from lca_algebraic.base_utils import (
 from lca_algebraic.lambda_expression import LambdaExpr
 from lca_algebraic.settings import Settings
 
-from . import getActByCode
-from .cache import ExprCache, LCIACache, MappingCache
+from . import atomic, copyActivity, getActByCode, resetDb
+from .cache import (
+    ExprCache,
+    LCIACache,
+    MappingCache,
+    get_dependant_dbs,
+    get_last_update,
+)
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
 from .log import info, logger, warn
 from .matrix import ActMatrix, invert
@@ -257,8 +263,27 @@ def _build_mapping_key(act: Activity):
     return tuple(act.get(attr) for attr in MAPPING_KEYS)
 
 
+def _get_dependant_scenario(db_name):
+    """Get premise scenarios of which depend this database (exchanges pointing to other dbs)"""
+    res = set()
+    for target_db in get_dependant_dbs(db_name, skip_proxy=False):
+        if target_db == db_name or Settings.scenario_separator not in target_db:
+            continue
+
+        _, scenario = target_db.split(Settings.scenario_separator)
+        res.add(scenario)
+
+    if len(res) == 0:
+        return None
+    if len(res) == 1:
+        return list(res)[0]
+
+    raise Exception(f"Database {db_name} depends on more than one premise scenarios : {res}")
+
+
 def _code_by_key(db_name: str) -> Dict[Tuple, str]:
     """List all activities of a db by their keys => code"""
+
     master_key = "all_acts"
 
     info(f"Building mapping of all activities for {db_name}")
@@ -283,12 +308,66 @@ def _code_by_key(db_name: str) -> Dict[Tuple, str]:
         return cache.data[master_key]
 
 
-def _map_activities(acts: list[Activity], target_db: str):
+def _key_to_key_mapping(source_db, dest_db):
+    """Return mapping of {(db, code) : (db, code)}"""
+
+    src_code_by_key = _code_by_key(source_db)
+    dest_code_by_key = _code_by_key(dest_db)
+    return {(source_db, src_code): (dest_db, dest_code_by_key[src_key]) for src_key, src_code in src_code_by_key.items()}
+
+
+@atomic
+def _duplicate_db_for_scenario(origin_db, target_db):
+    """Duplicate a proxy database and targets another scenario"""
+
+    # Empty the target
+    resetDb(target_db, foreground=False)
+
+    target_scenario = target_db.split(Settings.scenario_separator)[1]
+
+    # Gather all mappings
+    all_mappings = dict()
+    for dependant_db in get_dependant_dbs(origin_db, skip_proxy=False):
+        if Settings.scenario_separator not in dependant_db or dependant_db == origin_db:
+            continue
+
+        dep_db_prefix, dep_scenario = dependant_db.split(Settings.scenario_separator)
+        dep_target_db = dep_db_prefix + Settings.scenario_separator + target_scenario
+        all_mappings.update(_key_to_key_mapping(dependant_db, dep_target_db))
+
+    # Loop on activities
+    for act in bw.Database(origin_db):
+        copyActivity(db_name=target_db, activity=act, code=act["name"], input_mapping=all_mappings)
+
+
+def _map_activities(acts: list[Activity], source_db: str, target_db: str):
+    dependant_scenario = _get_dependant_scenario(source_db)
+
+    # Support for automatically creating or updating proxy db for other scenarios
+    if target_db not in bw.databases:
+        # To dependancy : this is a root premise DB : missing scenrio should not happen
+        if dependant_scenario is None:
+            raise Exception(f"Missing target database for premise scenrio  {target_db}")
+
+        info(f"Proxy database {target_db} was missing. Creating from  {source_db}")
+        _duplicate_db_for_scenario(source_db, target_db)
+
+    # Exiisting db This is a proxy db
+    # Check it did not change
+    elif dependant_scenario is not None and get_last_update(source_db) > get_last_update(target_db):
+        info(f"Proxy database {source_db} changed. Updating {target_db}")
+        _duplicate_db_for_scenario(source_db, target_db)
+
     code_by_key = _code_by_key(target_db)
 
     def _get_target_act(act):
         key = _build_mapping_key(act)
-        code = code_by_key[key]
+        try:
+            code = code_by_key[key]
+        except KeyError:
+            key_dict = {k: v for k, v in zip(MAPPING_KEYS, key)}
+            raise Exception(f"Failed to find mapping for activity {key_dict} in target db {target_db}")
+
         return getActByCode(target_db, code)
 
     return {act: _get_target_act(act) for act in acts}
@@ -306,9 +385,9 @@ def _compute_scenario_mapping(acts: list[Activity], scenario: str = None):
             res.update({act: act for act in acts})
 
         else:
-            prefix, _ = db_name.split(Settings.scenario_separator)
+            prefix, source_scenario = db_name.split(Settings.scenario_separator)
             target_db = prefix + Settings.scenario_separator + scenario
-            res.update(_map_activities(acts, target_db))
+            res.update(_map_activities(acts, db_name, target_db))
 
     return res
 
@@ -758,9 +837,12 @@ def _isBioAct(act: ActivityExtended):
     return (BIOSPHERE_PREFIX in db_name) or ("type" in act and act["type"] in ["emission", "natural resource"])
 
 
-def _getOrCreateProxyDb(db_name):
+def _getOrCreateProxyDb(db_name, scenario=None):
     """Init proxy db to biosphere if not done yet"""
     proxyname = db_name + "-proxy"
+    if scenario:
+        proxyname += Settings.scenario_separator + scenario
+
     if proxyname not in bw.databases:
         db = bw.Database(proxyname)
         db.write(dict())
@@ -769,7 +851,21 @@ def _getOrCreateProxyDb(db_name):
 
 
 def _getOrCreateProxy(act: ActivityExtended, exchanges: dict[ActivityExtended, float]):
-    proxy_db = _getOrCreateProxyDb(act["database"])
+    scenarios = set()
+    for target_act in exchanges.keys():
+        db_name = target_act["database"]
+        if Settings.scenario_separator in db_name:
+            scenario = db_name.split(Settings.scenario_separator)[1]
+            scenarios.add(scenario)
+
+    if len(scenarios) == 0:
+        scenario = None
+    elif len(scenarios) == 1:
+        scenario = list(scenarios)[0]
+    else:
+        raise Exception(f"Found several scenrios in activity to proxy : {scenarios}")
+
+    proxy_db = _getOrCreateProxyDb(act["database"], scenario=scenario)
     proxy_code = act["code"] + "#proxy"
     with temp_settings(strict_mode=False):
         try:
