@@ -20,6 +20,9 @@ class Settings:
     # When activted, forbids any creation or update in background database
     strict_mode: bool = False
 
+    # Set temporarly to true for internal tools not to trigger warnings
+    internals = False
+
     # Use "Common Sub expression patterns" in sympy lambdify
     cse_mode = CSE.DEFAULT
 

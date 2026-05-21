@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from copy import copy
 from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
@@ -228,7 +229,7 @@ def lambdify_expr(expr):
 
 
 def _preMultiLCAAlgebric(
-    model: ActivityExtended, methods: List[MethodKey], alpha: ValueOrExpression = 1, axis: str = None, scenario: str = None
+    model: ActivityExtended, methods: List[MethodKey], alpha: ValueOrExpression = 1, axis: str = None, scenario: list[str] = None
 ) -> list[LambdaExpr]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -286,8 +287,6 @@ def _code_by_key(db_name: str) -> Dict[Tuple, str]:
 
     master_key = "all_acts"
 
-    info(f"Building mapping of all activities for {db_name}")
-
     with MappingCache(db_name) as cache:
         if master_key not in cache.data:
             query = (
@@ -323,21 +322,22 @@ def _duplicate_db_for_scenario(origin_db, target_db):
     # Empty the target
     resetDb(target_db, foreground=False)
 
-    target_scenario = target_db.split(Settings.scenario_separator)[1]
+    with temp_settings(internals=True):
+        target_scenario = target_db.split(Settings.scenario_separator)[1]
 
-    # Gather all mappings
-    all_mappings = dict()
-    for dependant_db in get_dependant_dbs(origin_db, skip_proxy=False):
-        if Settings.scenario_separator not in dependant_db or dependant_db == origin_db:
-            continue
+        # Gather all mappings
+        all_mappings = dict()
+        for dependant_db in get_dependant_dbs(origin_db, skip_proxy=False):
+            if Settings.scenario_separator not in dependant_db or dependant_db == origin_db:
+                continue
 
-        dep_db_prefix, dep_scenario = dependant_db.split(Settings.scenario_separator)
-        dep_target_db = dep_db_prefix + Settings.scenario_separator + target_scenario
-        all_mappings.update(_key_to_key_mapping(dependant_db, dep_target_db))
+            dep_db_prefix, dep_scenario = dependant_db.split(Settings.scenario_separator)
+            dep_target_db = dep_db_prefix + Settings.scenario_separator + target_scenario
+            all_mappings.update(_key_to_key_mapping(dependant_db, dep_target_db))
 
-    # Loop on activities
-    for act in bw.Database(origin_db):
-        copyActivity(db_name=target_db, activity=act, code=act["name"], input_mapping=all_mappings)
+        # Loop on activities
+        for act in bw.Database(origin_db):
+            copyActivity(db_name=target_db, activity=act, code=act["name"], input_mapping=all_mappings)
 
 
 def _map_activities(acts: list[Activity], source_db: str, target_db: str):
@@ -445,6 +445,11 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False,
     """
 
     param_length = _compute_param_length(params)
+
+    first_impact = lambdas[0].impacts[0]
+    if isinstance(first_impact, (list, np.ndarray)):
+        nb_scenarios = len(first_impact)
+        param_length = max(param_length, nb_scenarios)
 
     # lambda are SymDict ?
     # If use them as number of params
@@ -646,6 +651,36 @@ def compute_inventory(
     return DataFrame(items)
 
 
+def _merge_lambda_scenarios(lambdas: list[list[LambdaExpr]]):
+    """
+    Merge impact vector from several lambda comming from several premise scenarios.
+    All the expressions are he same, only the vector of impact differs.
+    We merge several impact_vectors into a single vector of vectors
+    """
+
+    # Ensure liust (from generators)
+    lambdas = list(lambdas)
+
+    # They are all the same for all scenarios except for the impacts
+    ref_lambdas = lambdas[0]
+
+    nb_scenarios = len(lambdas)
+
+    if nb_scenarios == 1:
+        return ref_lambdas
+
+    # Copy lambda of first scennario
+    res = []
+    for imethod, expr in enumerate(ref_lambdas):
+        expr = copy(expr)
+        res.append(expr)
+        expr.impacts = list()
+        for ibackground in range(len(expr.background_activities)):
+            impacts = np.array([lambdas[iscenario][imethod].impacts[ibackground] for iscenario in range(nb_scenarios)])
+            expr.impacts.append(impacts)
+    return res
+
+
 def compute_impacts(
     models: Union[
         Activity,
@@ -658,7 +693,7 @@ def compute_impacts(
     functional_unit: float = 1,
     return_params=False,
     description=None,
-    scenario: str = None,
+    scenario: Union[str, list[str]] = None,
     **params,
 ):
     """
@@ -694,7 +729,9 @@ def compute_impacts(
         Paremeters that are not provided will have their default value set.
 
     scenario:
-        Premise scenario to target (made of model, pathway and year)
+        Premise scenario to target, as suffix of database name (separated with # by default).
+        This may also be a list of scenarios, in which case the number of scenarios should be equal to the
+        length of other list parameters (if any).
 
     functional_unit:
         Quantity (static or Sympy formula) by which to divide impacts. Optional, 1 by default.
@@ -762,7 +799,11 @@ def compute_impacts(
             if functional_unit != 1:
                 alpha = alpha / functional_unit
 
-            lambdas = _preMultiLCAAlgebric(model, methods, scenario=scenario, alpha=alpha, axis=axis)
+            scenarios = scenario if isinstance(scenario, list) else [scenario]
+
+            lambdas = _merge_lambda_scenarios(
+                _preMultiLCAAlgebric(model, methods, scenario=scenario, alpha=alpha, axis=axis) for scenario in scenarios
+            )
 
             unit: Optional[Unit] = functional_unit.units if isinstance(functional_unit, Quantity) else None
 
@@ -780,6 +821,16 @@ def compute_impacts(
 
             # param with several values
             list_params = {k: vals for k, vals in params.items() if isinstance(vals, list)}
+
+            if isinstance(scenario, list):
+                if len(list_params) > 0:
+                    nb_params_values = len(list(list_params.values())[0])
+                    if len(scenario) != nb_params_values:
+                        raise Exception(
+                            f"Number of scenarios {len(scenario)} different from param values length {nb_params_values} "
+                        )
+
+                list_params["scenario"] = scenario
 
             # Shapes the output / index according to the axis or multi param entry
             if axis:
@@ -867,7 +918,7 @@ def _getOrCreateProxy(act: ActivityExtended, exchanges: dict[ActivityExtended, f
 
     proxy_db = _getOrCreateProxyDb(act["database"], scenario=scenario)
     proxy_code = act["code"] + "#proxy"
-    with temp_settings(strict_mode=False):
+    with temp_settings(internals=True):
         try:
             proxy = _getDb(proxy_db).get(proxy_code)
 
