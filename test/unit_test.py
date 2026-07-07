@@ -499,7 +499,7 @@ def test_axis(data):
     expected = {
         "phase_a": 2.0,
         "phase_b": 4.0,
-        "_other_": 6.0,
+        "*other*": 6.0,
         "*sum*": 12.0,
     }
 

@@ -811,6 +811,9 @@ def compute_impacts(
                 # Sort index
                 df.sort_index(inplace=True)
 
+                # compute impacts that do not belong axis
+                df.loc["*other*"] = df.loc["_all_"]-df.loc[list(set(df.index.to_list())-set(["_all_"]))].sum()
+
                 # Add "total" line
                 df.loc["*sum*"] = df.sum(numeric_only=True)
 
