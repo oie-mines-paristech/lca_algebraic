@@ -469,7 +469,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
     context_params = dict()
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    def process(lamba):
+    def process(lambd):
         nonlocal context_params
 
         value_context = lambd.compute(**params)
