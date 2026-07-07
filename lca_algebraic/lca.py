@@ -363,9 +363,11 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
     """
 
     expr_by_bg_act = _actToExpressionDict(model, axis=axis)
-
     # Keep them in same order
     bg_acts = list(expr_by_bg_act.keys())
+
+    if len(bg_acts) == 0:
+        return [0.0]*len(methods)
 
     # Compute LCA for background activities
     impacts = _multiLCAWithCache(bg_acts, methods)
@@ -375,19 +377,16 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
     impact_matrix = np.array([[impacts[bg_act, method] for bg_act in bg_acts] for method in methods])
 
     # Create immutable sympy vector of bg expression, in the same order :
-    bg_expr_vector = ImmutableMatrix([[expr_by_bg_act[bg_act]] for bg_act in bg_acts])
+    # Note: do not use np.array because it has unexpected behaviour
+    bg_expr_vector = np.full((len(bg_acts), 1), None, dtype='O')
+    for i, bg_act in enumerate(bg_acts):
+        bg_expr_vector[i,0] = expr_by_bg_act[bg_act]
 
     # Multiply the two => returns a vector of impact expression
-    impacts_vector = impact_matrix * bg_expr_vector
-
-    def _get_expr(i):
-        if len(bg_acts) == 0:
-            return 0.0
-        else:
-            return impacts_vector[i]
+    impacts_vector = impact_matrix @ bg_expr_vector
 
     # For each method, compute an algebric expression with activities replaced by their values
-    return [_get_expr(i) for i, method in enumerate(methods)]
+    return impacts_vector.flatten()
 
 
 def _filter_param_values(params, expanded_param_names):
