@@ -1,58 +1,35 @@
-from sympy import symbols
-from sympy.core.containers import Dict as SympyDict
+from sympy import Expr
 
-NO_AXIS_NAME = "_other_"
-NO_AXIS = symbols(NO_AXIS_NAME)
-
-
-def _combine_keys(key1, key2):
-    if key1 == NO_AXIS:
-        return key2
-    if key2 == NO_AXIS:
-        return key1
-    if key1 == key2:
-        return key1
-    raise ValueError(f"AxisDict with two different nested keys :{key1} != {key2}")
-
-
-def _flatten_nested_dicts(_dict: dict):
-    res = dict()
-    for key, val in _dict.items():
-        if not isinstance(val, AxisDict):
-            res[key] = val
-        else:
-            for key2, val2 in val._dict.items():
-                res[_combine_keys(key, key2)] = val2
-    return res
-
-
-class AxisDict(SympyDict):
+class AxisDict(dict):
     """This class acts like a dict with arithmetic operations. It is useful to process 'axes' LCA computations"""
 
-    def __new__(cls, *args, **kwargs):
-        if len(args) == 1 and isinstance(args[0], dict):
-            arg = _flatten_nested_dicts(args[0])
-            return SympyDict.__new__(cls, arg)
-        else:
-            return SympyDict.__new__(cls, *args)
+    def __init__(self, src : dict = None, **kwargs):
+        # Create an empty dict
+        super().__init__()
+
+        # Add src
+        if src is not None:
+            super().update(src)
+
+        # add kwargs if any
+        super().update(kwargs)
+
 
     def _apply_op(self, other, fop, null_val):
         # None is the key for non flagged values
-        if not isinstance(other, AxisDict):
-            other = AxisDict({NO_AXIS: other})
-
-        all_keys = set(other._dict.keys()) | set(self._dict.keys())
-        return AxisDict({key: fop(self._dict.get(key, null_val), other._dict.get(key, null_val)) for key in all_keys})
+        if isinstance(other, int|float|Expr):
+            return AxisDict({k: fop(v, other) for k, v in self.items()})
+        elif isinstance(other, AxisDict):
+            all_keys = set(other.keys()) | set(self.keys())
+            return AxisDict({key: fop(self.get(key, null_val), other.get(key, null_val)) for key in all_keys})
+        raise Exception("AxisDict: unsuported operation")
 
     def __repr__(self):
         """Custom representation that returns string as key instead of symbols"""
-        return "{%s}" % ",".join("'%s': %s" % (k.__repr__(), v.__repr__()) for k, v in self._dict.items())
+        return "{%s}" % ",".join("'%s': %s" % (k.__repr__(), v.__repr__()) for k, v in self.items())
 
     def __str__(self):
         return self.__repr__()
-
-    def _apply_self(self, fop):
-        return AxisDict({key: fop(val) for key, val in self._dict.items()})
 
     def __add__(self, other):
         return self._apply_op(other, lambda a, b: a + b, 0)
@@ -67,49 +44,25 @@ class AxisDict(SympyDict):
         return self._apply_op(other, lambda a, b: b + a, 0)
 
     def __mul__(self, other):
-        return self._apply_self(lambda a: a * other)
+        return self._apply_op(other, lambda a, b: a * b, 1)
 
     def __rmul__(self, other):
-        return self._apply_self(lambda a: a * other)
+        return self._apply_op(other, lambda a, b: a * b, 1)
 
     def __truediv__(self, other):
-        return self._apply_self(lambda a: a / other)
+        return self._apply_op(other, lambda a, b: a / b, 1)
 
     def __rtruediv__(self, other):
-        return self._apply_self(lambda a: other / a)
+        return self._apply_op(other, lambda a, b: b / a, 1)
 
-    def as_coeff_Mul(self, rational=False):
-        """Efficiently extract the coefficient of a product."""
-        return 1, self
-
-    def _defer(self, funcname, args, kwargs):
-        return AxisDict(
-            {
-                key: val if not hasattr(val, funcname) else getattr(val, funcname)(*args, **kwargs)
-                for key, val in self._dict.items()
-            }
-        )
-
-    def str_keys(self):
-        # Return a list to ensure the order is kept
-        return list(str(key) for key in self._dict.keys())
-
-    def equals(self, other):
+    def _deprecated_equals(self, other):
         return isinstance(other, AxisDict) and self._dict == other._dict
-
-    def _sympyrepr(self, printer):
-        items = ", ".join(f"({printer._print(k)}, {printer._print(v)})" for k, v in self.items())
-        return f"AxisDict({items})"
-
-    def _sympystr(self, printer):
-        items = ", ".join(f"({printer._print(k)}, {printer._print(v)})" for k, v in self.items())
-        return f"AxisDict({items})"
 
     @property
     def free_symbols(self):
         """Only return free symbol for values (not keys)"""
         res = set()
-        for key, val in self._dict.items():
+        for key, val in self.items():
             if hasattr(val, "free_symbols"):
                 res |= val.free_symbols
         return res
