@@ -484,15 +484,23 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
         context_params.update(value_context.context)
 
         value = value_context.value
-
         # Expand axis values as a list, to fit into the result numpy array
         if isinstance(value, dict):
-            # Ensure the values are in the same order as the value
+            if len(value) > 1:
+                # Ensure the values are in the same order as the value
 
-            # XXX We use the order of the first lambda as each one might have different order
-            axes = lambdas[0].axis_keys
-            value = list(float(value[axis]) if axis in value else 0.0 for axis in axes)
-
+                # XXX We use the order of the first lambda as each one might have different order
+                axes = lambdas[0].axis_keys
+                xvalue = [0.0]*len(axes)
+                for i, axis_tag in enumerate(axes):
+                    if axis_tag not in value: continue
+                    if axis_tag == "_all_":
+                        xvalue[i] = float(value[axis_tag])
+                    else:
+                        xvalue[i] = float(value[axis_tag])
+                value = xvalue
+            else:
+                value = value["_all_"]
         return value
 
     # Use multithread for that
