@@ -547,7 +547,8 @@ def compute_value(formula, **params):
 
     value_context = lambd.compute(**params)
 
-    return value_context.value
+    # TODO: add an option to keep axes ?
+    return value_context.value["_all_"]
 
 
 @deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
