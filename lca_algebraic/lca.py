@@ -497,7 +497,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
                     if axis_tag == "_all_":
                         xvalue[i] = float(value[axis_tag])
                     else:
-                        xvalue[i] = float(value[axis_tag])
+                        xvalue[i] = float(value["_all_"]) - float(value[axis_tag])
                 value = xvalue
             else:
                 value = value["_all_"]
