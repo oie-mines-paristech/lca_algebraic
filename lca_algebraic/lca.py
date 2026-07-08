@@ -228,12 +228,12 @@ class LambdaWithParamNames:
 
     _use_sympy_cse = False
 
-    def __init__(self, expr: Expr, expanded_params=None, params=None, sobols=None):
+    def __init__(self, expr: Expr|AxisDict|dict, expanded_params=None, params=None, sobols=None):
         """Computes a lamdda function from expression and list of expected parameters.
         you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
         """
 
-        if isinstance(expr, dict):
+        if not isinstance(expr, Expr|AxisDict) and isinstance(expr, dict):
             # Come from JSON serialization
             obj = expr
             # LIst of required params for this lambda
@@ -275,7 +275,7 @@ class LambdaWithParamNames:
     @property
     def axis_keys(self):
         if self.has_axis:
-            return self.expr.str_keys()
+            return list(sorted(self.expr.keys()))
         else:
             return None
 
@@ -395,7 +395,7 @@ def _filter_param_values(params, expanded_param_names):
 
 
 def _free_symbols(expr: Basic):
-    if isinstance(expr, Basic):
+    if isinstance(expr, Basic|AxisDict):
         return set([str(symb) for symb in expr.free_symbols])
     else:
         # Static value
@@ -423,7 +423,12 @@ def _lambdify(expr: Basic, expanded_params):
                 return res
 
         return func
-
+    elif isinstance(expr, AxisDict):
+        _lambda = {k: _lambdify(e, expanded_params) for k, e in expr.items()}
+        def _func(*args, **kwargs):
+            nonlocal _lambda
+            return {k: f(*args, **kwargs) for k, f in _lambda.items()}
+        return _func
     else:
         # Not an expression : return static func
         def static_func(*args, **kargs):
@@ -459,7 +464,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_par
 
     # lambda are SymDict ?
     # If use them as number of params
-    if lambdas[0].has_axis:
+    if lambdas[0].has_axis and len(lambdas[0].expr) > 1:
         if param_length > 1:
             raise Exception("Multi params cannot be used together with 'axis'")
         param_length = len(lambdas[0].axis_keys)
