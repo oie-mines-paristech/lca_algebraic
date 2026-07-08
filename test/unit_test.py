@@ -500,7 +500,7 @@ def test_axis(data):
         "phase_a": 2.0,
         "phase_b": 4.0,
         "*other*": 6.0,
-        "*sum*": 12.0,
+        "*all*": 12.0,
     }
 
     res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)

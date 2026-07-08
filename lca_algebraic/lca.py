@@ -815,7 +815,7 @@ def compute_impacts(
                 df.loc["*other*"] = df.loc["_all_"]-df.loc[list(set(df.index.to_list())-set(["_all_"]))].sum()
 
                 # Add "total" line
-                df.loc["*sum*"] = df.sum(numeric_only=True)
+                df = df.rename(index={"_all_": "*all*"})
 
             elif len(list_params) > 0:
                 for k, vals in list_params.items():
