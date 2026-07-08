@@ -964,7 +964,7 @@ def _solve_expression(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> ActMatrix:
     return ret
 
 
-def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, ValueOrExpression]]:
+def _computeDbExpressions(db_name, axis) -> Dict[Activity, Dict[Activity, ValueOrExpression]]:
     """
     Compute all expressions for a given DB
     Returns Dict[FgAct => Dict[BGAct => Expressions]]
@@ -979,14 +979,22 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
     # Rectangle matrix
     bg_matrix = ActMatrix()
 
-    # Fill the matrices
-    def fill_matrices_rec(act: Activity, axis_tag=None):
+    # Gather [axis_name] -> activity list
+    axis_acts = defaultdict(list)
+
+    # Fill the fg_matrix and bg_matrix, collect axis data
+    # This function walk within the activity tree, it's needed because
+    # activities may be spread across severals databases other than db_name
+    def walk_activities(act: Activity):
+        nonlocal axis, fg_matrix, bg_matrix, axis_acts
+
         # Update axis values
         if axis is not None:
             new_axis_val = _get_axis(act, axis)
             if new_axis_val is not None:
-                axis_tag = new_axis_val
+                axis_acts[new_axis_val].append(act)
 
+        # Should not happen ?
         if not _isForeground(act["database"]):
             # We reached a background DB ? => stop developping and create reference to activity
             return
@@ -1022,13 +1030,9 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
                 fg_matrix[act, sub_act] += amount
 
                 # Recursively explore the rest
-                fill_matrices_rec(sub_act, axis_tag)
+                walk_activities(sub_act)
 
             else:
-                # Only tag bg values
-                if axis_tag is not None:
-                    amount = AxisDict({axis_tag: amount})
-
                 if Settings.factorize_static_bg and _isnumber(amount):
                     static_bg_amounts[sub_act] = amount
                 else:
@@ -1041,14 +1045,37 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
 
     # Fill the matrices exploring everything
     for act in bw.Database(db_name):
-        fill_matrices_rec(act)
+        walk_activities(act)
 
-    # solve the linear equation algebically
-    ret_mat = _solve_expression(fg_matrix, bg_matrix)
+    # solve the linear equation algebically for the axis _all_
+    data = _solve_expression(fg_matrix, bg_matrix)
+
+    # Convert with AxisDict
+    tmp = defaultdict(AxisDict)
+    for k, v in data.items():
+        tmp[k] += AxisDict({"_all_": v})
+    data = None
+
+    # Solve LCA equation for remaining axis
+    for axis_tag, acts in axis_acts.items():
+        xfg = copy(fg_matrix)
+        xbg = copy(bg_matrix)
+
+        # Set all activities belong axis activities to 0
+        for a in acts:
+            for o in xfg.cols_acts():
+                xfg[a,o] = 0.0
+            for o in xbg.cols_acts():
+                xbg[a,o] = 0.0
+            xfg[a,a] = 1.0
+
+        out = _solve_expression(xfg, xbg)
+        for k, v in out.items():
+            tmp[k] += AxisDict({axis_tag: v})
 
     # Convert to expected output data layout
     ret = defaultdict(dict)
-    for (k0, k1), v in ret_mat.items():
+    for (k0, k1), v in tmp.items():
         ret[k0][k1] = v
 
     return ret
