@@ -15,6 +15,8 @@ from pint import Quantity, Unit
 from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, lambdify, parse_expr
 from sympy.printing.numpy import NumPyPrinter
 from typing_extensions import deprecated
+from copy import copy
+from itertools import product
 
 from . import Settings, newActivity
 from .activity import ActivityExtended
@@ -933,38 +935,33 @@ def _clean_expr(expr):
     return _replace_fixed_params(expr, _fixed_params().values())
 
 
-def _solve_expression(
-    fg_matrix: ActMatrix, bg_matrix: ActMatrix
-) -> Dict[ActivityExtended, Dict[ActivityExtended, ValueOrExpression]]:
-    """solve the foreground inventory. Retrurn dict o"""
+def _solve_expression(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> ActMatrix:
+    """Solve the foreground inventory."""
+
+    # Case of empty matrix
+    if len(bg_matrix.cols_acts()) == 0 or len(fg_matrix.row_acts()) == 0:
+        ret = ActMatrix()
+        ret._col_acts = copy(bg_matrix._col_acts)
+        ret._row_acts = copy(fg_matrix._row_acts)
+        return ret
 
     A = fg_matrix.to_sympy()
     B = bg_matrix.to_sympy()
 
     debug(f"FG matrix : {A}")
 
-    # BG
-    if len(bg_matrix.cols_acts()) == 0:
-        # Case of empty matrix
-        res_mat = ImmutableMatrix([[]])
-    else:
-        # Use fast inversion of sparse matrices
-        inv_A = invert(A)
+    # Use fast inversion of sparse matrices
+    inv_A = invert(A)
+    res_mat = inv_A @ B
 
-        res_mat = inv_A * B
+    ret = ActMatrix()
+    ret._col_acts = copy(bg_matrix._col_acts)
+    ret._row_acts = copy(fg_matrix._row_acts)
+    for (i0, k0), (i1, k1) in product(enumerate(ret.row_acts()), enumerate(ret.cols_acts())):
+        if (val := res_mat[i0, i1]) == 0: continue
+        super(defaultdict, ret).__setitem__((k0, k1), _clean_expr(val))
 
-    # Transform to dict of dict
-    res = dict()
-    for i_fg, fg_act in enumerate(fg_matrix.cols_acts()):
-        row = dict()
-        res[fg_act] = row
-        for i_bg, bg_act in enumerate(bg_matrix.cols_acts()):
-            val = res_mat[i_fg, i_bg]
-            if val == 0:
-                continue
-            row[bg_act] = _clean_expr(val)
-
-    return res
+    return ret
 
 
 def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, ValueOrExpression]]:
@@ -1047,7 +1044,14 @@ def _computeDbExpressions(db_name, axis=None) -> Dict[Activity, Dict[Activity, V
         fill_matrices_rec(act)
 
     # solve the linear equation algebically
-    return _solve_expression(fg_matrix, bg_matrix)
+    ret_mat = _solve_expression(fg_matrix, bg_matrix)
+
+    # Convert to expected output data layout
+    ret = defaultdict(dict)
+    for (k0, k1), v in ret_mat.items():
+        ret[k0][k1] = v
+
+    return ret
 
 
 def _reverse_dict(dic):
