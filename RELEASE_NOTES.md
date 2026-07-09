@@ -1,3 +1,7 @@
+# 1.4.1
+
+* Fix Axis computation : See https://github.com/oie-mines-paristech/lca_algebraic/pull/91
+
 # 1.4
 
 * Added parameter 'reference_product' to findActivity
