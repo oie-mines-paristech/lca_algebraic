@@ -2,7 +2,6 @@ import re
 from collections import defaultdict
 from copy import copy
 from dataclasses import dataclass
-from itertools import product
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -179,6 +178,21 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
     return res
 
 
+def _expr_base_key(axis):
+    """Cache namespace for matrix/model entries (axis + optional factorization flag)."""
+    if Settings.factorize_static_bg:
+        return (axis, "factorized")
+    return (axis,)
+
+
+def _matrices_set_cache_key(base_key):
+    return (base_key, "matrices_set")
+
+
+def _model_cache_key(base_key, model, alpha):
+    return (base_key, "model", str(model), alpha)
+
+
 def _actToLambdaExpr(model: Activity, axis=None, alpha=1) -> LambdaExpr:
     """
     For a given activity return a dict of bg _activity => expression
@@ -192,24 +206,27 @@ def _actToLambdaExpr(model: Activity, axis=None, alpha=1) -> LambdaExpr:
         res.background_activities = [model]
         return res
 
-    # Key
-    base_key = (axis, "factorized") if Settings.factorize_static_bg else (axis)
+    base_key = _expr_base_key(axis)
 
     # Cache around matrix computation
     with ExprCache(db_name) as cache:
-        matrix_key = (base_key, "matrices")
+        mset_key = _matrices_set_cache_key(base_key)
 
-        if matrix_key not in cache.data:
+        if mset_key not in cache.data:
             logger.debug(f"{db_name} matrices were not in expression cache, computing...")
-            matrices = _computeMatrices(db_name=db_name, axis=axis)
-            cache.data[matrix_key] = matrices
+            if axis is None:
+                cache.data[mset_key] = AxisMatricesSet(variants={"_all_": _computeMatrices(db_name=db_name)})
+            else:
+                cache.data[mset_key] = _computeAxisMatricesSet(db_name=db_name, axis_attr=axis)
 
-        matrices: MatricesResult = cache.data[matrix_key]
+        matrices_set: AxisMatricesSet = cache.data[mset_key]
 
-        # Compute expression for a single fg model
-        model_key = (base_key, "model", str(model))
+        model_key = _model_cache_key(base_key, model, alpha)
         if model_key not in cache.data:
-            cache.data[model_key] = matrices.compute_expr_for_model(model=model, with_axis=axis is not None, alpha=alpha)
+            if axis is None:
+                cache.data[model_key] = matrices_set.variants["_all_"].compute_expr_for_model(model=model, alpha=alpha)
+            else:
+                cache.data[model_key] = _combine_axis_variants_for_model(matrices_set, model=model, alpha=alpha)
 
         return cache.data[model_key]
 
@@ -804,128 +821,30 @@ def replace_fixed_params(expr: Expr):
     return _replace_fixed_params(expr, _fixed_params().values())
 
 
-def _clean_expr(expr):
-    expr = _force_reduce(expr)
-    return _replace_fixed_params(expr, _fixed_params().values())
-
-
-def _solve_expression(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> ActMatrix:
-    """Solve the foreground inventory."""
-
-    # Case of empty matrix
-    if len(bg_matrix.cols_acts()) == 0 or len(fg_matrix.row_acts()) == 0:
-        ret = ActMatrix()
-        ret._col_acts = copy(bg_matrix._col_acts)
-        ret._row_acts = copy(fg_matrix._row_acts)
-        return ret
-
-    A = fg_matrix.to_sympy()
-    B = bg_matrix.to_sympy()
-
-    # Use fast inversion of sparse matrices
-    inv_A = invert(A)
-    res_mat = inv_A @ B
-
-    ret = ActMatrix()
-    ret._col_acts = copy(bg_matrix._col_acts)
-    ret._row_acts = copy(fg_matrix._row_acts)
-    for (i0, k0), (i1, k1) in product(enumerate(ret.row_acts()), enumerate(ret.cols_acts())):
-        if (val := res_mat[i0, i1]) == 0:
-            continue
-        super(defaultdict, ret).__setitem__((k0, k1), _clean_expr(val))
-
-    return ret
-
-
-@dataclass
-class MatricesResult:
-    inv_fg: MatrixBase
-    fg_acts: List[Activity]
-    bg_acts: List[Activity]
-    bg_matrix: Optional[MatrixBase] = None
-    bg_cells: Optional[Dict[Tuple[Activity, Activity], ValueOrExpression]] = None
-
-    def compute_expr_for_model(self, model: Activity, with_axis: bool, alpha=1) -> LambdaExpr:
-        """Compute dict of bg_act => model for foreground model"""
-
-        model_idx = self.fg_acts.index(model)
-
-        axis_terms = defaultdict(list)
-
-        if self.bg_cells is not None:
-            for j, bg_act in enumerate(self.bg_acts):
-                val = self.bg_cells.get((model, bg_act), 0)
-                if val == 0:
-                    continue
-                if isinstance(val, AxisDict):
-                    for k, v in val.items():
-                        if v != 0:
-                            axis_terms[k].append(Mul(v, IMPACTS_SYMBOL[j]))
-                else:
-                    axis_terms["_all_"].append(Mul(val, IMPACTS_SYMBOL[j]))
-        else:
-            fg_col = self.inv_fg.row(model_idx)
-            row = fg_col * self.bg_matrix
-            for j, bg_act in enumerate(self.bg_acts):
-                val = row[j]
-                if val == 0:
-                    continue
-                axis_terms["_all_"].append(Mul(val, IMPACTS_SYMBOL[j]))
-
-        if with_axis:
-            expr = AxisDict({k: Mul(Add(*terms), alpha) for k, terms in axis_terms.items() if terms})
-            expr = _force_reduce(expr)
-        else:
-            terms = axis_terms.get("_all_", [])
-            inner = Mul(Add(*terms), alpha) if terms else alpha * 0.0
-            expr = AxisDict({"_all_": inner})
-
-        res = LambdaExpr(expr)
-        res.background_activities = self.bg_acts
-
-        return res
-
-
-def _computeMatrices(db_name, axis=None) -> MatricesResult:
-    """
-    Compute all expressions for a given DB
-    Returns Dict[FgAct => Dict[BGAct => Expressions]]
-    """
+def _walk_and_build_matrices(db_name, axis_attr=None):
+    """Walk activity tree and build fg/bg ActMatrix plus axis activity groups."""
 
     if not _isForeground(db_name):
         raise ValueError(f"Can only compute expression on foreground activities. {db_name} is background")
 
-    # Square technospere matrix dict of <act1, act2> => float
     fg_matrix = ActMatrix()
-
-    # Rectangle matrix
     bg_matrix = ActMatrix()
-
-    # Gather [axis_name] -> activity list
     axis_acts = defaultdict(list)
 
-    # Fill the fg_matrix and bg_matrix, collect axis data
-    # This function walk within the activity tree, it's needed because
-    # activities may be spread across severals databases other than db_name
     def walk_activities(act: Activity):
-        nonlocal axis, fg_matrix, bg_matrix, axis_acts
+        nonlocal fg_matrix, bg_matrix, axis_acts
 
-        # Update axis values
-        if axis is not None:
-            new_axis_val = _get_axis(act, axis)
+        if axis_attr is not None:
+            new_axis_val = _get_axis(act, axis_attr)
             if new_axis_val is not None:
                 axis_acts[new_axis_val].append(act)
 
-        # Should not happen ?
         if not _isForeground(act["database"]):
-            # We reached a background DB ? => stop developping and create reference to activity
             return
 
         if act in fg_matrix.row_acts():
-            # Already explored
             return
 
-        # Add current act to axes matrices, to keep correct shape
         fg_matrix.add_row(act)
         fg_matrix.add_col(act)
         bg_matrix.add_row(act)
@@ -936,22 +855,16 @@ def _computeMatrices(db_name, axis=None) -> MatricesResult:
             amount = _getAmountOrFormula(exch)
 
             if isinstance(amount, FunctionType):
-                # Some amounts in EIDB are functions ... we ignore them
                 continue
 
-            # Fetch activity referenced by the exchange
             input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
 
-            # Fill the appropriate matrix
             if _isForeground(input_db):
-                #  Production exchange
                 if not _isOutputExch(exch):
                     amount = -amount
 
                 fg_matrix[act, sub_act] += amount
-
-                # Recursively explore the rest
                 walk_activities(sub_act)
 
             else:
@@ -960,60 +873,127 @@ def _computeMatrices(db_name, axis=None) -> MatricesResult:
                 else:
                     bg_matrix[act, sub_act] += amount
 
-        # Static bg amount not empty ? create and reference it
         if len(static_bg_amounts) > 0:
             proxy_act = _getOrCreateProxy(act, static_bg_amounts)
             bg_matrix[act, proxy_act] = 1.0
 
-    # Fill the matrices exploring everything
     for act in bw.Database(db_name):
         walk_activities(act)
 
+    return fg_matrix, bg_matrix, axis_acts
+
+
+def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[Activity]):
+    """Build complementary process matrices for one axis tag."""
+    xfg = copy(fg_matrix)
+    xbg = copy(bg_matrix)
+
+    for a in acts:
+        for o in xfg.cols_acts():
+            xfg[a, o] = 0.0
+        for o in xbg.cols_acts():
+            xbg[a, o] = 0.0
+        xfg[a, a] = 1.0
+
+    return xfg, xbg
+
+
+@dataclass
+class MatricesResult:
+    inv_fg: MatrixBase
+    bg_matrix: MatrixBase
+    fg_acts: List[Activity]
+    bg_acts: List[Activity]
+
+    def compute_expr_for_model(self, model: Activity, alpha=1) -> LambdaExpr:
+        """Compute expression for one foreground model using lazy matrix multiply."""
+
+        model_idx = self.fg_acts.index(model)
+
+        fg_col = self.inv_fg.row(model_idx)
+        row = fg_col * self.bg_matrix
+
+        add_args = []
+        for j, bg_act in enumerate(self.bg_acts):
+            val = row[j]
+            if val == 0:
+                continue
+            add_args.append(Mul(val, IMPACTS_SYMBOL[j]))
+
+        inner = Mul(Add(*add_args), alpha) if add_args else alpha * 0.0
+        expr = AxisDict({"_all_": inner})
+
+        res = LambdaExpr(expr)
+        res.background_activities = self.bg_acts
+
+        return res
+
+
+def _matrices_from_actmatrices(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> MatricesResult:
     A = fg_matrix.to_sympy()
     A = replace_fixed_params(A)
 
-    inv_A = invert(A)
-
-    if axis is None:
-        B = bg_matrix.to_sympy()
-        B = replace_fixed_params(B)
-        return MatricesResult(
-            bg_matrix=B,
-            inv_fg=inv_A,
-            fg_acts=fg_matrix.cols_acts(),
-            bg_acts=bg_matrix.cols_acts(),
-        )
-
-    # solve the linear equation algebically for the axis _all_
-    data = _solve_expression(fg_matrix, bg_matrix)
-
-    tmp = defaultdict(AxisDict)
-    for k, v in data.items():
-        tmp[k] += AxisDict({"_all_": v})
-
-    # Solve LCA equation for remaining axis
-    for axis_tag, acts in axis_acts.items():
-        xfg = copy(fg_matrix)
-        xbg = copy(bg_matrix)
-
-        # Set all activities belong axis activities to 0
-        for a in acts:
-            for o in xfg.cols_acts():
-                xfg[a, o] = 0.0
-            for o in xbg.cols_acts():
-                xbg[a, o] = 0.0
-            xfg[a, a] = 1.0
-
-        out = _solve_expression(xfg, xbg)
-        for k, v in out.items():
-            tmp[k] += AxisDict({axis_tag: v})
+    B = bg_matrix.to_sympy()
+    B = replace_fixed_params(B)
 
     return MatricesResult(
-        bg_cells=dict(tmp),
-        inv_fg=inv_A,
+        bg_matrix=B,
+        inv_fg=invert(A),
         fg_acts=fg_matrix.cols_acts(),
         bg_acts=bg_matrix.cols_acts(),
     )
+
+
+@dataclass
+class AxisMatricesSet:
+    """One standard MatricesResult per axis context (_all_, per tag, ...)."""
+
+    variants: Dict[str, MatricesResult]
+
+    def ensure_bg_acts_consistency(self):
+        if len(self.variants) == 0:
+            return
+        ref = self.variants["_all_"].bg_acts
+        for key, matrices in self.variants.items():
+            if matrices.bg_acts != ref:
+                raise ValueError(f"Inconsistent bg_acts between axis variants (_all_ vs {key})")
+
+
+def _computeAxisMatricesSet(db_name, axis_attr) -> AxisMatricesSet:
+    fg_matrix, bg_matrix, axis_acts = _walk_and_build_matrices(db_name, axis_attr=axis_attr)
+
+    variants = {"_all_": _matrices_from_actmatrices(fg_matrix, bg_matrix)}
+
+    for axis_tag, acts in axis_acts.items():
+        xfg, xbg = _zero_out_axis_acts(fg_matrix, bg_matrix, acts)
+        variants[axis_tag] = _matrices_from_actmatrices(xfg, xbg)
+
+    res = AxisMatricesSet(variants=variants)
+    res.ensure_bg_acts_consistency()
+    return res
+
+
+def _combine_axis_variants_for_model(matrices_set: AxisMatricesSet, model: Activity, alpha=1) -> LambdaExpr:
+    axis_terms = {
+        key: matrices.compute_expr_for_model(model=model, alpha=1).expr["_all_"]
+        for key, matrices in matrices_set.variants.items()
+    }
+
+    if len(axis_terms) > 1:
+        expr = AxisDict({key: Mul(val, alpha) for key, val in axis_terms.items()})
+        expr = _force_reduce(expr)
+    else:
+        expr = AxisDict({"_all_": Mul(axis_terms["_all_"], alpha)})
+
+    res = LambdaExpr(expr)
+    res.background_activities = matrices_set.variants["_all_"].bg_acts
+    return res
+
+
+def _computeMatrices(db_name) -> MatricesResult:
+    """Compute standard matrices for a DB without axis ventilation."""
+    fg_matrix, bg_matrix, _ = _walk_and_build_matrices(db_name, axis_attr=None)
+    return _matrices_from_actmatrices(fg_matrix, bg_matrix)
 
 
 def _reverse_dict(dic):
