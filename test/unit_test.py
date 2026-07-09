@@ -521,6 +521,15 @@ def test_axis(data):
     res = compute_impacts(model, [data.ibio1], functional_unit=p1, p1=0.5)
     assert res.values[0] == 12.0
 
+    res = compute_impacts_xarray([model], [data.ibio1], axis="phase", params=dict(p1=0.5))
+    res = {key: val for key, val in zip(res.coords["axis"].to_numpy(), iter(res[0,0,:,0].to_numpy()))}
+    assert res == {
+        "phase_a": 1.0,
+        "phase_b": 2.0,
+        "*other*": 3.0,
+        "*all*": 6.0,
+    }
+
 
 def test_compute_impacts_with_parametrized_fu(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)

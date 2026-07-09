@@ -6,6 +6,7 @@ from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import xarray
 import pandas as pd
 import sympy
 from pandas import DataFrame
@@ -412,6 +413,80 @@ def compute_value(formula, **params):
     if isinstance(value, dict):
         return value["_all_"]
     return value
+
+
+def compute_impacts_xarray(models, methods, params=None, axis=None):
+    """
+    Main parametric LCIA method : Computes LCA by expressing the foreground
+    model as symbolic expression of background activities and parameters.
+    Then, compute 'static' inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters,
+    useful for stochastic evaluation of parametrized model
+
+    Parameters
+    ----------
+    models : List of Activities, i.e. models activities
+    methods : List of methods, i.e. impacts to consider
+    params : Dict[str,ListOrScalar]
+        You should provide named values of all the parameters declared in the
+        model. Values can be single value or list of samples, all of the same
+        size
+    axis: str
+        Designates the name of a custom attribute of foreground activities.
+        You may set this attribute using the method
+        `myActivity.updateMeta(your_custom_attr="some_value")`. The impacts
+        will be ventilated by this attribute. This is useful to get impact by
+        phase or sub-modules.
+    Return
+    ------
+    lca : xarray
+        4 dimensions xarray of lca results, with
+        dims=("models", "methods", "axes", "instances")
+    """
+    if params is None:
+        raise Exception("ERROR: params is None, if you want use defaults values of paramaters use an empty dict")
+    param_length = _compute_param_length(params)
+    tmp = dict()
+    axes = set()
+    for imodel, model in enumerate(models):
+        dbname = model.key[0]
+        with DbContext(dbname):
+            # Check no params are passed for FixedParams
+            for key in params:
+                if key in _fixed_params() :
+                    raise Exception("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
+            lambdas = _preMultiLCAAlgebric(model, methods, axis=axis)
+            for imethod, lambd_with_params in enumerate(lambdas):
+                tmp[(imodel, imethod)] = lambd_with_params.compute(**params).value
+                axes |= set(tmp[(imodel, imethod)].keys())
+
+    # Convert computed data to xarray
+    axes = list(sorted(axes))
+    # Use 'f4' to save space
+    out = np.full((len(models), len(methods), len(axes)+1, param_length), np.nan, 'f4')
+    out[imodel, imethod, -1, :] = 0.0
+    for (imodel, imethod), v in tmp.items():
+        for ia in range(len(axes)):
+            if axes[ia] in v:
+                if axes[ia] == "_all_":
+                    data = v[axes[ia]]
+                    out[imodel, imethod, ia, :] = data
+                    out[imodel, imethod, -1, :] += data
+                else:
+                    data = v["_all_"] - v[axes[ia]]
+                    out[imodel, imethod, ia, :] = data
+                    out[imodel, imethod, -1, :] -= data
+
+    axes = [a if a != "_all_" else "*all*" for a in axes]+["*other*"]
+
+    # WARNING: using list of tuple as index does not work AS-IS, this is why
+    # we use numpy.fromiter, to avoid to create 2-D array from list of tuple.
+    return xarray.DataArray(out, coords=[
+        ("model", np.fromiter((m.key for m in models), dtype='O')),
+        ("method", np.fromiter(methods, dtype='O')),
+        ("axis", np.fromiter(axes, dtype='O')),
+        ("sample", list(range(param_length))),
+    ])
 
 
 @deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
