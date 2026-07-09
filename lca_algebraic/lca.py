@@ -1,6 +1,8 @@
 import re
 from collections import defaultdict
+from copy import copy
 from dataclasses import dataclass
+from itertools import product
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -256,6 +258,12 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: Va
 
     generic_lambda_expr = _actToLambdaExpr(model, axis=axis, alpha=alpha)
 
+    if len(generic_lambda_expr.background_activities) == 0:
+        zero = LambdaExpr(AxisDict({"_all_": 0.0}))
+        zero.background_activities = []
+        zero.impacts = []
+        return [zero] * len(methods)
+
     # Compute LCA for background activities
     all_impacts = _multiLCAWithCache(generic_lambda_expr.background_activities, methods)
 
@@ -295,7 +303,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False,
 
     # lambda are SymDict ?
     # If use them as number of params
-    if lambdas[0].has_axis:
+    if lambdas[0].has_axis and len(lambdas[0].expr) > 1:
         if param_length > 1:
             raise Exception("Multi params cannot be used together with 'axis'")
         param_length = len(lambdas[0].axis_keys)
@@ -307,7 +315,7 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False,
     context_params = dict()
 
     # Compute result on whole vectors of parameter samples at a time : lambdas use numpy for vector computation
-    def process(lamba):
+    def process(lambd):
         nonlocal context_params
 
         value_context = lambd.compute(**params)
@@ -316,15 +324,24 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False,
         context_params.update(value_context.context)
 
         value = value_context.value
-
         # Expand axis values as a list, to fit into the result numpy array
         if isinstance(value, dict):
-            # Ensure the values are in the same order as the value
+            if len(value) > 1:
+                # Ensure the values are in the same order as the value
 
-            # XXX We use the order of the first lambda as each one might have different order
-            axes = lambdas[0].axis_keys
-            value = list(float(value[axis]) if axis in value else 0.0 for axis in axes)
-
+                # XXX We use the order of the first lambda as each one might have different order
+                axes = lambdas[0].axis_keys
+                xvalue = [0.0] * len(axes)
+                for i, axis_tag in enumerate(axes):
+                    if axis_tag not in value:
+                        continue
+                    if axis_tag == "_all_":
+                        xvalue[i] = float(value[axis_tag])
+                    else:
+                        xvalue[i] = float(value["_all_"]) - float(value[axis_tag])
+                value = xvalue
+            else:
+                value = value["_all_"]
         return value
 
     # Use multithread for that
@@ -371,7 +388,11 @@ def compute_value(formula, **params):
 
     value_context = lambd.compute(**params)
 
-    return value_context.value
+    # TODO: add an option to keep axes ?
+    value = value_context.value
+    if isinstance(value, dict):
+        return value["_all_"]
+    return value
 
 
 @deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
@@ -467,7 +488,10 @@ def compute_inventory(
             impacts = {act: 1.0 if act == bg_act else 0.0 for act in lambda_expr.background_activities}
 
             bg_expr = lambda_expr.with_impacts(impacts)
-            val_by_act[bg_act] = bg_expr.compute(**params).value
+            val = bg_expr.compute(**params).value
+            if isinstance(val, dict):
+                val = val["_all_"]
+            val_by_act[bg_act] = val
 
         if impact_method is not None:
             # Compute LCA of background activities
@@ -639,8 +663,11 @@ def compute_impacts(
                 # Sort index
                 df.sort_index(inplace=True)
 
+                # compute impacts that do not belong axis
+                df.loc["*other*"] = df.loc["_all_"] - df.loc[list(set(df.index.to_list()) - set(["_all_"]))].sum()
+
                 # Add "total" line
-                df.loc["*sum*"] = df.sum(numeric_only=True)
+                df = df.rename(index={"_all_": "*all*"})
 
             elif len(list_params) > 0:
                 # Use param values as index
@@ -757,7 +784,7 @@ def _get_axis(act, axis_name: str):
 def _force_reduce(expr):
     """Force reduction of sum and multiplication : usefull for AxisDict"""
     if isinstance(expr, AxisDict):
-        return AxisDict({key: _force_reduce(val) for key, val in expr._dict.items()})
+        return AxisDict({key: _force_reduce(val) for key, val in expr.items()})
     if isinstance(expr, dict):
         return _force_reduce(AxisDict(expr))
     if isinstance(expr, Add):
@@ -777,34 +804,81 @@ def replace_fixed_params(expr: Expr):
     return _replace_fixed_params(expr, _fixed_params().values())
 
 
+def _clean_expr(expr):
+    expr = _force_reduce(expr)
+    return _replace_fixed_params(expr, _fixed_params().values())
+
+
+def _solve_expression(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> ActMatrix:
+    """Solve the foreground inventory."""
+
+    # Case of empty matrix
+    if len(bg_matrix.cols_acts()) == 0 or len(fg_matrix.row_acts()) == 0:
+        ret = ActMatrix()
+        ret._col_acts = copy(bg_matrix._col_acts)
+        ret._row_acts = copy(fg_matrix._row_acts)
+        return ret
+
+    A = fg_matrix.to_sympy()
+    B = bg_matrix.to_sympy()
+
+    # Use fast inversion of sparse matrices
+    inv_A = invert(A)
+    res_mat = inv_A @ B
+
+    ret = ActMatrix()
+    ret._col_acts = copy(bg_matrix._col_acts)
+    ret._row_acts = copy(fg_matrix._row_acts)
+    for (i0, k0), (i1, k1) in product(enumerate(ret.row_acts()), enumerate(ret.cols_acts())):
+        if (val := res_mat[i0, i1]) == 0:
+            continue
+        super(defaultdict, ret).__setitem__((k0, k1), _clean_expr(val))
+
+    return ret
+
+
 @dataclass
 class MatricesResult:
-    bg_matrix: MatrixBase
     inv_fg: MatrixBase
     fg_acts: List[Activity]
     bg_acts: List[Activity]
+    bg_matrix: Optional[MatrixBase] = None
+    bg_cells: Optional[Dict[Tuple[Activity, Activity], ValueOrExpression]] = None
 
     def compute_expr_for_model(self, model: Activity, with_axis: bool, alpha=1) -> LambdaExpr:
         """Compute dict of bg_act => model for foreground model"""
 
         model_idx = self.fg_acts.index(model)
 
-        fg_col = self.inv_fg.row(model_idx)
+        axis_terms = defaultdict(list)
 
-        row = fg_col * self.bg_matrix
-
-        add_args = []
-        for i_bg, bg_act in enumerate(self.bg_acts):
-            val = row[i_bg]
-            if val == 0:
-                continue
-            # In the final expression, impacts are integrated as vectorial param : impacts[i]
-            add_args.append(Mul(val, IMPACTS_SYMBOL[i_bg]))
-
-        expr = Mul(Add(*add_args), alpha)
+        if self.bg_cells is not None:
+            for j, bg_act in enumerate(self.bg_acts):
+                val = self.bg_cells.get((model, bg_act), 0)
+                if val == 0:
+                    continue
+                if isinstance(val, AxisDict):
+                    for k, v in val.items():
+                        if v != 0:
+                            axis_terms[k].append(Mul(v, IMPACTS_SYMBOL[j]))
+                else:
+                    axis_terms["_all_"].append(Mul(val, IMPACTS_SYMBOL[j]))
+        else:
+            fg_col = self.inv_fg.row(model_idx)
+            row = fg_col * self.bg_matrix
+            for j, bg_act in enumerate(self.bg_acts):
+                val = row[j]
+                if val == 0:
+                    continue
+                axis_terms["_all_"].append(Mul(val, IMPACTS_SYMBOL[j]))
 
         if with_axis:
+            expr = AxisDict({k: Mul(Add(*terms), alpha) for k, terms in axis_terms.items() if terms})
             expr = _force_reduce(expr)
+        else:
+            terms = axis_terms.get("_all_", [])
+            inner = Mul(Add(*terms), alpha) if terms else alpha * 0.0
+            expr = AxisDict({"_all_": inner})
 
         res = LambdaExpr(expr)
         res.background_activities = self.bg_acts
@@ -827,14 +901,22 @@ def _computeMatrices(db_name, axis=None) -> MatricesResult:
     # Rectangle matrix
     bg_matrix = ActMatrix()
 
-    # Fill the matrices
-    def fill_matrices_rec(act: Activity, axis_tag=None):
+    # Gather [axis_name] -> activity list
+    axis_acts = defaultdict(list)
+
+    # Fill the fg_matrix and bg_matrix, collect axis data
+    # This function walk within the activity tree, it's needed because
+    # activities may be spread across severals databases other than db_name
+    def walk_activities(act: Activity):
+        nonlocal axis, fg_matrix, bg_matrix, axis_acts
+
         # Update axis values
         if axis is not None:
             new_axis_val = _get_axis(act, axis)
             if new_axis_val is not None:
-                axis_tag = new_axis_val
+                axis_acts[new_axis_val].append(act)
 
+        # Should not happen ?
         if not _isForeground(act["database"]):
             # We reached a background DB ? => stop developping and create reference to activity
             return
@@ -870,13 +952,9 @@ def _computeMatrices(db_name, axis=None) -> MatricesResult:
                 fg_matrix[act, sub_act] += amount
 
                 # Recursively explore the rest
-                fill_matrices_rec(sub_act, axis_tag)
+                walk_activities(sub_act)
 
             else:
-                # Only tag bg values
-                if axis_tag is not None:
-                    amount = AxisDict({axis_tag: amount})
-
                 if Settings.factorize_static_bg and _isnumber(amount):
                     static_bg_amounts[sub_act] = amount
                 else:
@@ -889,18 +967,53 @@ def _computeMatrices(db_name, axis=None) -> MatricesResult:
 
     # Fill the matrices exploring everything
     for act in bw.Database(db_name):
-        fill_matrices_rec(act)
+        walk_activities(act)
 
     A = fg_matrix.to_sympy()
     A = replace_fixed_params(A)
 
-    B = bg_matrix.to_sympy()
-    B = replace_fixed_params(B)
-
-    # Invert foreground matrix
     inv_A = invert(A)
 
-    return MatricesResult(bg_matrix=B, inv_fg=inv_A, fg_acts=fg_matrix.cols_acts(), bg_acts=bg_matrix.cols_acts())
+    if axis is None:
+        B = bg_matrix.to_sympy()
+        B = replace_fixed_params(B)
+        return MatricesResult(
+            bg_matrix=B,
+            inv_fg=inv_A,
+            fg_acts=fg_matrix.cols_acts(),
+            bg_acts=bg_matrix.cols_acts(),
+        )
+
+    # solve the linear equation algebically for the axis _all_
+    data = _solve_expression(fg_matrix, bg_matrix)
+
+    tmp = defaultdict(AxisDict)
+    for k, v in data.items():
+        tmp[k] += AxisDict({"_all_": v})
+
+    # Solve LCA equation for remaining axis
+    for axis_tag, acts in axis_acts.items():
+        xfg = copy(fg_matrix)
+        xbg = copy(bg_matrix)
+
+        # Set all activities belong axis activities to 0
+        for a in acts:
+            for o in xfg.cols_acts():
+                xfg[a, o] = 0.0
+            for o in xbg.cols_acts():
+                xbg[a, o] = 0.0
+            xfg[a, a] = 1.0
+
+        out = _solve_expression(xfg, xbg)
+        for k, v in out.items():
+            tmp[k] += AxisDict({axis_tag: v})
+
+    return MatricesResult(
+        bg_cells=dict(tmp),
+        inv_fg=inv_A,
+        fg_acts=fg_matrix.cols_acts(),
+        bg_acts=bg_matrix.cols_acts(),
+    )
 
 
 def _reverse_dict(dic):

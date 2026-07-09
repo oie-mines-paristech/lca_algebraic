@@ -41,7 +41,7 @@ class LambdaExpr:
         self.background_activities: List[Activity] = list()
         self.impacts: List[float] = None
 
-        if isinstance(expr, dict):
+        if isinstance(expr, dict) and not isinstance(expr, AxisDict):
             # Come from JSON serialization
             obj = expr
             # LIst of required params for this lambda
@@ -83,7 +83,7 @@ class LambdaExpr:
     @property
     def axis_keys(self):
         if self.has_axis:
-            return self.expr.str_keys()
+            return list(sorted(self.expr.keys()))
         else:
             return None
 
@@ -135,6 +135,12 @@ def _filter_param_values(params, expanded_param_names):
 
 
 def _free_symbols(expr: Basic):
+    if isinstance(expr, AxisDict):
+        res = set()
+        for val in expr.values():
+            if hasattr(val, "free_symbols"):
+                res |= set(str(symb) for symb in find_symbols(val) if "impacts" not in str(symb))
+        return res
     if isinstance(expr, Basic):
         return set([str(symb) for symb in find_symbols(expr) if "impacts" not in str(symb)])
     else:
@@ -177,6 +183,14 @@ def _lambdify(expr: Basic, expanded_params):
         lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=cse)
 
         return LambdWrapper(lambd=lambd)
+
+    elif isinstance(expr, AxisDict):
+        _lambda = {k: _lambdify(e, expanded_params) for k, e in expr.items()}
+
+        def _func(*args, **kwargs):
+            return {k: f(*args, **kwargs) for k, f in _lambda.items()}
+
+        return LambdWrapper(lambd=_func)
 
     else:
         # Not an expression : return static func

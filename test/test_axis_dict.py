@@ -1,95 +1,43 @@
-from sympy import symbols, lambdify, simplify, Mul
-
-from lca_algebraic.axis_dict import AxisDict, NO_AXIS
-
-
-def test_sum():
-    a, b = symbols("a b")
-
-    a1 = AxisDict({a: 1})
-    a2 = AxisDict({a: 2})
-    b2 = AxisDict({b: 2})
-
-    assert a1 + b2 == AxisDict({a: 1, b: 2})
-    assert a1 + a2 == AxisDict({a: 3})
-    assert a1 + 1 == AxisDict({a: 1, NO_AXIS: 1})
-    assert 1 + a1 == AxisDict({a: 1, NO_AXIS: 1})
+from lca_algebraic.axis_dict import AxisDict
+from sympy import symbols
 
 
-def test_div():
-    a, b = symbols("a b")
+def test_axisdict_op_axisdict():
+    def _axisdict_op_axisdict(op, identity_value):
+        a1 = AxisDict({"a": 11, "b": 21, "c": 31})
+        b1 = AxisDict({"a": 12, "b": 22})
+        c1 = op(a1, b1)
+        d1 = op(b1, a1)
 
-    ad = AxisDict({a: 2, b: 4})
+        # check that a1 and b1 aren't modified
+        assert a1 == AxisDict({"a": 11, "b": 21, "c": 31})
+        assert b1 == AxisDict({"a": 12, "b": 22})
+        assert c1 == AxisDict({"a": op(11, 12), "b": op(21, 22), "c": op(31, identity_value)})
+        assert d1 == AxisDict({"a": op(12, 11), "b": op(22, 21), "c": op(identity_value, 31)})
 
-    assert ad / 2 == AxisDict({a: 1, b: 2})
-    assert 8 / ad == AxisDict({a: 4, b: 2})
-
-
-def test_sub():
-    a, b = symbols("a b")
-
-    a1 = AxisDict({a: 1})
-    a2 = AxisDict({a: 2})
-    b2 = AxisDict({b: 2})
-
-    assert a1 - b2 == AxisDict({a: 1, b: -2})
-    assert a2 - a1 == AxisDict({a: 1})
-    assert 1 - a1 == AxisDict({a: -1, NO_AXIS: 1})
-    assert a1 - 1 == AxisDict({a: 1, NO_AXIS: -1})
-
-
-def test_mul():
-    a = symbols("a")
-
-    a1 = AxisDict({a: 2})
-    assert a1 * 2 == AxisDict({a: 4})
-    assert simplify(a1 / 2) == AxisDict({a: 1})
-
-
-def test_nested():
-    a, b = symbols("a,b")
-
-    a1 = AxisDict({a: 1})
-    nested = AxisDict({b: 2, NO_AXIS: a1})
-
-    assert nested == AxisDict({a: 1, b: 2})
-
-
-def test_equals():
-    a = symbols("a")
-
-    a1 = AxisDict({a: 1})
-    a1_bis = AxisDict({a: 1})
-    a2 = AxisDict({a: 2})
-
-    assert a1.equals(a1_bis)
-    assert not a1.equals(a2)
+    _axisdict_op_axisdict(lambda a, b: a * b, 1)
+    _axisdict_op_axisdict(lambda a, b: a + b, 0)
+    _axisdict_op_axisdict(lambda a, b: a - b, 0)
+    _axisdict_op_axisdict(lambda a, b: a / b, 1)
 
 
 def test_free_symbols():
-    dic = AxisDict({"a": "b"})
+    dic = AxisDict({"a": symbols("b")})
     assert dic.free_symbols == set([symbols("b")])
 
 
-def test_lambdify():
-    a, b = symbols("a b")
+def test_scalar_op_axisdict():
+    def _scalar_op_axisdict(op):
+        a1 = AxisDict({"a": 11, "b": 21})
+        b1 = op(3, a1)
+        c1 = op(a1, 3)
 
-    a1 = AxisDict({a: b * 2})
+        # check that a1 is not modified
+        assert a1 == AxisDict({"a": 11, "b": 21})
+        assert b1 == AxisDict({"a": op(3, 11), "b": op(3, 21)})
+        assert c1 == AxisDict({"a": op(11, 3), "b": op(21, 3)})
 
-    lambd = lambdify([b], a1)
-
-    res = lambd(2)
-
-    assert res == {a: 4}
-
-
-# def test_lambdify_factor():
-#    a, b = symbols("a b")
-# a1 = AxisDict({a: b})
-#    expr = Mul(2, a1)
-#
-#    lambd = lambdify([b], expr)
-#
-#    res = lambd(2)
-#
-#    assert res == {a: 8}
+    _scalar_op_axisdict(lambda a, b: a * b)
+    _scalar_op_axisdict(lambda a, b: a + b)
+    _scalar_op_axisdict(lambda a, b: a - b)
+    _scalar_op_axisdict(lambda a, b: a / b)

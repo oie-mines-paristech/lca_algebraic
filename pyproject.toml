@@ -28,7 +28,7 @@ dependencies = [
   "tabulate",
   "dill",
   "ipywidgets",
-  "pandas",
+  "pandas<3.0.0",
   "pyarrow",
   "seaborn",
   "sympy",

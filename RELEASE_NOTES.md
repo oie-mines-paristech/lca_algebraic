@@ -5,7 +5,10 @@
 * Activate CSE (common subexpression pattersn) in labmdify by default
 * Added setting ot idsable automatic flush and handle it manually at the end of the script
 * Don't run "_force_reduce" when axis not used
-* 
+
+# 1.4.1
+
+* Fix Axis computation : See https://github.com/oie-mines-paristech/lca_algebraic/pull/91
 
 # 1.4
 

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from copy import copy
 from multiprocessing import Pool
 
 import numpy as np
@@ -275,3 +276,11 @@ class ActMatrix(defaultdict):
 
     def __repr__(self):
         return f"Matrix({self.shape()}) [{len(self)}]"
+
+    def __copy__(self):
+        ret = ActMatrix()
+        for k, v in self.items():
+            super(ActMatrix, ret).__setitem__(k, v)
+        ret._row_acts = copy(self._row_acts)
+        ret._col_acts = copy(self._col_acts)
+        return ret
