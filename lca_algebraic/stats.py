@@ -904,7 +904,7 @@ def sobol_simplify_model(
 
     # Generate simplified model
     lambdas = _preMultiLCAAlgebric(model, methods, alpha=1 / functional_unit)
-    exprs = [lambd.expr for lambd in lambdas]
+    exprs = [lambd.expr["_all_"] for lambd in lambdas]
 
     for imethod, method in enumerate(methods):
         print("> Method : ", method_name(method))
