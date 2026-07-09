@@ -3,6 +3,7 @@ from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
+from copy import copy
 from scipy.sparse import csr_array
 from scipy.sparse.csgraph import connected_components
 from sympy import (
@@ -272,3 +273,11 @@ class ActMatrix(defaultdict):
 
     def __repr__(self):
         return self.to_dataframe().__repr__()
+
+    def __copy__(self):
+        ret = ActMatrix()
+        for k, v in self.items():
+            super(ActMatrix, ret).__setitem__(k, v)
+        ret._row_acts = copy(self._row_acts)
+        ret._col_acts = copy(self._col_acts)
+        return ret

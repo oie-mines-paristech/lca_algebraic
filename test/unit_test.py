@@ -477,11 +477,13 @@ def test_user_function(data):
 def test_axis(data):
     p1 = newFloatParam("p1", 2, min=1, max=3)
 
-    act1_phase_a = newActivity(USER_DB, "act1", "unit", {data.bio1: 1.0}, phase="phase a")
+    act_internal0 = newActivity(USER_DB, "act_internal0", "unit", {data.bio1: 1.0})
 
-    act2_phase_b = newActivity(USER_DB, "act2", "unit", {data.bio1: 2.0}, phase="phase b")
+    act1_phase_a = newActivity(USER_DB, "act1", "unit", {act_internal0: 1.0}, phase="phase a")
 
-    act3_no_phase = newActivity(USER_DB, "act3", "unit", {data.bio1: 3.0})
+    act2_phase_b = newActivity(USER_DB, "act2", "unit", {act_internal0: 2.0}, phase="phase b")
+
+    act3_no_phase = newActivity(USER_DB, "act3", "unit", {act_internal0: 3.0})
 
     model = newActivity(
         USER_DB,
@@ -494,23 +496,22 @@ def test_axis(data):
         },
     )
 
+    expected = {
+        "phase_a": 2.0,
+        "phase_b": 4.0,
+        "*other*": 6.0,
+        "*all*": 12.0,
+    }
+
     res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)
 
     # Compute twice to warm the cache :
     # Creating dummy activities clears it and we cannot check it works properly otherwize
     res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)
-
     res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
-
-    expected = dict(phase_a=2.0, phase_b=4.0, _other_=6.0)
-    expected["*sum*"] = 12.0
-
     assert res == expected
 
     res = compute_impacts(model, [data.ibio1], functional_unit=p1, p1=0.5)
-
-    print(res)
-
     assert res.values[0] == 12.0
 
 
