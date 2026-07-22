@@ -158,6 +158,8 @@ def oat_matrix(
     defaults_params = {param.name: param.default for param in sorted_params}
     defaults_params.update(override_defaults_values)
 
+    df_ref = _postMultiLCAAlgebric(impacts, lambdas, **defaults_params)
+
     for iparam, param in enumerate(sorted_params):
         params = defaults_params.copy()
 
@@ -168,7 +170,7 @@ def oat_matrix(
         df = _postMultiLCAAlgebric(impacts, lambdas, **params)
 
         # Compute change
-        change[iparam] = (df.max() - df.min()) / df.median() * 100
+        change[iparam] = (df.max() - df.min()) / df_ref * 100
 
     # Build final heatmap
     change = pd.DataFrame(
