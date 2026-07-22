@@ -110,6 +110,7 @@ def oat_matrix(
     n=10,
     title="Impact variability (% of mean)",
     name_type=NameType.LABEL,
+    override_defaults_values=dict()
 ):
     """
 
@@ -126,6 +127,11 @@ def oat_matrix(
 
     functional_unit:
         Float value of expression by which to divide each impact.
+
+    override_defaults_values:
+        this is a dictionnary of (parameter name, value) that will override
+        the parameter defaults value. This allow to perform OAT with different
+        defaults values.
     """
 
     # Compile model into lambda functions for fast LCA
@@ -136,8 +142,11 @@ def oat_matrix(
 
     change = np.zeros((len(sorted_params), len(impacts)))
 
+    defaults_params = {param.name: param.default for param in sorted_params}
+    defaults_params.update(override_defaults_values)
+
     for iparam, param in enumerate(sorted_params):
-        params = {param.name: param.default for param in sorted_params}
+        params = defaults_params.copy()
 
         # Compute range of values for given param
         params[param.name] = param.range(n)
