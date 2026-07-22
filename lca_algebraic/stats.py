@@ -110,6 +110,7 @@ def oat_matrix(
     n=10,
     title="Impact variability (% of mean)",
     name_type=NameType.LABEL,
+    oat_parameters : set|list|None = None,
     override_defaults_values=dict()
 ):
     """
@@ -128,6 +129,10 @@ def oat_matrix(
     functional_unit:
         Float value of expression by which to divide each impact.
 
+    oat_parameters:
+        list or set to select parameters on which to perform OAT, all
+        parameters are selected if oat_parameters is None. default: None
+
     override_defaults_values:
         this is a dictionnary of (parameter name, value) that will override
         the parameter defaults value. This allow to perform OAT with different
@@ -139,6 +144,14 @@ def oat_matrix(
 
     # Sort params by category
     sorted_params = _extract_var_params(lambdas)
+
+    if oat_parameters is not None:
+        if isinstance(oat_parameters, list):
+            oat_parameters = set(oat_parameters)
+
+        if not isinstance(oat_parameters, list|set):
+            raise Exception(f"Invalid oat_parameters, should be list or set got: `{type(oat_parameters)}`")
+        sorted_params = [p for p in sorted_params if p.name in oat_parameters]
 
     change = np.zeros((len(sorted_params), len(impacts)))
 
