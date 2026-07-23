@@ -24,10 +24,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -35,7 +35,7 @@ jobs:
         run: pip install tox>=4.31 tox-gh
 
       - name: Cache tox environments
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: .tox
           key: tox-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
