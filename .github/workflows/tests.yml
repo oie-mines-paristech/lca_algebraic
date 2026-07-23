@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: .tox
-          key: tox-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
+          key: tox-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             tox-${{ runner.os }}-${{ matrix.python-version }}-
 
