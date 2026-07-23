@@ -63,13 +63,18 @@ lca_algebraic = ["README.md"]
 
 
 [tool.tox]
-requires = ["tox>=4"]
-env_list = ["py310", "py311", "py312"]
+requires = ["tox>=4.31"]
+env_list = ["3.10", "3.11", "3.12"]
 
 [tool.tox.env_run_base]
 description = "Run test under {base_python}"
 deps = ["pytest>=7", "nbmake"]
 commands = [["pytest"]]
+
+[tool.tox.gh.python]
+"3.10" = ["3.10"]
+"3.11" = ["3.11"]
+"3.12" = ["3.12"]
 
 [tool.flake8]
 max-line-length = 130
