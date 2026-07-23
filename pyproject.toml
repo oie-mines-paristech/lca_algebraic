@@ -40,6 +40,14 @@ dependencies = [
   "pypardiso; platform_machine == 'x86_64'"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pre-commit",
+  "pytest",
+  "nbmake",
+  "build"
+]
+
 [project.urls]
 Homepage = "https://lca-algebraic.readthedocs.io/en/stable/"
 Repository = "https://github.com/oie-mines-paristech/lca_algebraic.git"
