@@ -145,7 +145,7 @@ def MonteCarlo(
         lca = bc.LCA(**common_kwargs)
 
     # Compute major contributors once
-    if False:
+    if True:
         lca.lci()
     else:
         suppliers = lca.compute_suppliers()
@@ -184,13 +184,18 @@ def perf_test():
     climate = ("ecoinvent-3.11", "EF v3.1", "climate change", "global warming potential (GWP100)")
 
     # Required to fix the bug in trying to clear pypardiso first
-    """ res = MonteCarlo(
+    res = MonteCarlo(
         demand={pv_act: 1.0},
         method=climate,
-        iterations=1,
-        use_jacobi=False) """
+        iterations=100,
+        use_jacobi=False)
 
-    res = MonteCarlo(demand={pv_act: 1.0}, method=climate, iterations=10, use_jacobi=True, use_guess=True)
+    res = MonteCarlo(
+        demand={pv_act: 1.0},
+        method=climate,
+        iterations=100,
+        use_jacobi=True,
+        use_guess=True)
 
     print(np.mean(res), np.std(res))
 
