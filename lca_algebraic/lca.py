@@ -904,12 +904,17 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
     if not _isForeground(db_name):
         raise ValueError(f"Can only compute expression on foreground activities. {db_name} is background")
 
-    fg_matrix = ActMatrix()
-    bg_matrix = ActMatrix()
+    fg_matrix = defaultdict(lambda: 0.0)
+    bg_matrix = defaultdict(lambda: 0.0)
     axis_acts = defaultdict(list)
+    visited = set()
 
     def walk_activities(act: Activity):
-        nonlocal fg_matrix, bg_matrix, axis_acts
+        nonlocal fg_matrix, bg_matrix, axis_acts, visited
+
+        if act in visited:
+            return
+        visited.add(act)
 
         if axis_attr is not None:
             new_axis_val = _get_axis(act, axis_attr)
@@ -918,13 +923,6 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
 
         if not _isForeground(act["database"]):
             return
-
-        if act in fg_matrix.row_acts():
-            return
-
-        fg_matrix.add_row(act)
-        fg_matrix.add_col(act)
-        bg_matrix.add_row(act)
 
         static_bg_amounts = dict()
 
@@ -957,6 +955,19 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
     for act in iter_database(db_name):
         walk_activities(act)
 
+    fg_acts = set()
+    bg_acts = set()
+    for k0, k1 in fg_matrix:
+        fg_acts.add(k0)
+        fg_acts.add(k1)
+    for k0, k1 in bg_matrix:
+        fg_acts.add(k0)
+        bg_acts.add(k1)
+    fg_acts = list(sorted(fg_acts))
+    bg_acts = list(sorted(bg_acts))
+    fg_matrix = ActMatrix(rows=fg_acts, cols=fg_acts, data=fg_matrix)
+    bg_matrix = ActMatrix(rows=fg_acts, cols=bg_acts, data=bg_matrix)
+
     return fg_matrix, bg_matrix, axis_acts
 
 
@@ -966,9 +977,9 @@ def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[A
     xbg = copy(bg_matrix)
 
     for a in acts:
-        for o in xfg.cols_acts():
+        for o in xfg.cols:
             xfg[a, o] = 0.0
-        for o in xbg.cols_acts():
+        for o in xbg.cols:
             xbg[a, o] = 0.0
         xfg[a, a] = 1.0
 
@@ -1016,8 +1027,8 @@ def _matrices_from_actmatrices(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> Ma
     return MatricesResult(
         bg_matrix=B,
         inv_fg=invert(A),
-        fg_acts=fg_matrix.cols_acts(),
-        bg_acts=bg_matrix.cols_acts(),
+        fg_acts=fg_matrix.cols,
+        bg_acts=bg_matrix.cols,
     )
 
 

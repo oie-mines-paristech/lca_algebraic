@@ -206,22 +206,44 @@ def invert(mat: MatrixBase, min_scc_size_for_parallel=5):
 
 
 class ActMatrix(defaultdict):
-    def __init__(self):
-        super().__init__(lambda: 0.0)
-        self._col_acts = list()
-        self._row_acts = list()
+    def __init__(self, rows: list = None, cols: list = None, data = {}, default = lambda: 0.0):
+        super().__init__(default)
+
+        if rows is None:
+            self._row_acts = list()
+        else:
+            self._row_acts = copy(rows)
+            self._row_acts.sort()
+
+        if cols is None:
+            self._col_acts = list()
+        else:
+            self._col_acts = copy(cols)
+            self._col_acts.sort()
+
+        # by pass our setitem
+        for k, v in data.items():
+            self.unsafe_set(k, v)
+
+    def unsafe_set(self, key, value):
+        """Set key assuming row and col are already existing"""
+        return super().__setitem__(key, value)
+
+    def unsafe_get(self, key):
+        """Get key assuming row and col are already existing"""
+        return super().__getitem__(key)
 
     def __getitem__(self, key):
         row_act, col_act = key
         self.add_row(row_act)
         self.add_col(col_act)
-        return super().__getitem__(key)
+        return self.unsafe_get(key)
 
     def __setitem__(self, key, value):
         row_act, col_act = key
         self.add_row(row_act)
         self.add_col(col_act)
-        return super().__setitem__(key, value)
+        return self.unsafe_set(key, value)
 
     def add_col(self, col_act):
         if col_act not in self._col_acts:
@@ -235,17 +257,20 @@ class ActMatrix(defaultdict):
 
     def demand_vector(self, act, value=1.0):
         """Generate vector of len (rows) with zeros and 1 only at the index of act"""
-        act_idx = self.row_acts().index(act)
+        act_idx = self._row_acts.index(act)
         res = [0.0] * len(self._row_acts)
         res[act_idx] = value
         return ImmutableMatrix([res])
 
-    def row_acts(self):
+    @property
+    def rows(self):
         return self._row_acts
 
-    def cols_acts(self):
+    @property
+    def cols(self):
         return self._col_acts
 
+    @property
     def shape(self):
         return len(self._row_acts), len(self._col_acts)
 
@@ -270,17 +295,17 @@ class ActMatrix(defaultdict):
 
     def to_dataframe(self):
         res = dict()
-        for row_act in self.row_acts():
-            res[str(row_act)] = {str(col_act): self[(row_act, col_act)] for col_act in self.cols_acts()}
+        for row_act in self._row_acts:
+            res[str(row_act)] = {str(col_act): self.unsafe_get((row_act, col_act)) for col_act in self._col_acts}
         return pd.DataFrame(res)
 
     def __repr__(self):
-        return f"Matrix({self.shape()}) [{len(self)}]"
+        return f"Matrix({self.shape}) [{len(self)}]"
 
     def __copy__(self):
         ret = ActMatrix()
         for k, v in self.items():
-            super(ActMatrix, ret).__setitem__(k, v)
+            ret.unsafe_set(k, v)
         ret._row_acts = copy(self._row_acts)
         ret._col_acts = copy(self._col_acts)
         return ret
