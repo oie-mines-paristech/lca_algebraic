@@ -3,11 +3,13 @@ from contextlib import contextmanager
 
 try:
     from enum import Enum, StrEnum
-except:
+except ImportError:
     # Simulate StrEnum for python<3.11
     from enum import Enum
+
     class StrEnum(str, Enum):
         pass
+
 
 class CSE(StrEnum):
     NONE = "none"

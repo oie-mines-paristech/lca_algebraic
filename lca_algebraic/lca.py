@@ -5,13 +5,10 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
-import brightway2 as bw
 import numpy as np
 import pandas as pd
 import sympy
-from bw2data.backends.peewee import Activity
 from pandas import DataFrame
-from peewee import DoesNotExist
 from pint import Quantity, Unit
 from sympy import Add, Basic, Expr, IndexedBase, MatrixBase, Mul
 from typing_extensions import deprecated
@@ -26,6 +23,14 @@ from lca_algebraic.base_utils import (
     _getDb,
     _isnumber,
     _isOutputExch,
+)
+from lca_algebraic.bw_wrapper import (
+    Activity,
+    Database,
+    activity_not_found,
+    databases,
+    iter_database,
+    multi_lca,
 )
 from lca_algebraic.lambda_expression import LambdaExpr
 from lca_algebraic.settings import Settings
@@ -102,10 +107,7 @@ def user_function(real=True, imaginary=False):
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
-    lca = bw.MultiLCA("process")
-    cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
-    return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
+    return multi_lca(activities, methods, _actName, method_name)
 
 
 def multiLCA(models, methods, **params):
@@ -722,8 +724,8 @@ def _isBioAct(act: ActivityExtended):
 def _getOrCreateProxyDb(db_name):
     """Init proxy db to biosphere if not done yet"""
     proxyname = db_name + "-proxy"
-    if proxyname not in bw.databases:
-        db = bw.Database(proxyname)
+    if proxyname not in databases:
+        db = Database(proxyname)
         db.write(dict())
         _setMeta(proxyname, PROXY_DB_FLAG, True)
     return proxyname
@@ -746,7 +748,7 @@ def _getOrCreateProxy(act: ActivityExtended, exchanges: dict[ActivityExtended, f
                     proxy.deleteExchanges()
                 proxy.addExchanges(exchanges)
 
-        except DoesNotExist:
+        except activity_not_found():
             name = act["name"] + " # proxy"
 
             # Create biosphere proxy in User Db
@@ -877,7 +879,7 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
             proxy_act = _getOrCreateProxy(act, static_bg_amounts)
             bg_matrix[act, proxy_act] = 1.0
 
-    for act in bw.Database(db_name):
+    for act in iter_database(db_name):
         walk_activities(act)
 
     return fg_matrix, bg_matrix, axis_acts

@@ -5,9 +5,10 @@ from datetime import datetime
 from os import path
 from typing import Dict, Tuple
 
-import brightway2 as bw
 from dill import Pickler, load
 from sympy.core.function import UndefinedFunction
+
+from lca_algebraic.bw_wrapper import databases, projects
 
 from .database import _getMeta
 from .log import info, logger
@@ -29,7 +30,7 @@ class MyPickler(Pickler):
 
 def last_db_update():
     """Get the last update of current database project"""
-    filename = path.join(bw.projects.dir, "lci", "databases.db")
+    filename = path.join(projects.dir, "lci", "databases.db")
     return path.getmtime(filename)
 
 
@@ -51,14 +52,14 @@ def get_dependant_dbs(db_name):
     else:
         res = set([db_name])
 
-    for dep in bw.databases[db_name]["depends"]:
+    for dep in databases[db_name]["depends"]:
         res.update(get_dependant_dbs(dep))
     return res
 
 
 def get_last_update(db_name):
     def last_update(db_name):
-        return datetime.fromisoformat(bw.databases[db_name]["modified"])
+        return datetime.fromisoformat(databases[db_name]["modified"])
 
     dependant_dbs = get_dependant_dbs(db_name)
 
@@ -83,7 +84,7 @@ class SyncDict(MutableMapping):
         self.load()
 
     def _filename(self):
-        return path.join(bw.projects.dir, f"lca_algebraic_cache-{self.name}-{self.db_name}.pickle")
+        return path.join(projects.dir, f"lca_algebraic_cache-{self.name}-{self.db_name}.pickle")
 
     # ---------- core MutableMapping ----------
     def __getitem__(self, key):
@@ -209,7 +210,7 @@ class ExprCache(_CacheDict):
 
 def clear_caches(local=True, disk=True):
     for cache_name in [LCIA_CACHE, EXPR_CACHE]:
-        for db_name in bw.databases:
+        for db_name in databases:
             cache = SyncDict(cache_name, db_name)
             if disk:
                 cache.clear(disk=True)

@@ -2,12 +2,12 @@ from copy import copy
 from dataclasses import dataclass
 from typing import Dict, List
 
-from bw2data.backends.peewee import Activity
 from sympy import Basic, Expr, lambdify, parse_expr
 from sympy.printing.numpy import NumPyPrinter
 
 from lca_algebraic.axis_dict import AxisDict
 from lca_algebraic.base_utils import _user_functions
+from lca_algebraic.bw_wrapper import Activity
 from lca_algebraic.params import (
     _complete_params,
     _expand_param_names,

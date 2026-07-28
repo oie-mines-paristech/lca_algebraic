@@ -1,7 +1,11 @@
-import brightway2 as bw
 from bw2data.parameters import DatabaseParameter, ProjectParameter
 from bw2io import BW2Package
 
+from lca_algebraic.bw_wrapper import (
+    Database,
+    new_database_parameters,
+    new_project_parameters,
+)
 from lca_algebraic.log import warn
 from lca_algebraic.params import _listParams, loadParams
 
@@ -19,7 +23,7 @@ def _param_data(param):
 
 def export_db(db_name, filename):
     """This function exports a database to the **BW2Package** format, including the definition of parameters"""
-    db = bw.Database(db_name)
+    db = Database(db_name)
     db_params = DatabaseParameter.select().where(DatabaseParameter.database == db_name)
 
     # Export Db params
@@ -48,11 +52,11 @@ def import_db(filename):
     db = BW2Package.import_file(filename)[0]
     if "database_parameters" in db.metadata:
         params = db.metadata["database_parameters"]
-        bw.parameters.new_database_parameters(params, db.name)
+        new_database_parameters(params, db.name)
 
     if "project_parameters" in db.metadata:
         params = db.metadata["project_parameters"]
-        bw.parameters.new_project_parameters(params)
+        new_project_parameters(params)
 
     # Reload the parameters
     loadParams()

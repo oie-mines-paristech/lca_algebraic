@@ -4,14 +4,22 @@ from copy import copy
 from types import FunctionType
 from typing import Dict, Tuple, Union
 
-import brightway2 as bw
 import pandas as pd
-from bw2data.backends.peewee import Activity, Exchange, ExchangeDataset
-from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from pint import DimensionalityError, Quantity
 from sympy import Basic, simplify, symbols
 
 from lca_algebraic.base_utils import _actName, _getDb, _isOutputExch
+from lca_algebraic.bw_wrapper import (
+    Activity,
+    Exchange,
+    ExchangeDataset,
+    copy_activity_skip_keys,
+    dict_as_exchangedataset,
+    exchange_type_for_sub_act,
+    get_activity,
+    process_node_default,
+    production_edge_default,
+)
 from lca_algebraic.database import (
     _find_biosphere_db,
     _isForeground,
@@ -38,8 +46,6 @@ from .units import unit_registry as u
 old_amount = symbols("old_amount")
 old_amount_with_unit = u.Quantity(old_amount, u.old_unit)
 
-TECHNO_TYPES = [None, "process", "product", "processwithreferenceproduct", "multifunctional"]
-
 
 def _exch_name(exch):
     return exch["name"] if "name" in exch else str(exch.input)
@@ -59,7 +65,7 @@ class ActivityExtended(Activity):
             if _isOutputExch(exc):
                 continue
 
-            input = bw.get_activity(exc.input.key)
+            input = get_activity(exc.input.key)
             amount = _getAmountOrFormula(exc)
             res.append((exc["name"], input, amount))
         return res
@@ -250,7 +256,7 @@ class ActivityExtended(Activity):
                     input=sub_act.key,
                     name=sub_act["name"],
                     unit=sub_act["unit"] if "unit" in sub_act else None,
-                    type="technosphere" if sub_act.get("type") in TECHNO_TYPES else "biosphere",
+                    type=exchange_type_for_sub_act(sub_act),
                 )
 
                 self._update_exchange(exch, updates)
@@ -373,7 +379,7 @@ class ActivityExtended(Activity):
 
     def getOutputExchange(self):
         for exch in self.exchanges():
-            if (exch["input"] == exch["output"]) and (exch["type"] == "production"):
+            if (exch["input"] == exch["output"]) and (exch["type"] == production_edge_default()):
                 return exch
 
     def getOutputAmount(self):
@@ -559,7 +565,7 @@ def newActivity(
     exchanges: Dict[Activity, Union[float, str]] = dict(),
     amount=1,
     code=None,
-    type="process",
+    type=None,
     switchActivity=False,
     **argv,
 ) -> ActivityExtended:
@@ -593,6 +599,9 @@ def newActivity(
 
     code = code if code else name
 
+    if type is None:
+        type = process_node_default()
+
     act = _newAct(db_name, code)
     act["name"] = name
     act["type"] = type
@@ -603,12 +612,12 @@ def newActivity(
     act.update(argv)
 
     # Add single production exchange
-    if type == "process":
+    if type == process_node_default():
         ex = act.new_exchange(
             input=act.key,
             name=act["name"],
             unit=act["unit"],
-            type="production",
+            type=production_edge_default(),
             amount=amount,
         )
         ex.save()
@@ -649,13 +658,13 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
         code = activity.key[1]
 
     for key, value in activity.items():
-        if key not in ["database", "code"]:
+        if key not in copy_activity_skip_keys():
             res[key] = value
     for k, v in kwargs.items():
         res._data[k] = v
     res._data["code"] = code
     res["name"] = code
-    res["type"] = "process"
+    res["type"] = process_node_default()
     res["inherited_from"] = activity.key
     res.save()
 
@@ -771,7 +780,7 @@ def printAct(*activities, **params):
                 if _isOutputExch(exc):
                     continue
 
-                input = bw.get_activity(exc.input.key)
+                input = get_activity(exc.input.key)
                 amount = _getAmountOrFormula(exc)
 
                 # Params provided ? Evaluate formulas

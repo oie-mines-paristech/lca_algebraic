@@ -1,12 +1,12 @@
 import operator
 from contextlib import contextmanager
 
-import brightway2 as bw
 from pint import DimensionalityError, OffsetUnitCalculusError, Unit, UnitRegistry
 from pint.compat import _to_magnitude, zero_or_nan
 from pint.facets.plain import PlainQuantity
 
 from lca_algebraic.base_utils import getActByCode
+from lca_algebraic.bw_wrapper import Database
 from lca_algebraic.settings import Settings
 
 NEW_UNITS = {"person", "old_unit"}  # Used with 'old_amount'
@@ -29,7 +29,7 @@ def check_unit_consistency(db_name: str):
     """
     Check units of exchanges VS units of target activities in a single database.
     This check is done statically. The purpose is to run this on a background, non parametric, database."""
-    db = bw.Database(db_name)
+    db = Database(db_name)
 
     errors = list()
     for act in db:

@@ -13,9 +13,6 @@
 
 [![main status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=main&label=main)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Amain)
 [![dev status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=dev&label=dev)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Adev)
-&nbsp;&nbsp;&nbsp;
-[![bw25 status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=bw25&label=bw25)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Abw25)
-[![dev25 status](https://img.shields.io/github/actions/workflow/status/oie-mines-paristech/lca_algebraic/tests.yml?branch=dev25&label=dev25)](https://github.com/oie-mines-paristech/lca_algebraic/actions/workflows/tests.yml?query=branch%3Adev25)
 
 
 **lca_algebraic** is a layer above [**Brightway**](https://brightway.dev/) designed for the definition of **parametric inventories** 
@@ -35,37 +32,48 @@ It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order
 
 # ⚙ Installation
 
-We support both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/index.html)
-and [Brightway 2.5](https://docs.brightway.dev/en/latest/) via two separate branches / libraries :
-
-* [lca_algebraic](https://pypi.org/project/lca-algebraic/) (for Brightway 2.4)
-* [lca_algebraic_bw25](https://pypi.org/project/lca-algebraic-bw25/) (for  Brightway 2.5)
+**lca_algebraic** supports both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/index.html)
+and [Brightway 2.5](https://docs.brightway.dev/en/latest/) via optional pip extras.
 
 ## 1) Setup separate environment
 
-First create a python environment, with **Python** [>=3.10, <3.13] :
+First create a python environment, with **Python** [>=3.10, <3.14] :
 
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
 ```bash
-conda create -n lca python==3.10
+conda create -n lca python==3.12
 conda activate lca
 ```
 
 **With virtual env**
 
 ```bash
-python3.10 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
 ## 2) Install lca_algebraic
 
-> pip install lca_algebraic 
+Install for *Brightway2* :
 
-Or, for brightway 25 :
+```bash
+pip install lca_algebraic[bw2]
+```
 
-> pip install lca_algebraic_bw25
+Or for *Brightway25* :
+
+```bash
+pip install lca_algebraic[bw25]
+```
+
+For development (tests, pre-commit, etc.) :
+
+```bash
+pip install lca_algebraic[bw2,dev]
+# or
+pip install lca_algebraic[bw25,dev]
+```
 
 ## 3) [Optional] Install Jupyter & Activity Browser 
 

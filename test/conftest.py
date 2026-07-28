@@ -7,12 +7,12 @@ os.environ["BRIGHTWAY2_DIR"] = bw2_tmp.name
 
 from dataclasses import dataclass
 from logging import info
-import pandas as pd
 
-import brightway2 as bw
+import pandas as pd
 import pytest
 
 from lca_algebraic import resetDb, resetParams, newActivity, ActivityExtended, getActByCode
+from lca_algebraic.bw_wrapper import Method, databases, projects
 from lca_algebraic.cache import clear_caches
 
 USER_DB = "fg"
@@ -45,11 +45,11 @@ def data() -> DataFixture:
     """Setup background data"""
 
     # Reset func project, empty DB
-    if "tests" in bw.projects:
+    if "tests" in projects:
         info("Deleting old tests project")
-        bw.projects.delete_project("tests", delete_dir=True)
+        projects.delete_project("tests", delete_dir=True)
 
-    bw.projects.set_current("tests")
+    projects.set_current("tests")
 
     # Clear DB
     resetDb(BG_DB, False)
@@ -77,9 +77,9 @@ def data() -> DataFixture:
 def reset_db():
     """Before each test"""
 
-    for db_name in list(bw.databases):
+    for db_name in list(databases):
         if db_name != BG_DB and not db_name.startswith("bio"):
-            del bw.databases[db_name]
+            del databases[db_name]
 
     resetDb(USER_DB, foreground=True)
     resetParams()
@@ -100,14 +100,14 @@ def init_methods(db, prefix):
 
         act = getActByCode(db, bioname)
 
-        method = bw.Method((prefix, bioname, "total"))
+        method = Method((prefix, bioname, "total"))
         method.register(unit="MJ-Eq", description="quantity of " + bioname)
         method.write([(act.key, 1)])
 
         res.append((prefix, bioname, "total"))
 
     # Digital : one digit per bio activity
-    method = bw.Method((prefix, "all", "total"))
+    method = Method((prefix, "all", "total"))
     method.register(unit="1", description="quantity of " + bioname)
     method.write(
         [

@@ -8,7 +8,6 @@ from typing import Dict, List, Tuple, Type
 
 import numpy as np
 import seaborn as sns
-from bw2data.backends.peewee import Activity
 from IPython.display import display
 from ipywidgets import interact
 from matplotlib import pyplot as plt
@@ -35,6 +34,7 @@ from sympy import (
 from sympy.core.operations import AssocOp
 
 from lca_algebraic import LambdaExpr
+from lca_algebraic.bw_wrapper import Activity
 from lca_algebraic.lambda_expression import _filter_param_values
 from lca_algebraic.lca import (
     _expanded_names_to_names,

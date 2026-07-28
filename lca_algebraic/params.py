@@ -3,10 +3,8 @@ from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Union
 
-import brightway2 as bw
 import numpy as np
 import pandas as pd
-from bw2data.backends.peewee import ExchangeDataset
 from bw2data.parameters import (
     ActivityParameter,
     DatabaseParameter,
@@ -26,6 +24,12 @@ from lca_algebraic.base_utils import (
     _snake2camel,
     _user_functions,
     as_np_array,
+)
+from lca_algebraic.bw_wrapper import (
+    Database,
+    ExchangeDataset,
+    new_database_parameters,
+    new_project_parameters,
 )
 from lca_algebraic.database import DbContext
 from lca_algebraic.log import logger, warn
@@ -524,9 +528,9 @@ def _persistParam(param):
         out.append(bwParam)
 
     if param.dbname:
-        bw.parameters.new_database_parameters(out, param.dbname)
+        new_database_parameters(out, param.dbname)
     else:
-        bw.parameters.new_project_parameters(out)
+        new_project_parameters(out)
 
 
 def _loadArgs(data):
@@ -1186,7 +1190,7 @@ def freezeParams(db_name, **params: Dict[str, float]):
 
     """
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
 
     with DbContext(db):
         for act in db:
@@ -1212,7 +1216,7 @@ def _listParams(db_name) -> List[ParamDef]:
     Return a set of all parameters used in activities
     """
 
-    db = bw.Database(db_name)
+    db = Database(db_name)
     res = set()
 
     with DbContext(db):

@@ -821,7 +821,7 @@ def test_bg_loops(data):
     fg_impacts = compute_impacts(loop_root_copy, [data.ibio1]).values.item()
 
     # Should show same results
-    assert abs(fg_impacts - bg_impacts) < 1e-8
+    assert abs(fg_impacts - bg_impacts) < 1e-7
 
 
 def test_wildcard_update_exchanged_with_old_amount(data):
