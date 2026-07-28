@@ -1,7 +1,13 @@
 # This module holds global settings
 from contextlib import contextmanager
-from enum import StrEnum
 
+try:
+    from enum import Enum, StrEnum
+except:
+    # Simulate StrEnum for python<3.11
+    from enum import Enum
+    class StrEnum(str, Enum):
+        pass
 
 class CSE(StrEnum):
     NONE = "none"

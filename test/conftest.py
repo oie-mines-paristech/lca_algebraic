@@ -1,7 +1,13 @@
+import os
+from tempfile import TemporaryDirectory
+
+# Ensure brightway test directory outside the brightway directory of user
+bw2_tmp = TemporaryDirectory()
+os.environ["BRIGHTWAY2_DIR"] = bw2_tmp.name
+
 from dataclasses import dataclass
 from logging import info
 import pandas as pd
-import os
 
 import brightway2 as bw
 import pytest

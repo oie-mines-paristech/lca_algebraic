@@ -9,7 +9,7 @@ version = "1.4.dev6"
 description = "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"
 license = { text = "BSD" }
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 
 authors = [
   { name = "OIE - Mines ParisTech", email = "raphael.jolivet@mines-paristech.fr" }
@@ -21,7 +21,8 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12"
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13"
 ]
 
 dependencies = [
@@ -41,6 +42,14 @@ dependencies = [
   "pypardiso; platform_machine == 'x86_64'"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pre-commit",
+  "pytest",
+  "nbmake",
+  "build"
+]
+
 [project.urls]
 Homepage = "https://lca-algebraic.readthedocs.io/en/stable/"
 Repository = "https://github.com/oie-mines-paristech/lca_algebraic.git"
@@ -55,13 +64,19 @@ lca_algebraic = ["README.md"]
 
 
 [tool.tox]
-requires = ["tox>=4"]
-env_list = ["py310", "py311", "py312"]
+requires = ["tox>=4.31"]
+env_list = ["3.10", "3.11", "3.12", "3.13"]
 
 [tool.tox.env_run_base]
 description = "Run test under {base_python}"
 deps = ["pytest>=7", "nbmake"]
 commands = [["pytest"]]
+
+[tool.tox.gh.python]
+"3.10" = ["3.10"]
+"3.11" = ["3.11"]
+"3.12" = ["3.12"]
+"3.13" = ["3.13"]
 
 [tool.flake8]
 max-line-length = 130
