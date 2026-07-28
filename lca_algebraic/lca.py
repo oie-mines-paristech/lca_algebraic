@@ -919,7 +919,7 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
         if not _isForeground(act["database"]):
             return
 
-        if act in fg_matrix.row_acts():
+        if act in fg_matrix.rows:
             return
 
         fg_matrix.add_row(act)
@@ -966,9 +966,9 @@ def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[A
     xbg = copy(bg_matrix)
 
     for a in acts:
-        for o in xfg.cols_acts():
+        for o in xfg.cols:
             xfg[a, o] = 0.0
-        for o in xbg.cols_acts():
+        for o in xbg.cols:
             xbg[a, o] = 0.0
         xfg[a, a] = 1.0
 
@@ -1016,8 +1016,8 @@ def _matrices_from_actmatrices(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> Ma
     return MatricesResult(
         bg_matrix=B,
         inv_fg=invert(A),
-        fg_acts=fg_matrix.cols_acts(),
-        bg_acts=bg_matrix.cols_acts(),
+        fg_acts=fg_matrix.cols,
+        bg_acts=bg_matrix.cols,
     )
 
 
