@@ -110,6 +110,8 @@ def oat_matrix(
     n=10,
     title="Impact variability (% of mean)",
     name_type=NameType.LABEL,
+    oat_parameters : set|list|None = None,
+    override_defaults_values=dict()
 ):
     """
 
@@ -126,6 +128,15 @@ def oat_matrix(
 
     functional_unit:
         Float value of expression by which to divide each impact.
+
+    oat_parameters:
+        list or set to select parameters on which to perform OAT, all
+        parameters are selected if oat_parameters is None. default: None
+
+    override_defaults_values:
+        this is a dictionnary of (parameter name, value) that will override
+        the parameter defaults value. This allow to perform OAT with different
+        defaults values.
     """
 
     # Compile model into lambda functions for fast LCA
@@ -134,10 +145,23 @@ def oat_matrix(
     # Sort params by category
     sorted_params = _extract_var_params(lambdas)
 
+    if oat_parameters is not None:
+        if isinstance(oat_parameters, list):
+            oat_parameters = set(oat_parameters)
+
+        if not isinstance(oat_parameters, list|set):
+            raise Exception(f"Invalid oat_parameters, should be list or set got: `{type(oat_parameters)}`")
+        sorted_params = [p for p in sorted_params if p.name in oat_parameters]
+
     change = np.zeros((len(sorted_params), len(impacts)))
 
+    defaults_params = {param.name: param.default for param in sorted_params}
+    defaults_params.update(override_defaults_values)
+
+    df_ref = _postMultiLCAAlgebric(impacts, lambdas, **defaults_params)
+
     for iparam, param in enumerate(sorted_params):
-        params = {param.name: param.default for param in sorted_params}
+        params = defaults_params.copy()
 
         # Compute range of values for given param
         params[param.name] = param.range(n)
@@ -146,7 +170,7 @@ def oat_matrix(
         df = _postMultiLCAAlgebric(impacts, lambdas, **params)
 
         # Compute change
-        change[iparam] = (df.max() - df.min()) / df.median() * 100
+        change[iparam] = (df.max() - df.min()) / df_ref * 100
 
     # Build final heatmap
     change = pd.DataFrame(
