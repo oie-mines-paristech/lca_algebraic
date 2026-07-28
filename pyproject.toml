@@ -38,6 +38,7 @@ dependencies = [
   "SALib",
   "pint",
   "typing-extensions",
+  "xarray>=2022.3.0",
 ]
 
 [project.optional-dependencies]
