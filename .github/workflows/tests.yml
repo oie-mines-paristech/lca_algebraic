@@ -45,6 +45,7 @@ jobs:
         uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
+          cache-suffix: ${{ matrix.tox-env }}
 
       - name: Set up Python
         uses: actions/setup-python@v7
