@@ -1,9 +1,17 @@
+import os
+from tempfile import TemporaryDirectory
+
+# Ensure brightway test directory outside the brightway directory of user
+bw2_tmp = TemporaryDirectory()
+os.environ["BRIGHTWAY2_DIR"] = bw2_tmp.name
+
 from dataclasses import dataclass
 from logging import info
-import os
 import pandas as pd
-import pytest
+import os
+
 import bw2data as bw
+import pytest
 from lca_algebraic import resetDb, resetParams, newActivity, ActivityExtended
 from lca_algebraic.cache import clear_caches
 from lca_algebraic.base_utils import getActByCode

@@ -1,6 +1,21 @@
 # This module holds global settings
 from contextlib import contextmanager
 
+try:
+    from enum import Enum, StrEnum
+except ImportError:
+    # Simulate StrEnum for python<3.11
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
+
+
+class CSE(StrEnum):
+    NONE = "none"
+    DEFAULT = "default"  # Default sympy one
+    DAG_REFS = "dag"  # Use existing refs in DAG pexresions
+
 
 class Settings:
     cache_enabled: bool = True
@@ -12,6 +27,13 @@ class Settings:
 
     # When activted, forbids any creation or update in background database
     strict_mode: bool = False
+
+    # Use "Common Sub expression patterns" in sympy lambdify
+    cse_mode = CSE.DEFAULT
+
+    # If true, caches are flushed automatically but more frequently
+    # If set to flase, you shoudl ensure flushing caches yourself
+    auto_flush = True
 
 
 # Flag used on Db to set it as proxy

@@ -1,18 +1,12 @@
 from collections import defaultdict
+from copy import copy
 from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
-from copy import copy
 from scipy.sparse import csr_array
 from scipy.sparse.csgraph import connected_components
-from sympy import (
-    ImmutableMatrix,
-    ImmutableSparseMatrix,
-    Matrix,
-    MatrixBase,
-    MutableSparseMatrix,
-)
+from sympy import ImmutableMatrix, Matrix, MatrixBase, MutableSparseMatrix, SparseMatrix
 
 
 def _to_structural_matrix(mat: MatrixBase):
@@ -257,13 +251,22 @@ class ActMatrix(defaultdict):
 
     def to_sympy(self):
         """Return an immutable sympy matrix"""
-        rows = list()
-        for row_act in self.row_acts():
-            row = list()
-            rows.append(row)
-            for col_act in self.cols_acts():
-                row.append(self.get((row_act, col_act), 0.0))
-        return ImmutableSparseMatrix(rows)
+        row_idx_per_act = {act: i for i, act in enumerate(self._row_acts)}
+        col_idx_per_act = {act: i for i, act in enumerate(self._col_acts)}
+
+        data = dict()
+        for key, val in self.items():
+            if val == 0:
+                continue
+
+            row_act, col_act = key
+            row_idx = row_idx_per_act[row_act]
+            col_idx = col_idx_per_act[col_act]
+
+            key_idx = (row_idx, col_idx)
+            data[key_idx] = val
+
+        return SparseMatrix(len(row_idx_per_act), len(col_idx_per_act), data)
 
     def to_dataframe(self):
         res = dict()
@@ -272,7 +275,7 @@ class ActMatrix(defaultdict):
         return pd.DataFrame(res)
 
     def __repr__(self):
-        return self.to_dataframe().__repr__()
+        return f"Matrix({self.shape()}) [{len(self)}]"
 
     def __copy__(self):
         ret = ActMatrix()

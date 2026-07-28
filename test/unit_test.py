@@ -399,20 +399,28 @@ def test_compute_impacts_return_params(data):
 def test_switch_value(data):
     p1 = newFloatParam("p1", default=0, min=0, max=2)
     p2 = newFloatParam("p2", default=0, min=0, max=2)
-    switch_param = newEnumParam("switch_param", default="p1", values=["from_p1", "from_p2"])
+    switch_param = newEnumParam("switch_param", default="p1", values=["fromp1", "fromp2"])
     computed = newFloatParam("computed", default=0, min=0, max=3)
 
-    computed.formula = switchValue(switch_param, from_p1=p1 * 2, from_p2=p2 * 3)
+    computed.formula = switchValue(switch_param, fromp1=p1 * 2, fromp2=p2 * 3)
 
     act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: computed})
 
-    res = compute_impacts(act1, [data.ibio1], switch_param="from_p1", p1=1)
+    res = compute_impacts(act1, [data.ibio1], switch_param="fromp1", p1=1)
 
     assert res.values[0] == 2.0
 
-    res = compute_impacts(act1, [data.ibio1], switch_param="from_p2", p2=1)
+    res = compute_impacts(act1, [data.ibio1], switch_param="fromp2", p2=1)
 
     assert res.values[0] == 3.0
+
+
+def test_should_forbid_underscore_in_switch_param_values():
+    try:
+        newEnumParam("switch_param", default="p1", values=["from_p1", "from_p2"])
+        raise Exception("Should have failed")
+    except:
+        pass
 
 
 def test_interpolation(data):

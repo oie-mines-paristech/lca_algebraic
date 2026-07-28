@@ -2,7 +2,6 @@ import re
 from collections import defaultdict
 from copy import copy
 from dataclasses import dataclass
-from itertools import product
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -15,14 +14,12 @@ from bw2data.backends import Activity
 from bw2data.errors import UnknownObject
 from pandas import DataFrame
 from pint import Quantity, Unit
-from sympy import Add, Basic, Expr, Mul, lambdify, parse_expr
-from sympy.printing.numpy import NumPyPrinter
+from sympy import Add, Basic, Expr, IndexedBase, MatrixBase, Mul
 from typing_extensions import deprecated
 
-from . import Settings, newActivity
-from .activity import ActivityExtended
-from .axis_dict import AxisDict
-from .base_utils import (
+from lca_algebraic.activity import ActivityExtended, newActivity
+from lca_algebraic.axis_dict import AxisDict
+from lca_algebraic.base_utils import (
     MethodKey,
     TabbedDataframe,
     ValueOrExpression,
@@ -30,19 +27,18 @@ from .base_utils import (
     _getDb,
     _isnumber,
     _isOutputExch,
-    _user_functions,
 )
+from lca_algebraic.lambda_expression import LambdaExpr
+from lca_algebraic.settings import Settings
+
 from .cache import ExprCache, LCIACache
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
-from .log import debug, info, logger, warn
+from .log import info, logger, warn
 from .matrix import ActMatrix, invert
 from .methods import method_name, method_unit
 from .params import (
     FixedParamMode,
-    _complete_params,
     _compute_param_length,
-    _expand_param_names,
-    _expand_params,
     _expanded_names_to_names,
     _fixed_params,
     _getAmountOrFormula,
@@ -52,6 +48,10 @@ from .params import (
     freezeParams,
 )
 from .settings import PROXY_DB_FLAG, temp_settings
+from .sympy_utils import replace_and_cleanup
+
+# Symbol use in lambda expression to designate impact values
+IMPACTS_SYMBOL = IndexedBase("impacts")
 
 
 def register_user_function(sym, func):
@@ -71,6 +71,9 @@ def register_user_function(sym, func):
     >>> sympy.srepr(e)
     "Mul(Symbol('a'), Function('func_add')(Symbol('b'), Symbol('c')))"
     """
+
+    from lca_algebraic.base_utils import _user_functions
+
     global _user_functions
     _user_functions[sym.name] = (sym, func)
     return sym
@@ -100,7 +103,6 @@ def user_function(real=True, imaginary=False):
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    # bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
     meth_cfg = {"impact_categories": methods}
     fu = {_actName(act): {act.id: 1} for k in activities for act in k}
 
@@ -156,33 +158,29 @@ def _group_acts_by_db(acts: list[ActivityExtended]):
     return res
 
 
+def _multiLCAWithProxies(acts: list[ActivityExtended], methods: list[MethodKey]):
+    proxy_acts = _createTechProxysForBio(acts)
+    return _multiLCA([{act: 1} for act in proxy_acts.values()], methods)
+
+
 def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
     res = dict()
 
     # Split activities by db_name
     for db_name, acts in _group_acts_by_db(all_acts).items():
-        # Create proxys for bio activities
-        proxy_acts = _createTechProxysForBio(acts)
-
         with LCIACache(db_name) as cache:
             # List activities with at least one missing value
-            remaining_acts = list(
-                proxy_act
-                for proxy_act in proxy_acts.values()
-                if any(method for method in methods if (proxy_act, method) not in cache.data)
-            )
+            remaining_acts = list(act for act in all_acts if any(method for method in methods if (act, method) not in cache.data))
 
             # list methods with at least one missing value
             remaining_methods = list(
-                method
-                for method in methods
-                if any(proxy_act for proxy_act in proxy_acts.values() if (proxy_act, method) not in cache.data)
+                method for method in methods if any(act for act in all_acts if (act, method) not in cache.data)
             )
 
             if len(remaining_acts) > 0 and len(remaining_methods) > 0:
                 info(f"Computing LCA for {len(remaining_acts)} background acts on methods {remaining_methods}")
 
-                lca = _multiLCA([{act: 1} for act in remaining_acts], remaining_methods)
+                lca = _multiLCAWithProxies(remaining_acts, remaining_methods)
 
                 # Set output from dataframe
                 for imethod, method in enumerate(remaining_methods):
@@ -190,12 +188,27 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
                         cache.data[(act, method)] = lca.iloc[imethod, iact]
 
             # Update res with a copy of the cache for selected impacts and activities
-            res.update({(act, method): cache.data[(proxy_acts[act], method)] for act in acts for method in methods})
+            res.update({(act, method): cache.data[(act, method)] for act in acts for method in methods})
 
     return res
 
 
-def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrExpression]:
+def _expr_base_key(axis):
+    """Cache namespace for matrix/model entries (axis + optional factorization flag)."""
+    if Settings.factorize_static_bg:
+        return (axis, "factorized")
+    return (axis,)
+
+
+def _matrices_set_cache_key(base_key):
+    return (base_key, "matrices_set")
+
+
+def _model_cache_key(base_key, model, alpha):
+    return (base_key, "model", str(model), alpha)
+
+
+def _actToLambdaExpr(model: Activity, axis=None, alpha=1) -> LambdaExpr:
     """
     For a given activity return a dict of bg _activity => expression
     """
@@ -204,145 +217,42 @@ def _actToExpressionDict(model: Activity, axis=None) -> Dict[Activity, ValueOrEx
 
     if not _isForeground(db_name):
         # Already Bg activity ?
-        return {model: 1}
+        res = LambdaExpr(alpha * IMPACTS_SYMBOL[0])
+        res.background_activities = [model]
+        return res
 
-    # Try to load from cache
+    base_key = _expr_base_key(axis)
+
+    # Cache around matrix computation
     with ExprCache(db_name) as cache:
-        key = (axis, "factorized") if Settings.factorize_static_bg else (axis)
+        mset_key = _matrices_set_cache_key(base_key)
 
-        if key not in cache.data:
-            logger.debug(f"{db_name} was not in expression cache, computing...")
+        if mset_key not in cache.data:
+            logger.debug(f"{db_name} matrices were not in expression cache, computing...")
+            if axis is None:
+                cache.data[mset_key] = AxisMatricesSet(variants={"_all_": _computeMatrices(db_name=db_name)})
+            else:
+                cache.data[mset_key] = _computeAxisMatricesSet(db_name=db_name, axis_attr=axis)
 
-            res_by_act = _computeDbExpressions(db_name=db_name, axis=axis)
+        matrices_set: AxisMatricesSet = cache.data[mset_key]
 
-            cache.data[key] = res_by_act
-        else:
-            logger.debug(f"{model} found in expression cache")
+        model_key = _model_cache_key(base_key, model, alpha)
+        if model_key not in cache.data:
+            if axis is None:
+                cache.data[model_key] = matrices_set.variants["_all_"].compute_expr_for_model(model=model, alpha=alpha)
+            else:
+                cache.data[model_key] = _combine_axis_variants_for_model(matrices_set, model=model, alpha=alpha)
 
-        res_by_act = cache.data[key]
-
-    return res_by_act[model]
-
-
-@dataclass
-class ValueContext:
-    """Represents a result value, with all parameters values used in context"""
-
-    value: float
-    context: Dict[str, float]
+        return cache.data[model_key]
 
 
 def lambdify_expr(expr):
-    return LambdaWithParamNames(expr, params=[param.name for param in _param_registry().values()])
-
-
-class LambdaWithParamNames:
-    """
-    This class represents a compiled (lambdified) expression together
-    with the list of requirement parameters and the source expression
-    """
-
-    _use_sympy_cse = False
-
-    def __init__(self, expr: Expr | AxisDict | dict, expanded_params=None, params=None, sobols=None):
-        """Computes a lamdda function from expression and list of expected parameters.
-        you can provide either the list pf expanded parameters (full vars for enums) for the 'user' param names
-        """
-
-        if not isinstance(expr, Expr | AxisDict) and isinstance(expr, dict):
-            # Come from JSON serialization
-            obj = expr
-            # LIst of required params for this lambda
-            self.params: List[str] = obj["params"]
-
-            # Full names
-            self.expanded_params = _expand_param_names(self.params)
-            local_dict = {x[0].name: x[0] for x in _user_functions.values()}
-            self.expr = parse_expr(obj["expr"], local_dict=local_dict)
-            self.lambd = _lambdify(self.expr, self.expanded_params)
-            self.sobols = obj["sobols"]
-
-        else:
-            self.expr = expr
-            self.params = params
-
-            if expanded_params is None:
-                if params is None:
-                    expanded_params = _free_symbols(expr)
-                    params = _expanded_names_to_names(expanded_params)
-                    self.params = params
-
-                # We expand again the parameters
-                # If we expect an enum param name, we also expect the other ones :
-                # enumparam_val1 => enumparam_val1, enumparam_val2, ...
-                expanded_params = _expand_param_names(params)
-
-            elif self.params is None:
-                self.params = _expanded_names_to_names(expanded_params)
-
-            self.lambd = _lambdify(expr, expanded_params)
-            self.expanded_params = expanded_params
-            self.sobols = sobols
-
-    @property
-    def has_axis(self):
-        return isinstance(self.expr, AxisDict)
-
-    @property
-    def axis_keys(self):
-        if self.has_axis:
-            return list(sorted(self.expr.keys()))
-        else:
-            return None
-
-    def compute(self, **params) -> ValueContext:
-        """Compute result value based of input parameters"""
-
-        # Add default or computed values
-        completed_params = _complete_params(params, self.params)
-
-        # Expand enums
-        expanded_params = _expand_params(completed_params)
-
-        # Remove parameters that are not required
-        expanded_params = _filter_param_values(expanded_params, self.expanded_params)
-
-        value = self.lambd(**expanded_params)
-
-        return ValueContext(value=value, context=completed_params)
-
-    def serialize(self):
-        expr = str(self.expr)
-        return dict(params=self.params, expr=expr, sobols=self.sobols)
-
-    @staticmethod
-    def use_sympy_cse(b=True):
-        LambdaWithParamNames._use_sympy_cse = b
-
-    def __repr__(self):
-        return repr(self.expr)
-
-    def _repr_latex_(self):
-        return self.expr._repr_latex_()
-
-    def __getstate__(self):
-        """For pickling/unpicling"""
-        state = self.__dict__.copy()
-        # Retirer les attributs temporaires
-        if "lambd" in state:
-            del state["lambd"]
-        return state
-
-    def __setstate__(self, state):
-        """For pickling/unpicling"""
-        self.__dict__.update(state)
-
-        self.lambd = _lambdify(self.expr, self.expanded_params)
+    return LambdaExpr(expr, params=[param.name for param in _param_registry().values()])
 
 
 def _preMultiLCAAlgebric(
     model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
-) -> list[LambdaWithParamNames]:
+) -> list[LambdaExpr]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
     You may use is and pass the result to postMultiLCAAlgebric for fast computation on a model that does not change.
@@ -360,16 +270,16 @@ def _preMultiLCAAlgebric(
         with ExprCache(model["database"]) as cache:
             missing_methods = [method for method in methods if not _key(method) in cache.data]
             if len(missing_methods) > 0:
-                exprs = _modelToExpr(model, methods=missing_methods, axis=axis)
+                exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha)
                 for method, expr in zip(missing_methods, exprs):
-                    cache.data[_key(method)] = LambdaWithParamNames(expr * alpha)
+                    cache.data[_key(method)] = expr
 
             # At this point, everything is in cache
             # REturn the list in order
             return list(cache.data[_key(method)] for method in methods)
 
 
-def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
+def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1) -> List[LambdaExpr]:
     """
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -378,80 +288,24 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None):
     <list of expressions (one per impact)>, <list of required param names>
     """
 
-    expr_by_bg_act = _actToExpressionDict(model, axis=axis)
-    # Keep them in same order
-    bg_acts = list(expr_by_bg_act.keys())
+    generic_lambda_expr = _actToLambdaExpr(model, axis=axis, alpha=alpha)
 
-    if len(bg_acts) == 0:
-        return [0.0] * len(methods)
+    if len(generic_lambda_expr.background_activities) == 0:
+        zero = LambdaExpr(AxisDict({"_all_": 0.0}))
+        zero.background_activities = []
+        zero.impacts = []
+        return [zero] * len(methods)
 
     # Compute LCA for background activities
-    impacts = _multiLCAWithCache(bg_acts, methods)
+    all_impacts = _multiLCAWithCache(generic_lambda_expr.background_activities, methods)
 
-    # Create numpy matrix of impact values
-    # Rows are methods, columns are bg acts
-    impact_matrix = np.array([[impacts[bg_act, method] for bg_act in bg_acts] for method in methods])
+    res = list()
 
-    # Create immutable sympy vector of bg expression, in the same order :
-    # Note: do not use np.array because it has unexpected behaviour
-    bg_expr_vector = np.full((len(bg_acts), 1), None, dtype="O")
-    for i, bg_act in enumerate(bg_acts):
-        bg_expr_vector[i, 0] = expr_by_bg_act[bg_act]
+    for method in methods:
+        impacts = {bg_act: all_impacts[bg_act, method] for bg_act in generic_lambda_expr.background_activities}
+        res.append(generic_lambda_expr.with_impacts(impacts))
 
-    # Multiply the two => returns a vector of impact expression
-    impacts_vector = impact_matrix @ bg_expr_vector
-
-    # For each method, compute an algebric expression with activities replaced by their values
-    return impacts_vector.flatten()
-
-
-def _filter_param_values(params, expanded_param_names):
-    return {key: val for key, val in params.items() if key in expanded_param_names}
-
-
-def _free_symbols(expr: Basic):
-    if isinstance(expr, Basic | AxisDict):
-        return set([str(symb) for symb in expr.free_symbols])
-    else:
-        # Static value
-        return set()
-
-
-def _lambdify(expr: Basic, expanded_params):
-    """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
-
-    printer = NumPyPrinter(
-        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
-    )
-
-    modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
-
-    if isinstance(expr, Basic):
-        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
-
-        def func(*arg, **kwargs):
-            res = lambd(*arg, **kwargs)
-            if isinstance(res, dict):
-                # Transform key symbols into Str
-                return {str(k): v for k, v in res.items()}
-            else:
-                return res
-
-        return func
-    elif isinstance(expr, AxisDict):
-        _lambda = {k: _lambdify(e, expanded_params) for k, e in expr.items()}
-
-        def _func(*args, **kwargs):
-            nonlocal _lambda
-            return {k: f(*args, **kwargs) for k, f in _lambda.items()}
-
-        return _func
-    else:
-        # Not an expression : return static func
-        def static_func(*args, **kargs):
-            return expr
-
-        return static_func
+    return res
 
 
 def _slugify(str):
@@ -466,13 +320,7 @@ class ResultsWithParams:
     params: Dict
 
 
-def _postMultiLCAAlgebric(
-    methods,
-    lambdas: List[LambdaWithParamNames],
-    with_params=False,
-    unit: Unit = None,
-    **params,
-):
+def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False, unit: Unit = None, **params):
     """
     Compute LCA for a given set of parameters and pre-compiled lambda functions.
     This function is used by **multiLCAAlgebric**
@@ -568,12 +416,15 @@ def compute_value(formula, **params):
     if isinstance(formula, float) or isinstance(formula, int):
         return formula
 
-    lambd = LambdaWithParamNames(formula)
+    lambd = LambdaExpr(formula)
 
     value_context = lambd.compute(**params)
 
     # TODO: add an option to keep axes ?
-    return value_context.value["_all_"]
+    value = value_context.value
+    if isinstance(value, dict):
+        return value["_all_"]
+    return value
 
 
 @deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
@@ -660,12 +511,19 @@ def compute_inventory(
     """
 
     with temp_settings(factorize_static_bg=False):
-        exprs_by_bg_act = _actToExpressionDict(model)
+        lambda_expr = _actToLambdaExpr(model, alpha=1 / functional_unit)
 
         # Transform to dict of act => value
         val_by_act = dict()
-        for bg_act, expr in exprs_by_bg_act.items():
-            val_by_act[bg_act] = compute_value(expr, **params) / functional_unit
+        for bg_act in lambda_expr.background_activities:
+            # Dummy impact set to 1 only for current bg act, zero for others
+            impacts = {act: 1.0 if act == bg_act else 0.0 for act in lambda_expr.background_activities}
+
+            bg_expr = lambda_expr.with_impacts(impacts)
+            val = bg_expr.compute(**params).value
+            if isinstance(val, dict):
+                val = val["_all_"]
+            val_by_act[bg_act] = val
 
         if impact_method is not None:
             # Compute LCA of background activities
@@ -844,9 +702,10 @@ def compute_impacts(
                 df = df.rename(index={"_all_": "*all*"})
 
             elif len(list_params) > 0:
-                for k, vals in list_params.items():
-                    df[k] = vals
-                df = df.set_index(list(list_params.keys()))
+                # Use param values as index
+                df.index = pd.MultiIndex.from_frame(pd.DataFrame(list_params))
+                if df.index.nlevels == 1:
+                    df.index = df.index.get_level_values(0)
 
             else:
                 # Single output ? => give the single row the name of the model activity
@@ -885,7 +744,7 @@ def _getOrCreateProxyDb(db_name):
     return proxyname
 
 
-def _getOrCreateProxy(act: ActivityExtended, exchanges: Dict[ActivityExtended, float]):
+def _getOrCreateProxy(act: ActivityExtended, exchanges: dict[ActivityExtended, float]):
     proxy_db = _getOrCreateProxyDb(act["database"])
     proxy_code = act["code"] + "#proxy"
     with temp_settings(strict_mode=False):
@@ -930,14 +789,16 @@ def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtend
     return res
 
 
-def _replace_fixed_params(expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
+def _replace_fixed_params(expr: Expr, fixed_params, fixed_mode=FixedParamMode.DEFAULT):
     """Replace fixed params with their value."""
     if not isinstance(expr, Basic):
         return expr
 
     sub = {key: val for param in fixed_params for key, val in param.expandParams(param.stat_value(fixed_mode)).items()}
+    if len(sub) == 0:
+        return expr
     sub = _toSymbolDict(sub)
-    return expr.xreplace(sub)
+    return replace_and_cleanup(expr, sub)
 
 
 def _get_axis(act, axis_name: str):
@@ -971,81 +832,34 @@ def _force_reduce(expr):
     return expr
 
 
-def _clean_expr(expr):
-    expr = _force_reduce(expr)
+def replace_fixed_params(expr: Expr):
     return _replace_fixed_params(expr, _fixed_params().values())
 
 
-def _solve_expression(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> ActMatrix:
-    """Solve the foreground inventory."""
-
-    # Case of empty matrix
-    if len(bg_matrix.cols_acts()) == 0 or len(fg_matrix.row_acts()) == 0:
-        ret = ActMatrix()
-        ret._col_acts = copy(bg_matrix._col_acts)
-        ret._row_acts = copy(fg_matrix._row_acts)
-        return ret
-
-    A = fg_matrix.to_sympy()
-    B = bg_matrix.to_sympy()
-
-    debug(f"FG matrix : {A}")
-
-    # Use fast inversion of sparse matrices
-    inv_A = invert(A)
-    res_mat = inv_A @ B
-
-    ret = ActMatrix()
-    ret._col_acts = copy(bg_matrix._col_acts)
-    ret._row_acts = copy(fg_matrix._row_acts)
-    for (i0, k0), (i1, k1) in product(enumerate(ret.row_acts()), enumerate(ret.cols_acts())):
-        if (val := res_mat[i0, i1]) == 0:
-            continue
-        super(defaultdict, ret).__setitem__((k0, k1), _clean_expr(val))
-
-    return ret
-
-
-def _computeDbExpressions(db_name, axis) -> Dict[Activity, Dict[Activity, ValueOrExpression]]:
-    """
-    Compute all expressions for a given DB
-    Returns Dict[FgAct => Dict[BGAct => Expressions]]
-    """
+def _walk_and_build_matrices(db_name, axis_attr=None):
+    """Walk activity tree and build fg/bg ActMatrix plus axis activity groups."""
 
     if not _isForeground(db_name):
         raise ValueError(f"Can only compute expression on foreground activities. {db_name} is background")
 
-    # Square technospere matrix dict of <act1, act2> => float
     fg_matrix = ActMatrix()
-
-    # Rectangle matrix
     bg_matrix = ActMatrix()
-
-    # Gather [axis_name] -> activity list
     axis_acts = defaultdict(list)
 
-    # Fill the fg_matrix and bg_matrix, collect axis data
-    # This function walk within the activity tree, it's needed because
-    # activities may be spread across severals databases other than db_name
     def walk_activities(act: Activity):
-        nonlocal axis, fg_matrix, bg_matrix, axis_acts
+        nonlocal fg_matrix, bg_matrix, axis_acts
 
-        # Update axis values
-        if axis is not None:
-            new_axis_val = _get_axis(act, axis)
+        if axis_attr is not None:
+            new_axis_val = _get_axis(act, axis_attr)
             if new_axis_val is not None:
                 axis_acts[new_axis_val].append(act)
 
-        # Should not happen ?
         if not _isForeground(act["database"]):
-            # We reached a background DB ? => stop developping and create reference to activity
             return
 
         if act in fg_matrix.row_acts():
-            # Already explored
             return
 
-        # Add current act to axes matrices, to keep correct shape
         fg_matrix.add_row(act)
         fg_matrix.add_col(act)
         bg_matrix.add_row(act)
@@ -1056,22 +870,16 @@ def _computeDbExpressions(db_name, axis) -> Dict[Activity, Dict[Activity, ValueO
             amount = _getAmountOrFormula(exch)
 
             if isinstance(amount, FunctionType):
-                # Some amounts in EIDB are functions ... we ignore them
                 continue
 
-            # Fetch activity referenced by the exchange
             input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
 
-            # Fill the appropriate matrix
             if _isForeground(input_db):
-                #  Production exchange
                 if not _isOutputExch(exch):
                     amount = -amount
 
                 fg_matrix[act, sub_act] += amount
-
-                # Recursively explore the rest
                 walk_activities(sub_act)
 
             else:
@@ -1080,47 +888,127 @@ def _computeDbExpressions(db_name, axis) -> Dict[Activity, Dict[Activity, ValueO
                 else:
                     bg_matrix[act, sub_act] += amount
 
-        # Static bg amount not empty ? create and reference it
         if len(static_bg_amounts) > 0:
             proxy_act = _getOrCreateProxy(act, static_bg_amounts)
             bg_matrix[act, proxy_act] = 1.0
 
-    # Fill the matrices exploring everything
     for act in bw2data.Database(db_name):
         walk_activities(act)
 
-    # solve the linear equation algebically for the axis _all_
-    data = _solve_expression(fg_matrix, bg_matrix)
+    return fg_matrix, bg_matrix, axis_acts
 
-    # Convert with AxisDict
-    tmp = defaultdict(AxisDict)
-    for k, v in data.items():
-        tmp[k] += AxisDict({"_all_": v})
-    data = None
 
-    # Solve LCA equation for remaining axis
+def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[Activity]):
+    """Build complementary process matrices for one axis tag."""
+    xfg = copy(fg_matrix)
+    xbg = copy(bg_matrix)
+
+    for a in acts:
+        for o in xfg.cols_acts():
+            xfg[a, o] = 0.0
+        for o in xbg.cols_acts():
+            xbg[a, o] = 0.0
+        xfg[a, a] = 1.0
+
+    return xfg, xbg
+
+
+@dataclass
+class MatricesResult:
+    inv_fg: MatrixBase
+    bg_matrix: MatrixBase
+    fg_acts: List[Activity]
+    bg_acts: List[Activity]
+
+    def compute_expr_for_model(self, model: Activity, alpha=1) -> LambdaExpr:
+        """Compute expression for one foreground model using lazy matrix multiply."""
+
+        model_idx = self.fg_acts.index(model)
+
+        fg_col = self.inv_fg.row(model_idx)
+        row = fg_col * self.bg_matrix
+
+        add_args = []
+        for j, bg_act in enumerate(self.bg_acts):
+            val = row[j]
+            if val == 0:
+                continue
+            add_args.append(Mul(val, IMPACTS_SYMBOL[j]))
+
+        inner = Mul(Add(*add_args), alpha) if add_args else alpha * 0.0
+        expr = AxisDict({"_all_": inner})
+
+        res = LambdaExpr(expr)
+        res.background_activities = self.bg_acts
+
+        return res
+
+
+def _matrices_from_actmatrices(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> MatricesResult:
+    A = fg_matrix.to_sympy()
+    A = replace_fixed_params(A)
+
+    B = bg_matrix.to_sympy()
+    B = replace_fixed_params(B)
+
+    return MatricesResult(
+        bg_matrix=B,
+        inv_fg=invert(A),
+        fg_acts=fg_matrix.cols_acts(),
+        bg_acts=bg_matrix.cols_acts(),
+    )
+
+
+@dataclass
+class AxisMatricesSet:
+    """One standard MatricesResult per axis context (_all_, per tag, ...)."""
+
+    variants: Dict[str, MatricesResult]
+
+    def ensure_bg_acts_consistency(self):
+        if len(self.variants) == 0:
+            return
+        ref = self.variants["_all_"].bg_acts
+        for key, matrices in self.variants.items():
+            if matrices.bg_acts != ref:
+                raise ValueError(f"Inconsistent bg_acts between axis variants (_all_ vs {key})")
+
+
+def _computeAxisMatricesSet(db_name, axis_attr) -> AxisMatricesSet:
+    fg_matrix, bg_matrix, axis_acts = _walk_and_build_matrices(db_name, axis_attr=axis_attr)
+
+    variants = {"_all_": _matrices_from_actmatrices(fg_matrix, bg_matrix)}
+
     for axis_tag, acts in axis_acts.items():
-        xfg = copy(fg_matrix)
-        xbg = copy(bg_matrix)
+        xfg, xbg = _zero_out_axis_acts(fg_matrix, bg_matrix, acts)
+        variants[axis_tag] = _matrices_from_actmatrices(xfg, xbg)
 
-        # Set all activities belong axis activities to 0
-        for a in acts:
-            for o in xfg.cols_acts():
-                xfg[a, o] = 0.0
-            for o in xbg.cols_acts():
-                xbg[a, o] = 0.0
-            xfg[a, a] = 1.0
+    res = AxisMatricesSet(variants=variants)
+    res.ensure_bg_acts_consistency()
+    return res
 
-        out = _solve_expression(xfg, xbg)
-        for k, v in out.items():
-            tmp[k] += AxisDict({axis_tag: v})
 
-    # Convert to expected output data layout
-    ret = defaultdict(dict)
-    for (k0, k1), v in tmp.items():
-        ret[k0][k1] = v
+def _combine_axis_variants_for_model(matrices_set: AxisMatricesSet, model: Activity, alpha=1) -> LambdaExpr:
+    axis_terms = {
+        key: matrices.compute_expr_for_model(model=model, alpha=1).expr["_all_"]
+        for key, matrices in matrices_set.variants.items()
+    }
 
-    return ret
+    if len(axis_terms) > 1:
+        expr = AxisDict({key: Mul(val, alpha) for key, val in axis_terms.items()})
+        expr = _force_reduce(expr)
+    else:
+        expr = AxisDict({"_all_": Mul(axis_terms["_all_"], alpha)})
+
+    res = LambdaExpr(expr)
+    res.background_activities = matrices_set.variants["_all_"].bg_acts
+    return res
+
+
+def _computeMatrices(db_name) -> MatricesResult:
+    """Compute standard matrices for a DB without axis ventilation."""
+    fg_matrix, bg_matrix, _ = _walk_and_build_matrices(db_name, axis_attr=None)
+    return _matrices_from_actmatrices(fg_matrix, bg_matrix)
 
 
 def _reverse_dict(dic):

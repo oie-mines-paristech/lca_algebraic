@@ -22,15 +22,28 @@ from sympy import (
     Eq,
     Expr,
     Float,
+    IndexedBase,
     Mul,
     Number,
     Piecewise,
     Sum,
     Symbol,
+    lambdify,
     simplify,
     symbols,
 )
 from sympy.core.operations import AssocOp
+
+from lca_algebraic import LambdaExpr
+from lca_algebraic.lambda_expression import _filter_param_values
+from lca_algebraic.lca import (
+    _expanded_names_to_names,
+    _postMultiLCAAlgebric,
+    _preMultiLCAAlgebric,
+    _replace_fixed_params,
+    compute_impacts,
+    pd,
+)
 
 from .base_utils import (
     ValueOrExpression,
@@ -39,17 +52,6 @@ from .base_utils import (
     r_squared,
 )
 from .database import DbContext, with_db_context
-from .lca import (
-    LambdaWithParamNames,
-    _expanded_names_to_names,
-    _filter_param_values,
-    _postMultiLCAAlgebric,
-    _preMultiLCAAlgebric,
-    _replace_fixed_params,
-    compute_impacts,
-    lambdify,
-    pd,
-)
 from .log import warn
 from .methods import method_name, method_unit
 from .params import (
@@ -831,7 +833,7 @@ def sobol_simplify_model(
     num_digits=3,
     simple_sums=True,
     simple_products=True,
-) -> List[LambdaWithParamNames]:
+) -> List[LambdaExpr]:
     """
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
     Then generates simplified models for those parameters.
@@ -940,6 +942,7 @@ def sobol_simplify_model(
         print("Selected params : ", selected_params, "explains: ", sum)
 
         expr = exprs[imethod]
+        expr = expr.xreplace({IndexedBase("impacts")[imethod]: 1.0})
 
         # Replace non selected params by their value
         fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
@@ -952,7 +955,7 @@ def sobol_simplify_model(
         expr = _round_expr(expr, num_digits)
 
         # Lambdify the expression
-        lambd = LambdaWithParamNames(expr, params=selected_params, sobols=sobols)
+        lambd = LambdaExpr(expr, params=selected_params, sobols=sobols)
 
         # Compute list of parameter values (monte carlo)
         expanded_params = _complete_and_expand_params(params, lambd.params, asSymbols=False)
@@ -969,7 +972,7 @@ def sobol_simplify_model(
 
         display(prettify(expr))
 
-        res.append(LambdaWithParamNames(expr, params=selected_params, sobols=sobols))
+        res.append(LambdaExpr(expr, params=selected_params, sobols=sobols))
 
     return res
 

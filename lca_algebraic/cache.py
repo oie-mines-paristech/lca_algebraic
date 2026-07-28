@@ -3,14 +3,14 @@ import time
 from collections.abc import MutableMapping
 from datetime import datetime
 from os import path
-from pickle import Pickler, load
 from typing import Dict, Tuple
 
 import bw2data
+from dill import Pickler, load
 from sympy.core.function import UndefinedFunction
 
 from .database import _getMeta
-from .log import logger
+from .log import info, logger
 from .settings import PROXY_DB_FLAG, Settings
 
 LCIA_CACHE = "lcia"
@@ -37,6 +37,11 @@ def disable_cache():
     Settings.cache_enabled = False
 
 
+def flush_caches():
+    for cache in _Caches.caches.values():
+        cache.sync()
+
+
 def get_dependant_dbs(db_name):
     """Recursively get list of dependant db names, including the current one"""
 
@@ -55,7 +60,13 @@ def get_last_update(db_name):
     def last_update(db_name):
         return datetime.fromisoformat(bw2data.databases[db_name]["modified"])
 
-    res = max(last_update(db) for db in get_dependant_dbs(db_name))
+    dependant_dbs = get_dependant_dbs(db_name)
+
+    if len(dependant_dbs) == 0:
+        logger.warning(f"Fonud no dependant dbs found for {db_name}. Returning empty update time")
+        return 0
+
+    res = max(last_update(db) for db in dependant_dbs)
     return res.timestamp()
 
 
@@ -119,7 +130,7 @@ class SyncDict(MutableMapping):
             try:
                 self._data = load(f)
             except Exception as e:
-                logger.warn(f"Error while loading cache {self._filename()}: {e}. Ignoring")
+                logger.error(f"Error while loading cache {self._filename()}: {e}. Ignoring and overriding it")
 
         self.last_update = os.path.getmtime(self._filename())
 
@@ -137,6 +148,8 @@ class SyncDict(MutableMapping):
 
         if self.last_update <= file_mtime:
             return
+
+        info(f"Flushing cache {self.name} / {self.db_name}")
 
         tmp = self._filename() + ".tmp"
         with open(tmp, "wb") as f:
@@ -179,8 +192,9 @@ class _CacheDict:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Save data on exit
-        self.data.sync()
+        # Save data when exiting the context manager (or only once at exit)
+        if Settings.auto_flush:
+            self.data.sync()
 
 
 class LCIACache(_CacheDict):
