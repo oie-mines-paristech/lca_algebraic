@@ -5,6 +5,7 @@
 * Activate CSE (common subexpression pattersn) in labmdify by default
 * Added setting ot idsable automatic flush and handle it manually at the end of the script
 * Don't run "_force_reduce" when axis not used
+* Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
 
 # 1.4.1
 
