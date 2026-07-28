@@ -62,6 +62,8 @@ packages = ["lca_algebraic"]
 [tool.setuptools.package-data]
 lca_algebraic = ["README.md"]
 
+[tool.pytest.ini_options]
+norecursedirs = ["tmp"]
 
 [tool.tox]
 requires = ["tox>=4.31"]
