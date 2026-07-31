@@ -685,6 +685,8 @@ def loadParams(global_variable=True, dbname=None):
         first_enum_param = list(param_values.values())[0]
         args = _loadArgs(first_enum_param)
         del args["default"]
+        del args["min"]
+        del args["max"]
 
         # Dictionary of enum values with scale as weight
         args["values"] = {key: data["scale"] for key, data in param_values.items()}
