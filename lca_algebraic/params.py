@@ -3,6 +3,7 @@ from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Union
 
+import math
 import numpy as np
 import pandas as pd
 from bw2data.parameters import (
@@ -144,7 +145,26 @@ class ParamDef(Symbol):
         if len(user_assumptions) != 0:
             assumptions = user_assumptions
         else:
+
+            vmin = kwargs.get("min", None)
+            if vmin is None:
+                vmin = -math.inf
+
+            vmax = kwargs.get("max", None)
+            if vmax is None:
+                vmax = +math.inf
+
             assumptions = {"real": True}
+
+            if vmin > 0.0:
+                assumptions = {"positive": True}
+            elif vmin >= 0.0:
+                assumptions = {"nonnegative": True}
+
+            if vmax < 0.0:
+                assumptions = {"negative": True}
+            elif vmax <= 0.0:
+                assumptions = {"nonpositive": True}
 
         # To avoid name collision we add a dbname assumption
         if (dbname := kwargs.get("dbname", None)) is not None:

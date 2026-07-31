@@ -299,6 +299,29 @@ def test_params_user_assumptions(subtests):
             test(a)
 
 
+def test_params_infer_assumptions():
+    from lca_algebraic import newFloatParam
+
+    p1 = newFloatParam("p1", default= 1.0, min= 1.0, max= 2.0)
+    p2 = newFloatParam("p2", default=-1.0, min=-2.0, max=-1.0)
+    p3 = newFloatParam("p3", default= 1.0, min= 0.0, max= 2.0)
+    p4 = newFloatParam("p4", default=-1.0, min=-2.0, max= 0.0)
+    p5 = newFloatParam("p5", default= 1.0, min=-2.0, max= 2.0)
+
+    assert p1.is_positive is True
+    assert p1.is_zero is False
+    assert p2.is_negative is True
+    assert p2.is_zero is False
+    assert p3.is_nonnegative is True
+    assert p3.is_negative is False
+    assert p4.is_nonpositive is True
+    assert p4.is_positive is False
+    assert p5.is_real is True
+    assert p5.is_positive is None
+    assert p5.is_negative is None
+    assert p5.is_zero is None
+
+
 @pytest.mark.parametrize("dbname", ["simple","windows?","linux/"])
 def test_db_params_lca(dbname, data):
     """Test multiLCAAlgebraic with parameters with same names from different DBs"""
