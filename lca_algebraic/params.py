@@ -15,6 +15,8 @@ from IPython.core.display import HTML
 from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, parse_expr
+from sympy.core.assumptions import _assume_defined
+
 from tabulate import tabulate
 
 from lca_algebraic.axis_dict import AxisDict
@@ -133,13 +135,20 @@ class ParamDef(Symbol):
     Don't instantiate it directly. Use the function **newXXXParam() instead.
     """
 
-    def __new__(cls, name, *karg, **kargs):
-        # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
-        assumptions = dict()
-        assumptions["real"] = True
+    def __new__(cls, name, *args, **kwargs):
 
-        if "dbname" in kargs and kargs["dbname"]:
-            assumptions[kargs["dbname"]] = True
+        # filter args keeping only valid assumptions
+        user_assumptions = {k: v for k, v in kwargs.items() if k in _assume_defined}
+
+        # Select user assumptions if provided
+        if len(user_assumptions) != 0:
+            assumptions = user_assumptions
+        else:
+            assumptions = {"real": True}
+
+        # To avoid name collision we add a dbname assumption
+        if (dbname := kwargs.get("dbname", None)) is not None:
+            assumptions[dbname] = True
 
         return Symbol.__new__(cls, name, **assumptions)
 
