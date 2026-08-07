@@ -298,7 +298,7 @@ class ActivityExtended(Activity):
             new_amount = amount.to(target_unit).magnitude
 
             # Auto scale disabld ?
-            if not _equals(amount.magnitude, new_amount) and not u.auto_scale:
+            if not u.auto_scale and not _equals(amount.magnitude, new_amount):
                 raise Exception(f"auto_scale is disabled. '{amount}' should be explicity transformed to {target_unit}")
 
             return new_amount
