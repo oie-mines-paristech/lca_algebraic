@@ -962,6 +962,9 @@ class ParamRegistry:
                 if db_name in db_params:
                     del db_params[db_name]
 
+                if not db_params:
+                    del self.params[param_name]
+
     def all(self):
         """Return list of all parameters, including params with same names and different DB"""
         return list(param for params in self.params.values() for param in params.values())
