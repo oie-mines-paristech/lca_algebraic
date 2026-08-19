@@ -10,13 +10,18 @@ from sympy.core.function import UndefinedFunction
 
 from lca_algebraic.bw_wrapper import databases, projects
 
+from base64 import b32encode
+
 from .database import _getMeta
 from .log import info, logger
 from .settings import PROXY_DB_FLAG, Settings
 
+
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
 
+def _filename_encode(s: str):
+    return b32encode(s.encode("utf-8")).decode("utf-8")
 
 # Overide the behaviour for pickling sympy.UndefineFunction
 class MyPickler(Pickler):
@@ -84,7 +89,7 @@ class SyncDict(MutableMapping):
         self.load()
 
     def _filename(self):
-        return path.join(projects.dir, f"lca_algebraic_cache-{self.name}-{self.db_name}.pickle")
+        return path.join(projects.dir, f"lca_algebraic_cache-{_filename_encode(self.name)}-{_filename_encode(self.db_name)}.pickle")
 
     # ---------- core MutableMapping ----------
     def __getitem__(self, key):
