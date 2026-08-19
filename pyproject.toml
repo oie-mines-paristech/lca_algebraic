@@ -64,7 +64,7 @@ Documentation = "https://lca-algebraic.readthedocs.io/"
 Changelog = "https://github.com/oie-mines-paristech/lca_algebraic/blob/main/RELEASE_NOTES.md"
 
 [tool.setuptools]
-packages = ["lca_algebraic"]
+packages = ["lca_algebraic", "lca_algebraic.bw_wrapper"]
 
 [tool.setuptools.package-data]
 lca_algebraic = ["README.md"]
