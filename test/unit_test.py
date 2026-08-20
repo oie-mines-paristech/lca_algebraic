@@ -284,10 +284,12 @@ def test_simplify_model(data):
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
-def test_db_params_lca(data):
-    """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
-    USER_DB2 = "fg2"
-    resetDb(USER_DB2)
+@pytest.mark.parametrize("dbname", ["simple","windows?","linux/"])
+def test_db_params_lca(dbname, data):
+    """Test multiLCAAlgebraic with parameters with same names from different DBs"""
+
+    resetDb(dbname+"1")
+    resetDb(dbname+"2")
 
     # Define 3 variables with same name, attached to project or db (user or bg)
     p1_project = newFloatParam(
@@ -296,12 +298,12 @@ def test_db_params_lca(data):
         min=0,
         max=2,
     )
-    p1_user = newFloatParam("p1", 1, min=0, max=2, dbname=USER_DB)
-    p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=USER_DB2)
+    p1_user1 = newFloatParam("p1", 1, min=0, max=2, dbname=dbname+"1")
+    p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=dbname+"2")
 
     # Create 2 models : one for each user db, using different params with same name
-    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 2.0 * p1_user})
-    m2 = newActivity(USER_DB2, "m2", "kg", {data.bio1: 2.0 * p1_user2})
+    m1 = newActivity(dbname+"1", "m1", "kg", {data.bio1: 2.0 * p1_user1})
+    m2 = newActivity(dbname+"2", "m2", "kg", {data.bio1: 2.0 * p1_user2})
 
     # p1 as default value of 1 for user db 1
     res = compute_impacts(m1, [data.ibio1])
