@@ -22,6 +22,8 @@ from sympy import (
     Expr,
     Float,
     IndexedBase,
+    Min,
+    Max,
     Mul,
     Number,
     Piecewise,
@@ -843,6 +845,7 @@ def sobol_simplify_model(
     apply_simplify=True,
     simple_sums=True,
     simple_products=True,
+    simple_min_max=True,
 ) -> List[LambdaExpr]:
     """
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -879,6 +882,9 @@ def sobol_simplify_model(
 
     simple_products:
         If true (default) remove terms in products that contribute to less than 1% to variation
+
+    simple_min_max:
+        If true (default) try to simplify Min/Max
 
     num_digits:
         Number of decimal places to round decimal number to (default 3)
@@ -977,6 +983,10 @@ def sobol_simplify_model(
         if simple_products:
             expr = _simplify_products(expr, expanded_params)
 
+        if simple_min_max:
+            expr = _simplify_min(expr, expanded_params)
+            expr = _simplify_max(expr, expanded_params)
+
         if apply_simplify:
             expr = simplify(expr)
 
@@ -1064,6 +1074,67 @@ def _simplify_terms(expr, expanded_param_values, op: Type[AssocOp], replace):
         return exp.func(*args)
 
     return cleanup(expr)
+
+# Sympy does not handle parameters min/max, here we take them in acount to
+# simplify Max expression.
+def _simplify_min_max(op: {Min, Max}, expr: Expr, param_values, cache = None) -> Expr:
+
+    if cache is None:
+        cache = dict()
+
+    if isinstance(expr, AtomicExpr):
+        return expr
+
+    # Deep first
+    args = [_simplify_min_max(op, a, param_values, cache) for a in expr.args]
+
+    if expr.func is not op:
+        return expr.func(*args)
+
+    # Feed the cache
+    for e in args:
+        key = str(e)
+        if key in cache:
+            continue
+        if e.is_number:
+            values = [e.evalf()]
+        else:
+            lambd_term = _lambdify(e, param_values.keys())
+            values = lambd_term(**param_values)
+
+        if op is Max:
+            minv = np.min(values)
+            maxv = np.max(values)
+        else:
+            minv = -np.max(values)
+            maxv = -np.min(values)
+        cache[key] = (minv, maxv)
+
+    # The algorithm is in N*(N-1) maybe better algorithm exist
+    for e0 in args:
+        vmin0, vmax0 = cache[str(e0)]
+
+        is_min_max = True
+        for e1 in args:
+            if e1 is e0:
+                continue
+            vmin1, vmax1 = cache[str(e1)]
+            if vmax1 >= vmin0:
+                is_min_max = False
+                break
+
+        if is_min_max:
+            return e0
+
+    return expr.func(*args)
+
+
+def _simplify_min(expr: Expr, param_values, cache = None) -> Expr:
+    return _simplify_min_max(Min, expr, param_values, cache)
+
+
+def _simplify_max(expr: Expr, param_values, cache = None) -> Expr:
+    return _simplify_min_max(Max, expr, param_values, cache)
 
 
 def _hline(x1, x2, y, linewidth=1, linestyle="solid"):
