@@ -35,7 +35,7 @@ from sympy.core.operations import AssocOp
 
 from lca_algebraic import LambdaExpr
 from lca_algebraic.bw_wrapper import Activity
-from lca_algebraic.lambda_expression import _filter_param_values
+from lca_algebraic.lambda_expression import _filter_param_values, _lambdify
 from lca_algebraic.lca import (
     _expanded_names_to_names,
     _postMultiLCAAlgebric,
@@ -915,7 +915,6 @@ def sobol_simplify_model(
 
     # Generate simplified model
     lambdas = _preMultiLCAAlgebric(model, methods, alpha=1 / functional_unit)
-    exprs = [lambd.expr["_all_"] for lambd in lambdas]
 
     for imethod, method in enumerate(methods):
         print("> Method : ", method_name(method))
@@ -950,8 +949,8 @@ def sobol_simplify_model(
                 break
         print("Selected params : ", selected_params, "explains: ", sum)
 
-        expr = exprs[imethod]
-        expr = expr.xreplace({IndexedBase("impacts")[imethod]: 1.0})
+        expr = lambdas[imethod].expr["_all_"]
+        expr = expr.subs({IndexedBase("impacts")[i]: v for i, v in enumerate(lambdas[imethod].impacts)})
 
         # Replace non selected params by their value
         fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
@@ -1029,10 +1028,10 @@ def _simplify_terms(expr, expanded_param_values, op: Type[AssocOp], replace):
             return min_max_cache[key]
 
         # Non varying ?
-        if len(term.free_symbols) == 0:
+        if term.is_number:
             values = [term.evalf()]
         else:
-            lambd_term = lambdify(expanded_param_values.keys(), term)
+            lambd_term = _lambdify(term, expanded_param_values.keys())
             values = lambd_term(**expanded_param_values)
 
         minv = np.min(values)
