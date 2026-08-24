@@ -1444,7 +1444,7 @@ def compare_simplified(
         ax.text(
             0.9,
             r2_height,
-            "R² : %0.3g" % r_value,
+            "R² : %0.3g" % float(r_value.iloc[0]),
             transform=ax.transAxes,
             fontsize=14,
             verticalalignment="top",
