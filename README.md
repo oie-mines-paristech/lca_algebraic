@@ -112,6 +112,10 @@ lead by [ADEME](https://www.ademe.fr/).
 
 It is distributed under the [BSD License](./LICENSE)
 
+# Contributions
+
+Please base potential pull-requests on the `dev` branch.
+
 # Logo
 
 Please use the following logo to advertise about this librairy.
