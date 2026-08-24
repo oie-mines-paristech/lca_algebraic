@@ -461,27 +461,28 @@ def compute_impacts_xarray(models, methods, params=None, axis=None):
                 axes |= set(tmp[(imodel, imethod)].keys())
 
     # Convert computed data to xarray
-    axes = list(sorted(axes))
+    axes = list(sorted(axes-{"_all_"}))
     # Use 'f4' to save space
-    out = np.full((len(models), len(methods), len(axes)+1, param_length), np.nan, 'f4')
-    out[imodel, imethod, -1, :] = 0.0
+    out = np.full((len(models), len(methods), len(axes)+2, param_length), np.nan, 'f4')
+    # Clear other columns
+    out[:, :, -1, :] = 0.0
     for (imodel, imethod), v in tmp.items():
-        for ia in range(len(axes)):
-            if axes[ia] in v:
-                if axes[ia] == "_all_":
-                    data = v[axes[ia]]
-                    out[imodel, imethod, ia, :] = data
-                    out[imodel, imethod, -1, :] += data
-                else:
-                    data = v["_all_"] - v[axes[ia]]
-                    out[imodel, imethod, ia, :] = data
-                    out[imodel, imethod, -1, :] -= data
+        for ia, na in enumerate(axes, start=1):
+            data = v["_all_"] - v.get(na, 0.0)
+            out[imodel, imethod, ia, :] = data
+            out[imodel, imethod, -1, :] -= data
 
-    axes = [a if a != "_all_" else "*all*" for a in axes]+["*other*"]
+        data = v["_all_"]
+        out[imodel, imethod, 0, :] = data
+        out[imodel, imethod, -1, :] += data
+
+    axes = ["*all*"]+axes
+    if axis is not None:
+        axes = axes+["*other*"]
 
     # WARNING: using list of tuple as index does not work AS-IS, this is why
     # we use numpy.fromiter, to avoid to create 2-D array from list of tuple.
-    return xarray.DataArray(out, coords=[
+    return xarray.DataArray(out[:,:,:len(axes),:], coords=[
         ("model", np.fromiter((m.key for m in models), dtype='O')),
         ("method", np.fromiter(methods, dtype='O')),
         ("axis", np.fromiter(axes, dtype='O')),
