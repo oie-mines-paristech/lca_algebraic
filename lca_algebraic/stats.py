@@ -840,6 +840,7 @@ def sobol_simplify_model(
     var_params=None,
     fixed_mode=FixedParamMode.MEDIAN,
     num_digits=3,
+    apply_simplify=True,
     simple_sums=True,
     simple_products=True,
 ) -> List[LambdaExpr]:
@@ -869,6 +870,9 @@ def sobol_simplify_model(
 
     fixed_mode :
         What to replace minor parameters with : MEDIAN by default
+
+    apply_simplify:
+        If true (default) apply sympy.simplify
 
     simple_sums:
         If true (default) remove terms in sums that are lower than 1%
@@ -956,9 +960,6 @@ def sobol_simplify_model(
         fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
         expr = _replace_fixed_params(expr, fixed_params, fixed_mode=fixed_mode)
 
-        # Sympy simplification
-        expr = simplify(expr)
-
         # Round numerical values to 3 digits
         expr = _round_expr(expr, num_digits)
 
@@ -976,7 +977,8 @@ def sobol_simplify_model(
         if simple_products:
             expr = _simplify_products(expr, expanded_params)
 
-        expr = simplify(expr)
+        if apply_simplify:
+            expr = simplify(expr)
 
         display(prettify(expr))
 
