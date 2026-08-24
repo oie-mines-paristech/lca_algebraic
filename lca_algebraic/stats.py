@@ -992,7 +992,7 @@ def sobol_simplify_model(
 
         display(prettify(expr))
 
-        res.append(LambdaExpr(expr, params=selected_params, sobols=sobols))
+        res.append(LambdaExpr(expr, params=selected_params, sobols=sobols).with_impacts([]))
 
     return res
 
