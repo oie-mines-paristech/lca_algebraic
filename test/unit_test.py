@@ -284,6 +284,44 @@ def test_simplify_model(data):
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
+def test_params_user_assumptions(subtests):
+    from sympy.core.assumptions import _assume_defined
+    from lca_algebraic import newFloatParam
+
+    def test(a):
+        p1 = newFloatParam(f"{a}_true",  default=1.0, **{a: True})
+        p2 = newFloatParam(f"{a}_false", default=1.0, **{a: False})
+        assert p1.assumptions0[a] is True
+        assert p2.assumptions0[a] is False
+
+    for a in _assume_defined:
+        with subtests.test(f"test_assumption_{a}"):
+            test(a)
+
+
+def test_params_infer_assumptions():
+    from lca_algebraic import newFloatParam
+
+    p1 = newFloatParam("p1", default= 1.0, min= 1.0, max= 2.0)
+    p2 = newFloatParam("p2", default=-1.0, min=-2.0, max=-1.0)
+    p3 = newFloatParam("p3", default= 1.0, min= 0.0, max= 2.0)
+    p4 = newFloatParam("p4", default=-1.0, min=-2.0, max= 0.0)
+    p5 = newFloatParam("p5", default= 1.0, min=-2.0, max= 2.0)
+
+    assert p1.is_positive is True
+    assert p1.is_zero is False
+    assert p2.is_negative is True
+    assert p2.is_zero is False
+    assert p3.is_nonnegative is True
+    assert p3.is_negative is False
+    assert p4.is_nonpositive is True
+    assert p4.is_positive is False
+    assert p5.is_real is True
+    assert p5.is_positive is None
+    assert p5.is_negative is None
+    assert p5.is_zero is None
+
+
 @pytest.mark.parametrize("dbname", ["simple","windows?","linux/"])
 def test_db_params_lca(dbname, data):
     """Test multiLCAAlgebraic with parameters with same names from different DBs"""
