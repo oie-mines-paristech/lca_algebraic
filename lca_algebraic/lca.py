@@ -235,7 +235,7 @@ def _actToLambdaExpr(model: Activity, axis=None, alpha=1) -> LambdaExpr:
 
 
 def lambdify_expr(expr):
-    return LambdaExpr(expr, params=[param.name for param in _param_registry().values()])
+    return LambdaExpr(expr, params=[param.name for param in _param_registry().values()]).with_impacts([])
 
 
 def _preMultiLCAAlgebric(

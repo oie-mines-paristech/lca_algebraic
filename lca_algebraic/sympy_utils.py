@@ -17,9 +17,7 @@ def _get_args(expr, only_values=False):
         else:
             return expr.items()
 
-    elif isinstance(expr, Expr):
-        return expr.args
-    return []
+    return expr.args
 
 
 def _walk_unique(root_expr: Basic, callback_f: Callable):
