@@ -648,7 +648,8 @@ def copyActivity(
         Source activity
     code:
         Code of the target activity. Also used as its name
-
+    withExchange:
+        Copy exchanges is True (default), otherwise do not copy them
 
     Returns
     -------
