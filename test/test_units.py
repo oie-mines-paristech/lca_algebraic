@@ -71,7 +71,7 @@ def test_newp_param():
     assert p_with_unit.units == u.kWh
 
 
-def test_add_exchanges(data):
+def test_new_activity_with_units(data):
     p1_meter = newFloatParam("p1", default=0, min=0, max=1, unit="m")
     p2_kg = newFloatParam("p2", default=0, min=0, max=1, unit="kg")
     p3_ton = newFloatParam("p3", default=0, min=0, max=1, unit="ton")
@@ -80,10 +80,31 @@ def test_add_exchanges(data):
 
     # Should fail : BG activities are all in kg
     with pytest.raises(DimensionalityError):
-        act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p1_meter})
+        act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2.0 * p1_meter})
 
     # Should pass
-    act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_kg})
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2.0 * p2_kg})
+
+    ex = act1.getExchange(input=data.bg_act1)
+    assert _getAmountOrFormula(ex) == 2.0 * p2_kg.magnitude
+
+    # Should convert ton to kg
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2.0 * p3_ton})
+
+    ex = act1.getExchange(input=data.bg_act1)
+    assert _getAmountOrFormula(ex) == 2000.0 * p3_ton.magnitude
+
+    # Should pass
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2.0 | u.kg})
+
+    ex = act1.getExchange(input=data.bg_act1)
+    assert _getAmountOrFormula(ex) == 2.0
+
+    # Should convert ton to kg
+    act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2.0 | u.ton})
+
+    ex = act1.getExchange(input=data.bg_act1)
+    assert _getAmountOrFormula(ex) == 2000.0
 
     unit_registry.auto_scale = False
 
