@@ -1,4 +1,5 @@
 import builtins
+import math
 from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Union
@@ -15,6 +16,7 @@ from IPython.core.display import HTML
 from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, parse_expr
+from sympy.core.assumptions import _assume_defined
 from tabulate import tabulate
 
 from lca_algebraic.axis_dict import AxisDict
@@ -133,13 +135,37 @@ class ParamDef(Symbol):
     Don't instantiate it directly. Use the function **newXXXParam() instead.
     """
 
-    def __new__(cls, name, *karg, **kargs):
-        # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
-        assumptions = dict()
-        assumptions["real"] = True
+    def __new__(cls, name, *args, **kwargs):
+        # filter args keeping only valid assumptions
+        user_assumptions = {k: v for k, v in kwargs.items() if k in _assume_defined}
 
-        if "dbname" in kargs and kargs["dbname"]:
-            assumptions[kargs["dbname"]] = True
+        # Select user assumptions if provided
+        if len(user_assumptions) != 0:
+            assumptions = user_assumptions
+        else:
+            vmin = kwargs.get("min", None)
+            if vmin is None:
+                vmin = -math.inf
+
+            vmax = kwargs.get("max", None)
+            if vmax is None:
+                vmax = +math.inf
+
+            assumptions = {"real": True}
+
+            if vmin > 0.0:
+                assumptions = {"positive": True}
+            elif vmin >= 0.0:
+                assumptions = {"nonnegative": True}
+
+            if vmax < 0.0:
+                assumptions = {"negative": True}
+            elif vmax <= 0.0:
+                assumptions = {"nonpositive": True}
+
+        # To avoid name collision we add a dbname assumption
+        if (dbname := kwargs.get("dbname", None)) is not None:
+            assumptions[dbname] = True
 
         return Symbol.__new__(cls, name, **assumptions)
 
@@ -656,6 +682,8 @@ def loadParams(global_variable=True, dbname=None):
         first_enum_param = list(param_values.values())[0]
         args = _loadArgs(first_enum_param)
         del args["default"]
+        del args["min"]
+        del args["max"]
 
         # Dictionary of enum values with scale as weight
         args["values"] = {key: data["scale"] for key, data in param_values.items()}

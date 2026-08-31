@@ -22,12 +22,13 @@ from sympy import (
     Expr,
     Float,
     IndexedBase,
+    Max,
+    Min,
     Mul,
     Number,
     Piecewise,
     Sum,
     Symbol,
-    lambdify,
     simplify,
     symbols,
 )
@@ -35,7 +36,7 @@ from sympy.core.operations import AssocOp
 
 from lca_algebraic import LambdaExpr
 from lca_algebraic.bw_wrapper import Activity
-from lca_algebraic.lambda_expression import _filter_param_values
+from lca_algebraic.lambda_expression import _filter_param_values, _lambdify
 from lca_algebraic.lca import (
     _expanded_names_to_names,
     _postMultiLCAAlgebric,
@@ -110,6 +111,8 @@ def oat_matrix(
     n=10,
     title="Impact variability (% of mean)",
     name_type=NameType.LABEL,
+    oat_parameters: set | list | None = None,
+    override_defaults_values=dict(),
 ):
     """
 
@@ -126,6 +129,15 @@ def oat_matrix(
 
     functional_unit:
         Float value of expression by which to divide each impact.
+
+    oat_parameters:
+        list or set to select parameters on which to perform OAT, all
+        parameters are selected if oat_parameters is None. default: None
+
+    override_defaults_values:
+        this is a dictionnary of (parameter name, value) that will override
+        the parameter defaults value. This allow to perform OAT with different
+        defaults values.
     """
 
     # Compile model into lambda functions for fast LCA
@@ -134,10 +146,23 @@ def oat_matrix(
     # Sort params by category
     sorted_params = _extract_var_params(lambdas)
 
+    if oat_parameters is not None:
+        if isinstance(oat_parameters, list):
+            oat_parameters = set(oat_parameters)
+
+        if not isinstance(oat_parameters, list | set):
+            raise Exception(f"Invalid oat_parameters, should be list or set got: `{type(oat_parameters)}`")
+        sorted_params = [p for p in sorted_params if p.name in oat_parameters]
+
     change = np.zeros((len(sorted_params), len(impacts)))
 
+    defaults_params = {param.name: param.default for param in sorted_params}
+    defaults_params.update(override_defaults_values)
+
+    df_ref = _postMultiLCAAlgebric(impacts, lambdas, **defaults_params)
+
     for iparam, param in enumerate(sorted_params):
-        params = {param.name: param.default for param in sorted_params}
+        params = defaults_params.copy()
 
         # Compute range of values for given param
         params[param.name] = param.range(n)
@@ -146,7 +171,7 @@ def oat_matrix(
         df = _postMultiLCAAlgebric(impacts, lambdas, **params)
 
         # Compute change
-        change[iparam] = (df.max() - df.min()) / df.median() * 100
+        change[iparam] = (df.max() - df.min()) / df_ref * 100
 
     # Build final heatmap
     change = pd.DataFrame(
@@ -816,8 +841,10 @@ def sobol_simplify_model(
     var_params=None,
     fixed_mode=FixedParamMode.MEDIAN,
     num_digits=3,
+    apply_simplify=True,
     simple_sums=True,
     simple_products=True,
+    simple_min_max=True,
 ) -> List[LambdaExpr]:
     """
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -846,11 +873,17 @@ def sobol_simplify_model(
     fixed_mode :
         What to replace minor parameters with : MEDIAN by default
 
+    apply_simplify:
+        If true (default) apply sympy.simplify
+
     simple_sums:
         If true (default) remove terms in sums that are lower than 1%
 
     simple_products:
         If true (default) remove terms in products that contribute to less than 1% to variation
+
+    simple_min_max:
+        If true (default) try to simplify Min/Max
 
     num_digits:
         Number of decimal places to round decimal number to (default 3)
@@ -891,7 +924,6 @@ def sobol_simplify_model(
 
     # Generate simplified model
     lambdas = _preMultiLCAAlgebric(model, methods, alpha=1 / functional_unit)
-    exprs = [lambd.expr["_all_"] for lambd in lambdas]
 
     for imethod, method in enumerate(methods):
         print("> Method : ", method_name(method))
@@ -926,15 +958,12 @@ def sobol_simplify_model(
                 break
         print("Selected params : ", selected_params, "explains: ", sum)
 
-        expr = exprs[imethod]
-        expr = expr.xreplace({IndexedBase("impacts")[imethod]: 1.0})
+        expr = lambdas[imethod].expr["_all_"]
+        expr = expr.subs({IndexedBase("impacts")[i]: v for i, v in enumerate(lambdas[imethod].impacts)})
 
         # Replace non selected params by their value
         fixed_params = [param for param in _param_registry().values() if param.name not in selected_params]
         expr = _replace_fixed_params(expr, fixed_params, fixed_mode=fixed_mode)
-
-        # Sympy simplification
-        expr = simplify(expr)
 
         # Round numerical values to 3 digits
         expr = _round_expr(expr, num_digits)
@@ -953,11 +982,16 @@ def sobol_simplify_model(
         if simple_products:
             expr = _simplify_products(expr, expanded_params)
 
-        expr = simplify(expr)
+        if simple_min_max:
+            expr = _simplify_min(expr, expanded_params)
+            expr = _simplify_max(expr, expanded_params)
+
+        if apply_simplify:
+            expr = simplify(expr)
 
         display(prettify(expr))
 
-        res.append(LambdaExpr(expr, params=selected_params, sobols=sobols))
+        res.append(LambdaExpr(expr, params=selected_params, sobols=sobols).with_impacts([]))
 
     return res
 
@@ -1005,10 +1039,10 @@ def _simplify_terms(expr, expanded_param_values, op: Type[AssocOp], replace):
             return min_max_cache[key]
 
         # Non varying ?
-        if len(term.free_symbols) == 0:
+        if term.is_number:
             values = [term.evalf()]
         else:
-            lambd_term = lambdify(expanded_param_values.keys(), term)
+            lambd_term = _lambdify(term, expanded_param_values.keys())
             values = lambd_term(**expanded_param_values)
 
         minv = np.min(values)
@@ -1039,6 +1073,67 @@ def _simplify_terms(expr, expanded_param_values, op: Type[AssocOp], replace):
         return exp.func(*args)
 
     return cleanup(expr)
+
+
+# Sympy does not handle parameters min/max, here we take them in acount to
+# simplify Max expression.
+def _simplify_min_max(op: {Min, Max}, expr: Expr, param_values, cache=None) -> Expr:
+    if cache is None:
+        cache = dict()
+
+    if isinstance(expr, AtomicExpr):
+        return expr
+
+    # Deep first
+    args = [_simplify_min_max(op, a, param_values, cache) for a in expr.args]
+
+    if expr.func is not op:
+        return expr.func(*args)
+
+    # Feed the cache
+    for e in args:
+        key = str(e)
+        if key in cache:
+            continue
+        if e.is_number:
+            values = [e.evalf()]
+        else:
+            lambd_term = _lambdify(e, param_values.keys())
+            values = lambd_term(**param_values)
+
+        if op is Max:
+            minv = np.min(values)
+            maxv = np.max(values)
+        else:
+            minv = -np.max(values)
+            maxv = -np.min(values)
+        cache[key] = (minv, maxv)
+
+    # The algorithm is in N*(N-1) maybe better algorithm exist
+    for e0 in args:
+        vmin0, vmax0 = cache[str(e0)]
+
+        is_min_max = True
+        for e1 in args:
+            if e1 is e0:
+                continue
+            vmin1, vmax1 = cache[str(e1)]
+            if vmax1 >= vmin0:
+                is_min_max = False
+                break
+
+        if is_min_max:
+            return e0
+
+    return expr.func(*args)
+
+
+def _simplify_min(expr: Expr, param_values, cache=None) -> Expr:
+    return _simplify_min_max(Min, expr, param_values, cache)
+
+
+def _simplify_max(expr: Expr, param_values, cache=None) -> Expr:
+    return _simplify_min_max(Max, expr, param_values, cache)
 
 
 def _hline(x1, x2, y, linewidth=1, linestyle="solid"):
@@ -1348,7 +1443,7 @@ def compare_simplified(
         ax.text(
             0.9,
             r2_height,
-            "R² : %0.3g" % r_value,
+            "R² : %0.3g" % float(r_value.iloc[0]),
             transform=ax.transAxes,
             fontsize=14,
             verticalalignment="top",

@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 import sympy
+import xarray
 from pandas import DataFrame
 from pint import Quantity, Unit
 from sympy import Add, Basic, Expr, IndexedBase, MatrixBase, Mul
@@ -246,7 +247,7 @@ def _actToLambdaExpr(model: Activity, axis=None, alpha=1) -> LambdaExpr:
 
 
 def lambdify_expr(expr):
-    return LambdaExpr(expr, params=[param.name for param in _param_registry().values()])
+    return LambdaExpr(expr, params=[param.name for param in _param_registry().values()]).with_impacts([])
 
 
 def _preMultiLCAAlgebric(
@@ -571,6 +572,84 @@ def compute_value(formula, **params):
     if isinstance(value, dict):
         return value["_all_"]
     return value
+
+
+def compute_impacts_xarray(models, methods, params=None, axis=None):
+    """
+    Main parametric LCIA method : Computes LCA by expressing the foreground
+    model as symbolic expression of background activities and parameters.
+    Then, compute 'static' inventory of the referenced background activities.
+    This enables a very fast recomputation of LCA with different parameters,
+    useful for stochastic evaluation of parametrized model
+
+    Parameters
+    ----------
+    models : List of Activities, i.e. models activities
+    methods : List of methods, i.e. impacts to consider
+    params : Dict[str,ListOrScalar]
+        You should provide named values of all the parameters declared in the
+        model. Values can be single value or list of samples, all of the same
+        size
+    axis: str
+        Designates the name of a custom attribute of foreground activities.
+        You may set this attribute using the method
+        `myActivity.updateMeta(your_custom_attr="some_value")`. The impacts
+        will be ventilated by this attribute. This is useful to get impact by
+        phase or sub-modules.
+    Return
+    ------
+    lca : xarray
+        4 dimensions xarray of lca results, with
+        dims=("models", "methods", "axes", "instances")
+    """
+    if params is None:
+        raise Exception("ERROR: params is None, if you want use defaults values of paramaters use an empty dict")
+    param_length = _compute_param_length(params)
+    tmp = dict()
+    axes = set()
+    for imodel, model in enumerate(models):
+        dbname = model.key[0]
+        with DbContext(dbname):
+            # Check no params are passed for FixedParams
+            for key in params:
+                if key in _fixed_params():
+                    raise Exception("Param '%s' is marked as FIXED, but passed in parameters : ignored" % key)
+            lambdas = _preMultiLCAAlgebric(model, methods, axis=axis)
+            for imethod, lambd_with_params in enumerate(lambdas):
+                tmp[(imodel, imethod)] = lambd_with_params.compute(**params).value
+                axes |= set(tmp[(imodel, imethod)].keys())
+
+    # Convert computed data to xarray
+    axes = list(sorted(axes - {"_all_"}))
+    # Use 'f4' to save space
+    out = np.full((len(models), len(methods), len(axes) + 2, param_length), np.nan, "f4")
+    # Clear other columns
+    out[:, :, -1, :] = 0.0
+    for (imodel, imethod), v in tmp.items():
+        for ia, na in enumerate(axes, start=1):
+            data = v["_all_"] - v.get(na, 0.0)
+            out[imodel, imethod, ia, :] = data
+            out[imodel, imethod, -1, :] -= data
+
+        data = v["_all_"]
+        out[imodel, imethod, 0, :] = data
+        out[imodel, imethod, -1, :] += data
+
+    axes = ["*all*"] + axes
+    if axis is not None:
+        axes = axes + ["*other*"]
+
+    # WARNING: using list of tuple as index does not work AS-IS, this is why
+    # we use numpy.fromiter, to avoid to create 2-D array from list of tuple.
+    return xarray.DataArray(
+        out[:, :, : len(axes), :],
+        coords=[
+            ("model", np.fromiter((m.key for m in models), dtype="O")),
+            ("method", np.fromiter(methods, dtype="O")),
+            ("axis", np.fromiter(axes, dtype="O")),
+            ("sample", list(range(param_length))),
+        ],
+    )
 
 
 @deprecated("multiLCAAlgebric is deprecated, use compute_impacts instead")
@@ -1060,12 +1139,17 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
     if not _isForeground(db_name):
         raise ValueError(f"Can only compute expression on foreground activities. {db_name} is background")
 
-    fg_matrix = ActMatrix()
-    bg_matrix = ActMatrix()
+    fg_matrix = defaultdict(lambda: 0.0)
+    bg_matrix = defaultdict(lambda: 0.0)
     axis_acts = defaultdict(list)
+    visited = set()
 
     def walk_activities(act: Activity):
-        nonlocal fg_matrix, bg_matrix, axis_acts
+        nonlocal fg_matrix, bg_matrix, axis_acts, visited
+
+        if act in visited:
+            return
+        visited.add(act)
 
         if axis_attr is not None:
             new_axis_val = _get_axis(act, axis_attr)
@@ -1074,13 +1158,6 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
 
         if not _isForeground(act["database"]):
             return
-
-        if act in fg_matrix.row_acts():
-            return
-
-        fg_matrix.add_row(act)
-        fg_matrix.add_col(act)
-        bg_matrix.add_row(act)
 
         static_bg_amounts = dict()
 
@@ -1113,6 +1190,19 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
     for act in iter_database(db_name):
         walk_activities(act)
 
+    fg_acts = set()
+    bg_acts = set()
+    for k0, k1 in fg_matrix:
+        fg_acts.add(k0)
+        fg_acts.add(k1)
+    for k0, k1 in bg_matrix:
+        fg_acts.add(k0)
+        bg_acts.add(k1)
+    fg_acts = list(sorted(fg_acts))
+    bg_acts = list(sorted(bg_acts))
+    fg_matrix = ActMatrix(rows=fg_acts, cols=fg_acts, data=fg_matrix)
+    bg_matrix = ActMatrix(rows=fg_acts, cols=bg_acts, data=bg_matrix)
+
     return fg_matrix, bg_matrix, axis_acts
 
 
@@ -1122,9 +1212,9 @@ def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[A
     xbg = copy(bg_matrix)
 
     for a in acts:
-        for o in xfg.cols_acts():
+        for o in xfg.cols:
             xfg[a, o] = 0.0
-        for o in xbg.cols_acts():
+        for o in xbg.cols:
             xbg[a, o] = 0.0
         xfg[a, a] = 1.0
 
@@ -1172,8 +1262,8 @@ def _matrices_from_actmatrices(fg_matrix: ActMatrix, bg_matrix: ActMatrix) -> Ma
     return MatricesResult(
         bg_matrix=B,
         inv_fg=invert(A),
-        fg_acts=fg_matrix.cols_acts(),
-        bg_acts=bg_matrix.cols_acts(),
+        fg_acts=fg_matrix.cols,
+        bg_acts=bg_matrix.cols,
     )
 
 

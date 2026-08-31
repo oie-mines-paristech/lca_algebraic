@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from sympy import Basic, Expr, lambdify, parse_expr
+from sympy.core import S
 from sympy.printing.numpy import NumPyPrinter
 
 from lca_algebraic.axis_dict import AxisDict
@@ -16,6 +17,32 @@ from lca_algebraic.params import (
 )
 from lca_algebraic.settings import CSE, Settings
 from lca_algebraic.sympy_utils import find_cses, find_symbols
+
+
+class NumPyPrinterExt(NumPyPrinter):
+    def __init__(self, settings=None):
+        super().__init__(settings=settings)
+
+    def _helper_piecewise(self, *args):
+        from sympy.logic.boolalg import ITE, simplify_logic
+
+        def print_cond(cond):
+            """Problem having an ITE in the cond."""
+            if cond.has(ITE):
+                return self._print(simplify_logic(cond))
+            else:
+                return self._print(cond)
+
+        return "{}({},{},{})".format(
+            self._module_format(self._module + ".where"),
+            print_cond(args[0].cond),
+            self._print(args[0].expr),
+            self._helper_piecewise(*args[1:]) if len(args) > 1 else self._print(S.NaN),
+        )
+
+    def _print_Piecewise(self, expr):
+        "Piecewise function printer"
+        return self._helper_piecewise(*expr.args)
 
 
 @dataclass
@@ -166,7 +193,7 @@ class LambdWrapper:
 def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
 
-    printer = NumPyPrinter(
+    printer = NumPyPrinterExt(
         {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
     )
 

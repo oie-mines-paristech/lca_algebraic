@@ -1,5 +1,6 @@
 import os
 import time
+from base64 import b32encode
 from collections.abc import MutableMapping
 from datetime import datetime
 from os import path
@@ -17,6 +18,10 @@ from .settings import PROXY_DB_FLAG, Settings
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
 MAPPING_CACHE = "mapping"
+
+
+def _filename_encode(s: str):
+    return b32encode(s.encode("utf-8")).decode("utf-8")
 
 
 # Overide the behaviour for pickling sympy.UndefineFunction
@@ -89,7 +94,9 @@ class SyncDict(MutableMapping):
         self.load()
 
     def _filename(self):
-        return path.join(projects.dir, f"lca_algebraic_cache-{self.name}-{self.db_name}.pickle")
+        return path.join(
+            projects.dir, f"lca_algebraic_cache-{_filename_encode(self.name)}-{_filename_encode(self.db_name)}.pickle"
+        )
 
     # ---------- core MutableMapping ----------
     def __getitem__(self, key):
