@@ -686,7 +686,7 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
 
         # Chemical formulas might be in ecoinvent technosphere
         # We don't want them
-        if stripFormula and "formula" in data:
+        if stripFormula and ("formula" in data) and (STORE_FORMULA_TAG not in data):
             del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 
