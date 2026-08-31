@@ -7,6 +7,7 @@ import pandas as pd
 from bw2data import Database
 from bw2data.backends import (
     Activity,
+    ActivityDataset,
     Exchange,
     ExchangeDataset,
     SQLiteBackend,
@@ -23,6 +24,7 @@ class BW25Backend:
     name = "bw25"
 
     Activity = Activity
+    ActivityDataset = ActivityDataset
     Exchange = Exchange
     ExchangeDataset = ExchangeDataset
     ActivityProxyBase = ActivityProxyBase

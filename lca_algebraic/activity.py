@@ -168,13 +168,11 @@ class ActivityExtended(Activity):
             or dict of attributes, for updating both at once, or any other attribute.
             The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
         """
-
-        if not _isForeground(self["database"]):
+        if not _isForeground(self["database"]) and not Settings.internals:
             msg = f"You are updating a background activity in {self['database']}. Use copyActivity() in a foreground db instead."
             if Settings.strict_mode:
                 raise Exception(msg)
-            else:
-                warn(msg)
+            warn(msg)
 
         # Update exchanges
         for ex_target_or_name, updates in updates.items():
@@ -541,12 +539,11 @@ def _equals(val1: ValueOrExpression, val2: ValueOrExpression):
 
 
 def _newAct(db_name, code):
-    if not _isForeground(db_name):
+    if not _isForeground(db_name) and not Settings.internals:
         msg = f"You are creating activity in background DB {db_name}. Use copyActivity() in a foreground db instead."
         if Settings.strict_mode:
             raise Exception(msg)
-        else:
-            warn(msg)
+        warn(msg)
 
     db = _getDb(db_name)
     # Already present : delete it ?
@@ -632,7 +629,9 @@ def newActivity(
 
 
 @atomic
-def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, **kwargs) -> ActivityExtended:
+def copyActivity(
+    db_name, activity: ActivityExtended, code=None, withExchanges=True, input_mapping=None, **kwargs
+) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
 
@@ -675,6 +674,9 @@ def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=T
             data["output"] = res.key
         if data["input"] == activity.key:
             data["input"] = res.key
+        if input_mapping and data["input"] in input_mapping:
+            # Input mapping, used to migrate proxy db linked to premise scenarios
+            data["input"] = input_mapping[data["input"]]
 
         # Chemical formulas might be in ecoinvent technosphere
         # We don't want them

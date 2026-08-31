@@ -26,6 +26,7 @@ from lca_algebraic.base_utils import (
 )
 from lca_algebraic.bw_wrapper import (
     Activity,
+    ActivityDataset,
     Database,
     activity_not_found,
     databases,
@@ -35,7 +36,14 @@ from lca_algebraic.bw_wrapper import (
 from lca_algebraic.lambda_expression import LambdaExpr
 from lca_algebraic.settings import Settings
 
-from .cache import ExprCache, LCIACache
+from . import atomic, copyActivity, getActByCode, resetDb
+from .cache import (
+    ExprCache,
+    LCIACache,
+    MappingCache,
+    get_dependant_dbs,
+    get_last_update,
+)
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
 from .log import info, logger, warn
 from .matrix import ActMatrix, invert
@@ -56,6 +64,10 @@ from .sympy_utils import replace_and_cleanup
 
 # Symbol use in lambda expression to designate impact values
 IMPACTS_SYMBOL = IndexedBase("impacts")
+
+
+# Mapping for activities for premise / scenarios
+MAPPING_KEYS = ("name", "location", "unit", "reference product")
 
 
 def register_user_function(sym, func):
@@ -238,7 +250,7 @@ def lambdify_expr(expr):
 
 
 def _preMultiLCAAlgebric(
-    model: ActivityExtended, methods: MethodKey, alpha: ValueOrExpression = 1, axis=None
+    model: ActivityExtended, methods: List[MethodKey], alpha: ValueOrExpression = 1, axis: str = None, scenario: list[str] = None
 ) -> list[LambdaExpr]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -252,12 +264,15 @@ def _preMultiLCAAlgebric(
             alpha = alpha.magnitude
 
         def _key(method):
-            return (model, axis, method, alpha)
+            key = (model, axis, method, alpha)
+            if scenario:
+                key += (scenario,)
+            return key
 
         with ExprCache(model["database"]) as cache:
             missing_methods = [method for method in methods if not _key(method) in cache.data]
             if len(missing_methods) > 0:
-                exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha)
+                exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha, scenario=scenario)
                 for method, expr in zip(missing_methods, exprs):
                     cache.data[_key(method)] = expr
 
@@ -266,7 +281,141 @@ def _preMultiLCAAlgebric(
             return list(cache.data[_key(method)] for method in methods)
 
 
-def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1) -> List[LambdaExpr]:
+def _build_mapping_key(act: Activity):
+    return tuple(act.get(attr) for attr in MAPPING_KEYS)
+
+
+def _get_dependant_scenario(db_name):
+    """Get premise scenarios of which depend this database (exchanges pointing to other dbs)"""
+    res = set()
+    for target_db in get_dependant_dbs(db_name, skip_proxy=False):
+        if target_db == db_name or Settings.scenario_separator not in target_db:
+            continue
+
+        _, scenario = target_db.split(Settings.scenario_separator)
+        res.add(scenario)
+
+    if len(res) == 0:
+        return None
+    if len(res) == 1:
+        return list(res)[0]
+
+    raise Exception(f"Database {db_name} depends on more than one premise scenarios : {res}")
+
+
+def _code_by_key(db_name: str) -> Dict[Tuple, str]:
+    """List all activities of a db by their keys => code"""
+
+    master_key = "all_acts"
+
+    with MappingCache(db_name) as cache:
+        if master_key not in cache.data:
+            query = (
+                ActivityDataset.select(ActivityDataset.code, ActivityDataset.data)
+                .where(ActivityDataset.database == db_name)
+                .tuples()
+            )
+
+            mapping = dict()
+            for code, data in query:
+                key = _build_mapping_key(data)
+                if key in mapping:
+                    raise Exception(f"Duplicate key {key} in {db_name}")
+                mapping[key] = code
+
+            cache.data[master_key] = mapping
+
+        return cache.data[master_key]
+
+
+def _key_to_key_mapping(source_db, dest_db):
+    """Return mapping of {(db, code) : (db, code)}"""
+
+    src_code_by_key = _code_by_key(source_db)
+    dest_code_by_key = _code_by_key(dest_db)
+    return {(source_db, src_code): (dest_db, dest_code_by_key[src_key]) for src_key, src_code in src_code_by_key.items()}
+
+
+@atomic
+def _duplicate_db_for_scenario(origin_db, target_db):
+    """Duplicate a proxy database and targets another scenario"""
+
+    # Empty the target
+    resetDb(target_db, foreground=False)
+
+    with temp_settings(internals=True):
+        target_scenario = target_db.split(Settings.scenario_separator)[1]
+
+        # Gather all mappings
+        all_mappings = dict()
+        for dependant_db in get_dependant_dbs(origin_db, skip_proxy=False):
+            if Settings.scenario_separator not in dependant_db or dependant_db == origin_db:
+                continue
+
+            dep_db_prefix, dep_scenario = dependant_db.split(Settings.scenario_separator)
+            dep_target_db = dep_db_prefix + Settings.scenario_separator + target_scenario
+            all_mappings.update(_key_to_key_mapping(dependant_db, dep_target_db))
+
+        # Loop on activities
+        for act in Database(origin_db):
+            copyActivity(db_name=target_db, activity=act, code=act["name"], input_mapping=all_mappings)
+
+
+def _map_activities(acts: list[Activity], source_db: str, target_db: str):
+    dependant_scenario = _get_dependant_scenario(source_db)
+
+    # Support for automatically creating or updating proxy db for other scenarios
+    if target_db not in databases:
+        # To dependancy : this is a root premise DB : missing scenrio should not happen
+        if dependant_scenario is None:
+            raise Exception(f"Missing target database for premise scenrio  {target_db}")
+
+        info(f"Proxy database {target_db} was missing. Creating from  {source_db}")
+        _duplicate_db_for_scenario(source_db, target_db)
+
+    # Exiisting db This is a proxy db
+    # Check it did not change
+    elif dependant_scenario is not None and get_last_update(source_db) > get_last_update(target_db):
+        info(f"Proxy database {source_db} changed. Updating {target_db}")
+        _duplicate_db_for_scenario(source_db, target_db)
+
+    code_by_key = _code_by_key(target_db)
+
+    def _get_target_act(act):
+        key = _build_mapping_key(act)
+        try:
+            code = code_by_key[key]
+        except KeyError:
+            key_dict = {k: v for k, v in zip(MAPPING_KEYS, key)}
+            raise Exception(f"Failed to find mapping for activity {key_dict} in target db {target_db}")
+
+        return getActByCode(target_db, code)
+
+    return {act: _get_target_act(act) for act in acts}
+
+
+def _compute_scenario_mapping(acts: list[Activity], scenario: str = None):
+    """In case a scenario is requested"""
+
+    res = dict()
+
+    for db_name, acts in _group_acts_by_db(acts).items():
+        # Not premise Db or no scenario requested ? => no mapping
+        if Settings.scenario_separator not in db_name or scenario is None:
+            # Map all activities to themselves
+            res.update({act: act for act in acts})
+
+        else:
+            prefix, source_scenario = db_name.split(Settings.scenario_separator)
+            target_db = prefix + Settings.scenario_separator + scenario
+            res.update(_map_activities(acts, db_name, target_db))
+
+    return res
+
+
+def _modelToExpr(
+    model: Activity, methods: List[MethodKey], axis=None, alpha: ValueOrExpression = 1, scenario: str = None
+) -> List[LambdaExpr]:
     """
     Compute expressions corresponding to a model for each impact, replacing activities by the value of its impact
 
@@ -283,13 +432,17 @@ def _modelToExpr(model: Activity, methods: List[MethodKey], axis=None, alpha: Va
         zero.impacts = []
         return [zero] * len(methods)
 
+    # Possibly map bg activities to another target scenario db
+    act_mapping = _compute_scenario_mapping(generic_lambda_expr.background_activities, scenario=scenario)
+
     # Compute LCA for background activities
-    all_impacts = _multiLCAWithCache(generic_lambda_expr.background_activities, methods)
+    all_impacts = _multiLCAWithCache(act_mapping.values(), methods)
 
     res = list()
 
     for method in methods:
-        impacts = {bg_act: all_impacts[bg_act, method] for bg_act in generic_lambda_expr.background_activities}
+        impacts = {bg_act: all_impacts[target_act, method] for bg_act, target_act in act_mapping.items()}
+
         res.append(generic_lambda_expr.with_impacts(impacts))
 
     return res
@@ -319,6 +472,12 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False,
     """
 
     param_length = _compute_param_length(params)
+
+    if len(lambdas[0].impacts) > 0:
+        first_impact = lambdas[0].impacts[0]
+        if isinstance(first_impact, (list, np.ndarray)):
+            nb_scenarios = len(first_impact)
+            param_length = max(param_length, nb_scenarios)
 
     # lambda are SymDict ?
     # If use them as number of params
@@ -536,13 +695,49 @@ def compute_inventory(
     return DataFrame(items)
 
 
+def _merge_lambda_scenarios(lambdas: list[list[LambdaExpr]]):
+    """
+    Merge impact vector from several lambda comming from several premise scenarios.
+    All the expressions are he same, only the vector of impact differs.
+    We merge several impact_vectors into a single vector of vectors
+    """
+
+    # Ensure liust (from generators)
+    lambdas = list(lambdas)
+
+    # They are all the same for all scenarios except for the impacts
+    ref_lambdas = lambdas[0]
+
+    nb_scenarios = len(lambdas)
+
+    if nb_scenarios == 1:
+        return ref_lambdas
+
+    # Copy lambda of first scennario
+    res = []
+    for imethod, expr in enumerate(ref_lambdas):
+        expr = copy(expr)
+        res.append(expr)
+        expr.impacts = list()
+        for ibackground in range(len(expr.background_activities)):
+            impacts = np.array([lambdas[iscenario][imethod].impacts[ibackground] for iscenario in range(nb_scenarios)])
+            expr.impacts.append(impacts)
+    return res
+
+
 def compute_impacts(
-    models,
-    methods,
-    axis=None,
-    functional_unit=1,
+    models: Union[
+        Activity,
+        List[Activity],
+        List[Tuple[Activity, float]],
+        Dict[Activity, float],
+    ],
+    methods: Union[MethodKey, List[MethodKey]],
+    axis: str = None,
+    functional_unit: float = 1,
     return_params=False,
     description=None,
+    scenario: Union[str, list[str]] = None,
     **params,
 ):
     """
@@ -562,7 +757,7 @@ def compute_impacts(
         In case of several models, you cannot use list of parameters
 
     methods :
-        List of methods / impacts to consider
+        Single method or list of methods / impacts to consider
 
     axis:
         Designates the name of a custom attribute of foreground activities.
@@ -576,6 +771,11 @@ def compute_impacts(
         Values can be either single float values, list or ndarray of values.
         In the later case, all parameters should have the same number of values.
         Paremeters that are not provided will have their default value set.
+
+    scenario:
+        Premise scenario to target, as suffix of database name (separated with # by default).
+        This may also be a list of scenarios, in which case the number of scenarios should be equal to the
+        length of other list parameters (if any).
 
     functional_unit:
         Quantity (static or Sympy formula) by which to divide impacts. Optional, 1 by default.
@@ -643,7 +843,11 @@ def compute_impacts(
             if functional_unit != 1:
                 alpha = alpha / functional_unit
 
-            lambdas = _preMultiLCAAlgebric(model, methods, alpha=alpha, axis=axis)
+            scenarios = scenario if isinstance(scenario, list) else [scenario]
+
+            lambdas = _merge_lambda_scenarios(
+                _preMultiLCAAlgebric(model, methods, scenario=scenario, alpha=alpha, axis=axis) for scenario in scenarios
+            )
 
             unit: Optional[Unit] = functional_unit.units if isinstance(functional_unit, Quantity) else None
 
@@ -661,6 +865,16 @@ def compute_impacts(
 
             # param with several values
             list_params = {k: vals for k, vals in params.items() if isinstance(vals, list)}
+
+            if isinstance(scenario, list):
+                if len(list_params) > 0:
+                    nb_params_values = len(list(list_params.values())[0])
+                    if len(scenario) != nb_params_values:
+                        raise Exception(
+                            f"Number of scenarios {len(scenario)} different from param values length {nb_params_values} "
+                        )
+
+                list_params["scenario"] = scenario
 
             # Shapes the output / index according to the axis or multi param entry
             if axis:
@@ -721,9 +935,12 @@ def _isBioAct(act: ActivityExtended):
     return (BIOSPHERE_PREFIX in db_name) or ("type" in act and act["type"] in ["emission", "natural resource"])
 
 
-def _getOrCreateProxyDb(db_name):
+def _getOrCreateProxyDb(db_name, scenario=None):
     """Init proxy db to biosphere if not done yet"""
     proxyname = db_name + "-proxy"
+    if scenario:
+        proxyname += Settings.scenario_separator + scenario
+
     if proxyname not in databases:
         db = Database(proxyname)
         db.write(dict())
@@ -732,9 +949,23 @@ def _getOrCreateProxyDb(db_name):
 
 
 def _getOrCreateProxy(act: ActivityExtended, exchanges: dict[ActivityExtended, float]):
-    proxy_db = _getOrCreateProxyDb(act["database"])
+    scenarios = set()
+    for target_act in exchanges.keys():
+        db_name = target_act["database"]
+        if Settings.scenario_separator in db_name:
+            scenario = db_name.split(Settings.scenario_separator)[1]
+            scenarios.add(scenario)
+
+    if len(scenarios) == 0:
+        scenario = None
+    elif len(scenarios) == 1:
+        scenario = list(scenarios)[0]
+    else:
+        raise Exception(f"Found several scenrios in activity to proxy : {scenarios}")
+
+    proxy_db = _getOrCreateProxyDb(act["database"], scenario=scenario)
     proxy_code = act["code"] + "#proxy"
-    with temp_settings(strict_mode=False):
+    with temp_settings(internals=True):
         try:
             proxy = _getDb(proxy_db).get(proxy_code)
 

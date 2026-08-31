@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lca_algebraic"
-version = "1.4.1.dev0"
+name = "lca_algebraic_dev"
+version = "1.4.dev7"
 
-description = "This library provides a layer above Brightway for defining parametric models and running super fast LCA for monte carlo analysis."
+description = "This library provides a layer above brightway2 for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"
 license = { text = "BSD" }
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10,<3.13"
 
 authors = [
   { name = "OIE - Mines ParisTech", email = "raphael.jolivet@mines-paristech.fr" }
@@ -21,39 +21,24 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13"
+    "Programming Language :: Python :: 3.12"
 ]
 
 dependencies = [
   "tabulate",
   "dill",
   "ipywidgets",
-  "pandas<3.0.0",
+  "pandas",
   "pyarrow",
   "seaborn",
   "sympy",
   "matplotlib",
   "deprecation",
+  "brightway2",
   "SALib",
   "pint",
   "typing-extensions",
-]
-
-[project.optional-dependencies]
-bw2 = [
-  "brightway2",
-  "pypardiso; platform_machine == 'x86_64'",
-]
-bw25 = [
-  "brightway25",
-  "pypardiso; platform_machine == 'x86_64'",
-]
-dev = [
-  "pre-commit",
-  "pytest",
-  "nbmake",
-  "build"
+  "pypardiso; platform_machine == 'x86_64'"
 ]
 
 [project.urls]
@@ -68,8 +53,15 @@ packages = ["lca_algebraic"]
 [tool.setuptools.package-data]
 lca_algebraic = ["README.md"]
 
-[tool.pytest.ini_options]
-norecursedirs = ["tmp"]
+
+[tool.tox]
+requires = ["tox>=4"]
+env_list = ["py310", "py311", "py312"]
+
+[tool.tox.env_run_base]
+description = "Run test under {base_python}"
+deps = ["pytest>=7", "nbmake"]
+commands = [["pytest"]]
 
 [tool.flake8]
 max-line-length = 130
@@ -77,94 +69,5 @@ exclude = ["tests/*", "doc/*"]
 ignore = ["E303", "E302", "W503", "E226", "W291"]
 per-file-ignores = [
     "**/__init__.py:F403,F405,F401"
-]
-
-[tool.tox]
-requires = ["tox>=4.31", "tox-uv>=1.25"]
-env_list = [
-    "py312-bw2",
-    "py312-bw25",
-    "py310-bw2",
-    "py310-bw25",
-    "py311-bw2",
-    "py311-bw25",
-    "py313-bw2",
-    "py313-bw25",
-]
-
-[tool.tox.env_run_base]
-package = "editable"
-commands = [["pytest", "test"]]
-
-[tool.tox.env."py310-bw2"]
-base_python = "3.10"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway2",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py310-bw25"]
-base_python = "3.10"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway25",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py311-bw2"]
-base_python = "3.11"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway2",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py311-bw25"]
-base_python = "3.11"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway25",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py312-bw2"]
-base_python = "3.12"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway2",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py312-bw25"]
-base_python = "3.12"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway25",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py313-bw2"]
-base_python = "3.13"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway2",
-    "pypardiso; platform_machine == 'x86_64'",
-]
-
-[tool.tox.env."py313-bw25"]
-base_python = "3.13"
-deps = [
-    "pytest>=7",
-    "nbmake",
-    "brightway25",
-    "pypardiso; platform_machine == 'x86_64'",
 ]
 

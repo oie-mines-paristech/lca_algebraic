@@ -1,4 +1,5 @@
 from contextlib import AbstractContextManager
+from functools import cache
 from inspect import isfunction
 from typing import Dict, Iterable, Tuple, Union
 
@@ -174,6 +175,7 @@ def one(it: Iterable):
     return it[0]
 
 
+@cache
 def getActByCode(db_name, code):
     """Get activity by code"""
     return _getDb(db_name).get(code)
@@ -181,4 +183,4 @@ def getActByCode(db_name, code):
 
 # Types
 ValueOrExpression = Union[float, Basic, Quantity]
-MethodKey = Tuple[str]
+MethodKey = Tuple[str, ...]

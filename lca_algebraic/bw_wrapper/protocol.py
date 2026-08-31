@@ -8,6 +8,7 @@ class BrightwayBackend(Protocol):
 
     Activity: Any
     Exchange: Any
+    ActivityDataset: Any
     ExchangeDataset: Any
     ActivityProxyBase: Any
     LCIBackend: Any

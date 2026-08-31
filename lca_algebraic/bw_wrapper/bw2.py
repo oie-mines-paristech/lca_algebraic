@@ -3,7 +3,13 @@ from typing import Callable, List, Tuple
 import brightway2 as bw
 import pandas as pd
 from bw2data.backends import LCIBackend
-from bw2data.backends.peewee import Activity, Exchange, ExchangeDataset, sqlite3_lci_db
+from bw2data.backends.peewee import (
+    Activity,
+    ActivityDataset,
+    Exchange,
+    ExchangeDataset,
+    sqlite3_lci_db,
+)
 from bw2data.backends.peewee.utils import dict_as_exchangedataset
 from bw2data.proxies import ActivityProxyBase
 from peewee import DoesNotExist
@@ -15,6 +21,7 @@ class BW2Backend:
     name = "bw2"
 
     Activity = Activity
+    ActivityDataset = ActivityDataset
     Exchange = Exchange
     ExchangeDataset = ExchangeDataset
     ActivityProxyBase = ActivityProxyBase

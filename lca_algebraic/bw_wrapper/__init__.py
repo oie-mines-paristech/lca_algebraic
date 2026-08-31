@@ -35,6 +35,7 @@ def _load_backend() -> BrightwayBackend:
 _backend = _load_backend()
 
 Activity = _backend.Activity
+ActivityDataset = _backend.ActivityDataset
 Exchange = _backend.Exchange
 ExchangeDataset = _backend.ExchangeDataset
 ActivityProxyBase = _backend.ActivityProxyBase

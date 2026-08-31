@@ -28,12 +28,19 @@ class Settings:
     # When activted, forbids any creation or update in background database
     strict_mode: bool = False
 
+    # Set temporarly to true for internal tools not to trigger warnings
+    internals = False
+
     # Use "Common Sub expression patterns" in sympy lambdify
     cse_mode = CSE.DEFAULT
 
     # If true, caches are flushed automatically but more frequently
     # If set to flase, you shoudl ensure flushing caches yourself
     auto_flush = True
+
+    # Separator considered in database name for scenarios
+    # You may chose another one with several safer catacters like "__" or "-scenario-"
+    scenario_separator = "#"
 
 
 # Flag used on Db to set it as proxy

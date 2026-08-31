@@ -8,14 +8,15 @@ from typing import Dict, Tuple
 from dill import Pickler, load
 from sympy.core.function import UndefinedFunction
 
-from lca_algebraic.bw_wrapper import databases, projects
+from lca_algebraic.bw_wrapper import Database, databases, projects
 
 from .database import _getMeta
-from .log import info, logger
+from .log import logger
 from .settings import PROXY_DB_FLAG, Settings
 
 LCIA_CACHE = "lcia"
 EXPR_CACHE = "expr"
+MAPPING_CACHE = "mapping"
 
 
 # Overide the behaviour for pickling sympy.UndefineFunction
@@ -43,11 +44,15 @@ def flush_caches():
         cache.sync()
 
 
-def get_dependant_dbs(db_name):
+def get_dependant_dbs(db_name, skip_proxy=True):
     """Recursively get list of dependant db names, including the current one"""
 
+    # Only work if database is up to date (processed)
+    if databases[db_name].get("dirty"):
+        Database(db_name).process()
+
     # Skip proxy databases
-    if _getMeta(db_name, PROXY_DB_FLAG):
+    if skip_proxy and _getMeta(db_name, PROXY_DB_FLAG):
         res = set()
     else:
         res = set([db_name])
@@ -150,7 +155,7 @@ class SyncDict(MutableMapping):
         if self.last_update <= file_mtime:
             return
 
-        info(f"Flushing cache {self.name} / {self.db_name}")
+        # info(f"Flushing cache {self.name} / {self.db_name}")
 
         tmp = self._filename() + ".tmp"
         with open(tmp, "wb") as f:
@@ -206,6 +211,11 @@ class LCIACache(_CacheDict):
 class ExprCache(_CacheDict):
     def __init__(self, db_name):
         super().__init__(EXPR_CACHE, db_name)
+
+
+class MappingCache(_CacheDict):
+    def __init__(self, db_name):
+        super().__init__(MAPPING_CACHE, db_name)
 
 
 def clear_caches(local=True, disk=True):

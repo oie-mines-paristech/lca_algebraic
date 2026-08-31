@@ -938,9 +938,7 @@ class ParamRegistry:
         if param.dbname in self.params[key]:
             message = "[ParamRegistry] Param %s was already defined in '%s' " % (param.name, param.dbname or "<project>")
 
-            if Settings.param_overriding_enabled:
-                warn(message + " overriding")
-            else:
+            if not Settings.param_overriding_enabled:
                 raise Exception(message + "overriding disabled in Settings")
 
         self.params[key][param.dbname] = param
