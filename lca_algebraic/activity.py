@@ -29,6 +29,7 @@ from lca_algebraic.database import (
 )
 from lca_algebraic.params import (
     STORE_FORMULA_KEY,
+    STORE_FORMULA_TAG,
     DbContext,
     ParamDef,
     _complete_and_expand_params,
@@ -329,6 +330,7 @@ class ActivityExtended(Activity):
                     raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
 
             res[STORE_FORMULA_KEY] = str(amount)
+            res[STORE_FORMULA_TAG] = True
             res["amount"] = 0
         elif isinstance(amount, float) or isinstance(amount, int):
             res["amount"] = amount
@@ -348,6 +350,9 @@ class ActivityExtended(Activity):
         if amount is not None:
             # Update units
             amount = self._transform_unit(amount, exchange["unit"])
+
+            updates.pop(STORE_FORMULA_TAG, None)
+            exchange.pop(STORE_FORMULA_TAG, None)
 
             # Extract formula if two separate field "amount" and "formula"
             # Update the list of updates
