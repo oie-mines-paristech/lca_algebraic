@@ -634,9 +634,7 @@ def newActivity(
 
 
 @atomic
-def copyActivity(
-    db_name, activity: ActivityExtended, code=None, withExchanges=True, input_mapping=None, **kwargs
-) -> ActivityExtended:
+def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, stripFormula=True, input_mapping=None, **kwargs) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
 
@@ -650,6 +648,8 @@ def copyActivity(
         Code of the target activity. Also used as its name
     withExchange:
         Copy exchanges is True (default), otherwise do not copy them
+    stripFormula:
+        keep exchanges formula if True, default is False
 
     Returns
     -------
@@ -686,7 +686,7 @@ def copyActivity(
 
         # Chemical formulas might be in ecoinvent technosphere
         # We don't want them
-        if "formula" in data:
+        if stripFormula and "formula" in data:
             del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 
