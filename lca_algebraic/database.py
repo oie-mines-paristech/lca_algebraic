@@ -20,6 +20,7 @@ from lca_algebraic.bw_wrapper import (
     sqlite3_lci_db,
 )
 
+from .base_utils import getActByCode, invalidate_db
 from .log import logger
 from .settings import PROXY_DB_FLAG
 
@@ -86,6 +87,15 @@ def resetDb(db_name, foreground=True):
     if db_name in dbmeta:
         logger.warning("Db %s was here. Reseting it" % db_name)
         del dbmeta[db_name]
+
+    # Drop the pooled Database instance : it may hold a stale view (e.g. bw25 node ids)
+    # of a previously deleted/recreated database with the same name
+    invalidate_db(db_name)
+
+    # getActByCode() memoizes activity objects by (db_name, code). Activities are
+    # recreated with the same code on reset, so drop the memo to avoid returning
+    # stale (deleted) node ids.
+    getActByCode.cache_clear()
 
     db = Database(db_name)
     db.write(dict())

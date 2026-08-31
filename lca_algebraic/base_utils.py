@@ -27,6 +27,20 @@ def _isnumber(value):
 dbs = dict()
 
 
+def invalidate_db(dbname=None):
+    """Drop the pooled Database instances so a fresh one is built on next access.
+
+    bw25 keeps an internal (session/ORM) view inside a Database object that is not
+    invalidated when a database is deleted or recreated. Keep the pool in sync so that
+    activities are not resolved to stale (deleted) node ids.
+    """
+    global dbs
+    if dbname is None:
+        dbs = dict()
+    else:
+        dbs.pop(dbname, None)
+
+
 def _getDb(dbname):
     """Pool of Database instances"""
     if dbname not in dbs:
