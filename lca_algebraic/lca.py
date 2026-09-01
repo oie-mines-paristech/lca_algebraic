@@ -45,7 +45,7 @@ from .cache import (
     get_last_update,
 )
 from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
-from .log import info, logger, warn
+from .log import info, progress, warn
 from .matrix import ActMatrix, invert
 from .methods import method_name, method_unit
 from .params import (
@@ -177,7 +177,10 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
             )
 
             if len(remaining_acts) > 0 and len(remaining_methods) > 0:
-                info(f"Computing LCA for {len(remaining_acts)} background acts on methods {remaining_methods}")
+                progress(
+                    f"Computing brightway LCIA for {db_name}. "
+                    f"{len(remaining_acts)} background acts on methods {remaining_methods}"
+                )
 
                 lca = _multiLCAWithProxies(remaining_acts, remaining_methods)
 
@@ -227,7 +230,7 @@ def _actToLambdaExpr(model: Activity, axis=None, alpha=1) -> LambdaExpr:
         mset_key = _matrices_set_cache_key(base_key)
 
         if mset_key not in cache.data:
-            logger.debug(f"{db_name} matrices were not in expression cache, computing...")
+            progress(f"{db_name} matrices were not in expression cache, computing...")
             if axis is None:
                 cache.data[mset_key] = AxisMatricesSet(variants={"_all_": _computeMatrices(db_name=db_name)})
             else:
@@ -310,6 +313,8 @@ def _code_by_key(db_name: str) -> Dict[Tuple, str]:
 
     with MappingCache(db_name) as cache:
         if master_key not in cache.data:
+            progress(f"Building cache of keys for {db_name}")
+
             query = (
                 ActivityDataset.select(ActivityDataset.code, ActivityDataset.data)
                 .where(ActivityDataset.database == db_name)
@@ -350,6 +355,8 @@ def _duplicate_db_for_scenario(origin_db, target_db):
 
     with temp_settings(internals=True):
         target_scenario = target_db.split(Settings.scenario_separator)[1]
+
+        progress(f"Duplicating proxy database {origin_db} for IAM scenario {target_scenario}")
 
         # Gather all mappings
         all_mappings = dict()
