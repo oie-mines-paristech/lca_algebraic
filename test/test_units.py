@@ -1,7 +1,7 @@
 import pytest
 from numpy.ma.testutils import assert_array_equal
 
-from lca_algebraic.params import _getAmountOrFormula
+from lca_algebraic.params import _getAmountOrFormula, STORE_FORMULA_TAG
 from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
 from lca_algebraic import (
@@ -114,7 +114,7 @@ def test_new_activity_with_units(data):
     assert "auto_scale" in str(e.value)
 
 
-def test_update_exchanges(data):
+def test_update_activities_with_units(data):
     unit_registry.auto_scale = True
 
     p1_meter = newFloatParam("p1", default=0, min=0, max=1, unit="m")
@@ -130,7 +130,25 @@ def test_update_exchanges(data):
     # Should convert ton to kg
     act1 = newActivity(USER_DB, "act1", "kg", exchanges={data.bg_act1: 2 * p2_ton})
 
-    assert _getAmountOrFormula(act1.getExchange(name="bg_act1")) == 2000.0 * p2
+    ex = act1.getExchange(name="bg_act1")
+    assert STORE_FORMULA_TAG in ex
+    assert _getAmountOrFormula(ex) == 2000.0 * p2
+
+    # Should convert ton to kg
+    act1.updateExchanges({data.bg_act1: 1.0 | u.ton})
+    act1.save()
+
+    ex = act1.getExchange(name="bg_act1")
+    assert STORE_FORMULA_TAG not in ex
+    assert _getAmountOrFormula(ex) == 1000.0
+
+    # Check if sympy formula are simplified to scala
+    act1.updateExchanges({data.bg_act1: Float(1.0)*Float(10.0) | u.kg})
+    act1.save()
+
+    ex = act1.getExchange(name="bg_act1")
+    assert STORE_FORMULA_TAG not in ex
+    assert _getAmountOrFormula(ex) == 10.0
 
 
 def test_interpolation_with_units(data):
