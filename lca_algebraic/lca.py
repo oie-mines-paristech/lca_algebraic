@@ -333,7 +333,12 @@ def _key_to_key_mapping(source_db, dest_db):
 
     src_code_by_key = _code_by_key(source_db)
     dest_code_by_key = _code_by_key(dest_db)
-    return {(source_db, src_code): (dest_db, dest_code_by_key[src_key]) for src_key, src_code in src_code_by_key.items()}
+
+    return {
+        (source_db, src_code): (dest_db, dest_code_by_key[src_key])
+        for src_key, src_code in src_code_by_key.items()
+        if src_key in dest_code_by_key
+    }
 
 
 @atomic
