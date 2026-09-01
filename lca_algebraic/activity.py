@@ -319,6 +319,10 @@ class ActivityExtended(Activity):
     def _amount_to_formula(self, amount: ValueOrExpression, exchange: ExchangeDataset):
         res = dict()
         if isinstance(amount, Basic):
+
+            if amount.is_number:
+                return {"amount": amount.evalf()}
+
             current_amount = exchange.get("amount", None)
             if current_amount is not None:
                 amount = amount.subs(old_amount, current_amount)
