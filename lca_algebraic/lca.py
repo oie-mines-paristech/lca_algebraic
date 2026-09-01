@@ -34,7 +34,7 @@ from lca_algebraic.bw_wrapper import (
     multi_lca,
 )
 from lca_algebraic.lambda_expression import LambdaExpr
-from lca_algebraic.settings import Settings
+from lca_algebraic.settings import UNITY_METHOD, Settings
 
 from . import atomic, copyActivity, getActByCode, resetDb
 from .cache import (
@@ -162,14 +162,28 @@ def _multiLCAWithProxies(acts: list[ActivityExtended], methods: list[MethodKey])
     return _multiLCA([{act: 1} for act in proxy_acts.values()], methods)
 
 
-def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
+def _multiLCAWithCache(all_acts, methods, scenario: str = None) -> Dict[Tuple[ActivityExtended, MethodKey], float]:
     res = dict()
+
+    # Possibly map bg activities to another target scenario db
+    # key = initial cat, value = target scenario act
+    scenario_mapping = _compute_scenario_mapping(all_acts, scenario=scenario)
+
+    all_acts = list(scenario_mapping.values())
+    reverse_scenario_mapping = {val: key for key, val in scenario_mapping.items()}
 
     # Split activities by db_name
     for db_name, acts in _group_acts_by_db(all_acts).items():
         with LCIACache(db_name) as cache:
             # List activities with at least one missing value
             remaining_acts = list(act for act in all_acts if any(method for method in methods if (act, method) not in cache.data))
+
+            # Handle custom "unity" method separately
+            if UNITY_METHOD in methods:
+                for act in acts:
+                    for method in methods:
+                        if not (act, method) in cache.data:
+                            cache.data[(act, method)] = 1.0
 
             # list methods with at least one missing value
             remaining_methods = list(
@@ -190,7 +204,7 @@ def _multiLCAWithCache(all_acts, methods) -> Dict[Tuple[ActivityExtended, Method
                         cache.data[(act, method)] = lca.iloc[imethod, iact]
 
             # Update res with a copy of the cache for selected impacts and activities
-            res.update({(act, method): cache.data[(act, method)] for act in acts for method in methods})
+            res.update({(reverse_scenario_mapping[act], method): cache.data[(act, method)] for act in acts for method in methods})
 
     return res
 
@@ -253,7 +267,7 @@ def lambdify_expr(expr):
 
 
 def _preMultiLCAAlgebric(
-    model: ActivityExtended, methods: List[MethodKey], alpha: ValueOrExpression = 1, axis: str = None, scenario: list[str] = None
+    model: ActivityExtended, methods: List[MethodKey], alpha: ValueOrExpression = 1, axis: str = None, scenarios: list[str] = None
 ) -> list[LambdaExpr]:
     """
     This method transforms an activity into a set of functions ready to compute LCA very fast on a set on methods.
@@ -262,26 +276,34 @@ def _preMultiLCAAlgebric(
     This method is used by multiLCAAlgebric
     """
 
-    with DbContext(model):
-        if isinstance(alpha, Quantity):
-            alpha = alpha.magnitude
+    if not isinstance(scenarios, list):
+        scenarios = [scenarios]
 
-        def _key(method):
-            key = (model, axis, method, alpha)
-            if scenario:
-                key += (scenario,)
-            return key
+    res: list[list[LambdaExpr]] = []
 
-        with ExprCache(model["database"]) as cache:
-            missing_methods = [method for method in methods if not _key(method) in cache.data]
-            if len(missing_methods) > 0:
-                exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha, scenario=scenario)
-                for method, expr in zip(missing_methods, exprs):
-                    cache.data[_key(method)] = expr
+    for scenario in scenarios:
+        with DbContext(model):
+            if isinstance(alpha, Quantity):
+                alpha = alpha.magnitude
 
-            # At this point, everything is in cache
-            # REturn the list in order
-            return list(cache.data[_key(method)] for method in methods)
+            def _key(method):
+                key = (model, axis, method, alpha)
+                if scenario:
+                    key += (scenario,)
+                return key
+
+            with ExprCache(model["database"]) as cache:
+                missing_methods = [method for method in methods if not _key(method) in cache.data]
+                if len(missing_methods) > 0:
+                    exprs = _modelToExpr(model, methods=missing_methods, axis=axis, alpha=alpha, scenario=scenario)
+                    for method, expr in zip(missing_methods, exprs):
+                        cache.data[_key(method)] = expr
+
+                # At this point, everything is in cache
+                # REturn the list in order
+                res.append(list(cache.data[_key(method)] for method in methods))
+
+    return _merge_lambda_scenarios(res)
 
 
 def _build_mapping_key(act: Activity):
@@ -444,17 +466,13 @@ def _modelToExpr(
         zero.impacts = []
         return [zero] * len(methods)
 
-    # Possibly map bg activities to another target scenario db
-    act_mapping = _compute_scenario_mapping(generic_lambda_expr.background_activities, scenario=scenario)
-
     # Compute LCA for background activities
-    all_impacts = _multiLCAWithCache(act_mapping.values(), methods)
+    all_impacts = _multiLCAWithCache(all_acts=generic_lambda_expr.background_activities, methods=methods, scenario=scenario)
 
     res = list()
 
     for method in methods:
-        impacts = {bg_act: all_impacts[target_act, method] for bg_act, target_act in act_mapping.items()}
-
+        impacts = {bg_act: all_impacts[bg_act, method] for bg_act in generic_lambda_expr.background_activities}
         res.append(generic_lambda_expr.with_impacts(impacts))
 
     return res
@@ -487,8 +505,12 @@ def _postMultiLCAAlgebric(methods, lambdas: List[LambdaExpr], with_params=False,
 
     if len(lambdas[0].impacts) > 0:
         first_impact = lambdas[0].impacts[0]
+
+        # Vector impacts means several scenarios : should be same number as scenarios
         if isinstance(first_impact, (list, np.ndarray)):
             nb_scenarios = len(first_impact)
+            if nb_scenarios > 1 and param_length > 1 and nb_scenarios != param_length:
+                raise Exception("Number of scenarios and number of params should be the same")
             param_length = max(param_length, nb_scenarios)
 
     # lambda are SymDict ?
@@ -635,6 +657,7 @@ def compute_inventory(
     as_dict=False,
     impact_method=None,
     fields=["database", "name", "location", "unit"],
+    scenario: Union[str, list[str], None] = None,
     **params,
 ):
     """
@@ -667,41 +690,50 @@ def compute_inventory(
     Dataframe or Dict of act => value
 
     """
+    if not isinstance(scenario, list):
+        scenario = [scenario]
+
+    if impact_method is None:
+        impact_method = UNITY_METHOD
 
     with temp_settings(factorize_static_bg=False):
-        lambda_expr = _actToLambdaExpr(model, alpha=1 / functional_unit)
+        # Compute once the generic lambda expression
+        lambda_exprs = _preMultiLCAAlgebric(model=model, methods=[impact_method], alpha=1 / functional_unit, scenarios=scenario)
+
+        lambda_expr = lambda_exprs[0]
 
         # Transform to dict of act => value
-        val_by_act = dict()
+        val_by_act: Dict[Activity, DataFrame] = dict()
         for bg_act in lambda_expr.background_activities:
-            # Dummy impact set to 1 only for current bg act, zero for others
-            impacts = {act: 1.0 if act == bg_act else 0.0 for act in lambda_expr.background_activities}
+            impacts = lambda_expr.impacts_dict()
 
-            bg_expr = lambda_expr.with_impacts(impacts)
-            val = bg_expr.compute(**params).value
-            if isinstance(val, dict):
-                val = val["_all_"]
-            val_by_act[bg_act] = val
+            # Build temp lambda with only a single act activated, the other impacts being set to Zero
+            filtered_impacts = {act: impacts[act] if act == bg_act else 0.0 for act in lambda_expr.background_activities}
 
-        if impact_method is not None:
-            # Compute LCA of background activities
-            impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
+            single_bg_expr = lambda_expr.with_impacts(filtered_impacts)
 
-            val_by_act: {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
+            res = _postMultiLCAAlgebric(methods=[impact_method], lambdas=[single_bg_expr], **params)
+
+            val_by_act[bg_act] = res.values.flatten()
 
         if as_dict:
             return val_by_act
 
         # Transform to dataframe
         items = []
-        for act, value in val_by_act.items():
+        for act, values in val_by_act.items():
             item = dict()
 
             for field in fields:
                 if field in act:
                     item[field] = act[field]
 
-            item["value"] = value
+            # Flatten multiple values
+            if len(values) == 1:
+                item["value"] = values[0]
+            else:
+                for i in range(0, len(values)):
+                    item[str(i + 1)] = values[i]
             items.append(item)
 
     return DataFrame(items)
@@ -857,9 +889,7 @@ def compute_impacts(
 
             scenarios = scenario if isinstance(scenario, list) else [scenario]
 
-            lambdas = _merge_lambda_scenarios(
-                _preMultiLCAAlgebric(model, methods, scenario=scenario, alpha=alpha, axis=axis) for scenario in scenarios
-            )
+            lambdas = _preMultiLCAAlgebric(model, methods, scenarios=scenarios, alpha=alpha, axis=axis)
 
             unit: Optional[Unit] = functional_unit.units if isinstance(functional_unit, Quantity) else None
 

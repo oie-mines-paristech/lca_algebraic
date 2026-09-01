@@ -1,7 +1,9 @@
 from numpy.ma.testutils import assert_array_equal
+from pandas import DataFrame
 
-from lca_algebraic import resetDb, newActivity, newFloatParam, compute_impacts, temp_settings
+from lca_algebraic import resetDb, newActivity, newFloatParam, compute_impacts, temp_settings, compute_inventory
 from test.conftest import DataFixture, USER_DB, assert_impacts
+from pandas.testing import assert_frame_equal
 
 
 def test_compute_impact_with_scenario(data: DataFixture):
@@ -71,6 +73,36 @@ def test_compute_impact_with_several_scenarios(data: DataFixture):
     assert_array_equal(res.values.flatten(), [1.0, 6.0])
 
     print(res)
+
+
+def test_compute_inventories_with_several_scenarios(data: DataFixture):
+    # Scnerio database are separated with '#'
+    BG_DB1 = "bg#scen1"
+    BG_DB2 = "bg#scen2"
+
+    # Build two databases
+    resetDb(BG_DB1, foreground=False)
+    resetDb(BG_DB2, foreground=False)
+
+    # Add twin BG activities
+    bg_act = newActivity(BG_DB1, name="bg_act", unit="kg", exchanges={data.bio1: 1.0})
+
+    # Same activitiy with different exchange in scenario 2
+    bg_act2 = newActivity(BG_DB2, name="bg_act", unit="kg", exchanges={data.bio1: 2.0})
+
+    # Build parametrized model on BG1
+    p1 = newFloatParam("p1", default=1, min=0, max=1)
+
+    fg_act = newActivity(USER_DB, "fg", "kg", {bg_act: p1})
+
+    # Raw impacts without scenario : targeting scen1
+    res = compute_inventory(model=fg_act, impact_method=data.ibio1, p1=[1.0, 2.0], scenario=["scen1", "scen2"])
+
+    assert_frame_equal(
+        rtol=1e-03,
+        left=res,
+        right=DataFrame([{"database": "bg#scen1", "name": "bg_act", "location": "GLO", "unit": "kg", "1": 1.0, "2": 4.0}]),
+    )
 
 
 def test_compute_impact_with_background_proxy(data: DataFixture):

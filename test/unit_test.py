@@ -559,25 +559,35 @@ def test_compute_inventory(data):
 
     df_expected = DataFrame(
         [
-            {
-                "database": "bg",
-                "name": "bg_act1",
-                "location": "GLO",
-                "unit": "kg",
-                "value": 0.2,
-            },
-            {
-                "database": "bg",
-                "name": "bg_act2",
-                "location": "GLO",
-                "unit": "kg",
-                "value": 0.3,
-            },
+            {"database": "bg", "name": "bg_act1", "location": "GLO", "unit": "kg", "value": 0.2},
+            {"database": "bg", "name": "bg_act2", "location": "GLO", "unit": "kg", "value": 0.3},
             {"database": "bg", "name": "bio1", "location": "GLO", "unit": "kg", "value": 0.1},
         ]
     )
 
     assert_frame_equal(df_expected, df, rtol=1e-03)
+
+
+def test_compute_inventory_with_method_and_several_param_values(data):
+    p1 = newFloatParam("p1", 1, min=1, max=3)
+
+    # Two nested activities
+    fg_act1 = newActivity(USER_DB, name="act1", unit="kg", exchanges={data.bg_act1: p1})
+
+    root_act = newActivity(USER_DB, name="root_act", unit="kg", exchanges={fg_act1: 1, data.bg_act1: 1, data.bio1: 1})
+
+    df = compute_inventory(root_act, impact_method=data.ibio1, p1=[1.0, 2.0])
+
+    assert_frame_equal(
+        rtol=1e-03,
+        left=df,
+        right=DataFrame(
+            [
+                {"database": "bg", "name": "bg_act1", "location": "GLO", "unit": "kg", "1": 2.0, "2": 3.0},
+                {"database": "bg", "name": "bio1", "location": "GLO", "unit": "kg", "1": 1.0, "2": 1.0},
+            ]
+        ),
+    )
 
 
 def test_inventory_loops_should_work(data):

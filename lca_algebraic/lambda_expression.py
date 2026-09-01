@@ -1,6 +1,6 @@
 from copy import copy
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from sympy import Basic, Expr, lambdify, parse_expr
 from sympy.printing.numpy import NumPyPrinter
@@ -8,6 +8,7 @@ from sympy.printing.numpy import NumPyPrinter
 from lca_algebraic.axis_dict import AxisDict
 from lca_algebraic.base_utils import _user_functions
 from lca_algebraic.bw_wrapper import Activity
+from lca_algebraic.log import warn
 from lca_algebraic.params import (
     _complete_params,
     _expand_param_names,
@@ -39,7 +40,7 @@ class LambdaExpr:
 
         # List of background activities, indexed in the same order as impacts[i]
         self.background_activities: List[Activity] = list()
-        self.impacts: List[float] = None
+        self.impacts: Optional[List[float]] = None
 
         if isinstance(expr, dict) and not isinstance(expr, AxisDict):
             # Come from JSON serialization
@@ -123,11 +124,16 @@ class LambdaExpr:
     def with_impacts(self, impacts: Dict[Activity, float]):
         """Transforms a generic LambaExpr toa one with custom impact values"""
         if self.impacts is not None:
-            raise Exception("You are specializing a LambaExpression with impacts already set.")
+            warn("You are specializing a LambaExpression with impacts already set.")
+
         res = copy(self)
         res.impacts = [impacts[bg_act] for bg_act in self.background_activities]
 
         return res
+
+    def impacts_dict(self):
+        """Returns list of impacts as dict"""
+        return {bg_act: val for bg_act, val in zip(self.background_activities, self.impacts)}
 
 
 def _filter_param_values(params, expanded_param_names):

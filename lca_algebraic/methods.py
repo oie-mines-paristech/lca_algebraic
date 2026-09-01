@@ -4,6 +4,7 @@ from typing import Dict, Tuple
 from pint import Unit
 
 from lca_algebraic.bw_wrapper import Method, methods
+from lca_algebraic.settings import UNITY_METHOD
 
 
 def _impact_labels():
@@ -56,7 +57,11 @@ def findMethods(search=None, mainCat=None):
 def method_unit(method: Tuple, fu_unit: Unit = None):
     """Get the unit of an impact method"""
 
-    res = Method(method).metadata["unit"]
+    if method == UNITY_METHOD:
+        res = "unit"
+    else:
+        res = Method(method).metadata["unit"]
+
     if fu_unit is not None:
         res += f" / {fu_unit}"
 
