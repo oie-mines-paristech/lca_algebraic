@@ -4,9 +4,18 @@ from numpy.ma.testutils import assert_array_equal
 from lca_algebraic.params import _getAmountOrFormula
 from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
-from lca_algebraic import Settings, newFloatParam, newActivity, copyActivity, compute_impacts, interpolate_activities
+from lca_algebraic import (
+    Settings,
+    Min,
+    Max,
+    newFloatParam,
+    newActivity,
+    copyActivity,
+    compute_impacts,
+    interpolate_activities)
 from test.conftest import USER_DB
-
+from sympy import Float
+import sympy
 
 @pytest.fixture(scope="module", autouse=True)
 def enable_units():
@@ -192,3 +201,25 @@ def test_persist_load_params():
 
 def test_parse_db_unit():
     assert parse_db_unit("km-person") == u.km * u.person
+
+def test_min_max_with_units():
+    p0 = newFloatParam("p0", default=1, min=0, max=2, unit="m")
+    p1 = newFloatParam("p1", default=1, min=0, max=2, unit="m")
+    p2 = newFloatParam("p2", default=1, min=0, max=2, unit="m")
+    p3 = newFloatParam("p3", default=1, min=0, max=2, unit="kg")
+
+    emin = Min(p0, p1, p2)
+    assert isinstance(emin, u.Quantity)
+    assert emin.magnitude.func == sympy.Min
+    assert emin.units == u.m
+
+    emax = Max(p0, p1, p2)
+    assert isinstance(emax, u.Quantity)
+    assert emax.magnitude.func == sympy.Max
+    assert emax.units == u.m
+
+    with pytest.raises(Exception):
+        emin = Min(p0, p1, p3)
+
+    with pytest.raises(Exception):
+        emax = Max(p0, p1, p3)
