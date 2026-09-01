@@ -336,7 +336,7 @@ class ActivityExtended(Activity):
             res[STORE_FORMULA_KEY] = str(amount)
             res[STORE_FORMULA_TAG] = True
             res["amount"] = 0
-        elif isinstance(amount, float) or isinstance(amount, int):
+        elif isinstance(amount, float|int):
             res["amount"] = amount
         else:
             raise Exception(
