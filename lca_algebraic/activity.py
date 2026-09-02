@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from copy import copy
 from types import FunctionType
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple, Union, List
 
 import pandas as pd
 from pint import DimensionalityError, Quantity
@@ -517,6 +517,61 @@ def findActivity(
         return acts[0]
     else:
         return acts
+
+def findActivitiesEx(database: Union[str, bw.Database], **kwargs) -> List[Activity]:
+    """
+    Find activities based on activities attributes
+
+    Parameters
+    ----------
+    database: str or brightway database.
+        The database to lookup. str will be converted to coresponding
+        brightway database
+
+    kwargs: dictionnary of (attributes name, str or re.Pattern)
+        Attribute with the given name will be matched with the
+        corresponding re.Pattern. str value are converted to re.Pattern to
+        behave like `str in attribute`.
+
+    Returns
+    -------
+    python list of Activity
+
+    Exemples
+    --------
+    >>> findActivityEx("mydb", name=re.compile("^electicity.*"), location="RER")
+    >>> # Return all activities that have name starting by electricity with
+        # location constain RER
+    """
+    if isinstance(database, str):
+        database = _getDb(database)
+
+    for k, v in list(kwargs.items()):
+        if isinstance(v, re.Pattern):
+            continue
+        kwargs[k] = re.compile(f".*{re.escape(v)}.*")
+
+    def _match(act, kwargs):
+        for k, v in kwargs.items():
+            value = act.get(k, None)
+            if value is None:
+                return False
+            if v.match(value) is None:
+                return False
+        return True
+
+    matched_exchanges = []
+    for a in database:
+        if _match(a, kwargs): matched_exchanges.append(a)
+    return matched_exchanges
+
+
+def findSingleActivityEx(database: Union[str, bw.Database], **kwargs) -> Activity :
+    """Same as findActivitiesEx but return a single Activity or raise an Exception"""
+    acts = findActivitiesEx(database, **kwargs)
+    if len(acts) != 1:
+        raise Exception("Several activity found:\n"+"\n".join(str(act) for act in acts))
+    return acts[0]
 
 
 def findBioAct(name=None, loc=None, **kwargs):
