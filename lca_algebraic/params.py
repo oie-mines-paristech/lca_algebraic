@@ -42,7 +42,7 @@ from lca_algebraic.units import unit_registry as u
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 STORE_FORMULA_KEY = "formula"
-
+STORE_FORMULA_TAG = "has_lca_algebraic_formula"
 
 class ParamType:
     """Type of parameters"""
@@ -1295,7 +1295,7 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
-    if STORE_FORMULA_KEY in ex:
+    if STORE_FORMULA_KEY in ex and STORE_FORMULA_TAG in ex:
         try:
             # We don't want support for units there
             return _parse_formula(ex[STORE_FORMULA_KEY])
