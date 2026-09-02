@@ -3,14 +3,16 @@ from functools import cache
 from inspect import isfunction
 from typing import Dict, Iterable, Tuple, Union
 
+import sympy
 import ipywidgets as widgets
 import numpy as np
 import pandas as pd
 from IPython.display import display
 from six import raise_from
 from sympy import Basic
-from sympy.physics.units import Quantity
+from pint import Quantity
 
+from lca_algebraic.settings import Settings
 from lca_algebraic.bw_wrapper import Activity, Database, is_output_exchange
 
 _user_functions = dict()
@@ -48,14 +50,22 @@ def _getDb(dbname):
     return dbs[dbname]
 
 
-def Max(a, b):
-    """Max define as algrebraic forumal with 'abs' for proper computation on vectors"""
-    return (a + b + abs(a - b)) / 2
+def _MinMax(op, arg0, *args):
+    from lca_algebraic.units import unit_registry as u
+    if not Settings.units_enabled:
+        return op(arg0, *args)
+    same_unit = all(x.units == arg0.units for x in args)
+    if not same_unit:
+        raise Exception("MinMax argments must have the same units")
+    return u.Quantity(op(arg0.magnitude, *[x.magnitude for x in args]), arg0.units)
 
 
-def Min(a, b):
-    """Max define as algrebraic forumal with 'abs' for proper computation on vectors"""
-    return (a + b - abs(b - a)) / 2
+def Max(arg0, *args):
+    return _MinMax(sympy.Max, arg0, *args)
+
+
+def Min(arg0, *args):
+    return _MinMax(sympy.Min, arg0, *args)
 
 
 def _actDesc(act: Activity):
