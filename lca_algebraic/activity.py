@@ -321,7 +321,7 @@ class ActivityExtended(Activity):
         if isinstance(amount, Basic):
 
             if amount.is_number:
-                return {"amount": amount.evalf()}
+                return {"amount": float(amount.evalf())}
 
             current_amount = exchange.get("amount", None)
             if current_amount is not None:
