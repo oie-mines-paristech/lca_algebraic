@@ -658,6 +658,7 @@ def compute_inventory(
     impact_method=None,
     fields=["database", "name", "location", "unit"],
     scenario: Union[str, list[str], None] = None,
+    filter_zeros=True,
     **params,
 ):
     """
@@ -696,6 +697,8 @@ def compute_inventory(
     if impact_method is None:
         impact_method = UNITY_METHOD
 
+    zeros = np.full(len(scenario), 0.0)
+
     with temp_settings(factorize_static_bg=False):
         # Compute once the generic lambda expression
         lambda_exprs = _preMultiLCAAlgebric(model=model, methods=[impact_method], alpha=1 / functional_unit, scenarios=scenario)
@@ -708,7 +711,7 @@ def compute_inventory(
             impacts = lambda_expr.impacts_dict()
 
             # Build temp lambda with only a single act activated, the other impacts being set to Zero
-            filtered_impacts = {act: impacts[act] if act == bg_act else 0.0 for act in lambda_expr.background_activities}
+            filtered_impacts = {act: impacts[act] if act == bg_act else zeros for act in lambda_expr.background_activities}
 
             single_bg_expr = lambda_expr.with_impacts(filtered_impacts)
 
@@ -722,6 +725,9 @@ def compute_inventory(
         # Transform to dataframe
         items = []
         for act, values in val_by_act.items():
+            if filter_zeros and np.all(values == 0.0):
+                continue
+
             item = dict()
 
             for field in fields:
@@ -733,7 +739,7 @@ def compute_inventory(
                 item["value"] = values[0]
             else:
                 for i in range(0, len(values)):
-                    item[str(i + 1)] = values[i]
+                    item[scenario[i]] = values[i]
             items.append(item)
 
     return DataFrame(items)
