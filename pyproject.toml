@@ -54,7 +54,8 @@ dev = [
   "pre-commit",
   "pytest",
   "nbmake",
-  "build"
+  "build",
+  "twine>=6.1"
 ]
 
 [project.urls]
