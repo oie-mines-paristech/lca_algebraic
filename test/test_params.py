@@ -3,6 +3,7 @@ import math
 import numpy as np
 import pytest
 from bw2data.parameters import ProjectParameter
+from scipy.stats import norm
 from stats_arrays import LognormalUncertainty, UncertaintyBase
 
 from lca_algebraic import DistributionType, loadParams, newFloatParam
@@ -47,11 +48,7 @@ def test_lognormal_default_is_median():
     p = lognormal()
     assert p.rand(0.5) == pytest.approx(10)
     # std is the standard deviation of log(x)
-    assert np.log(p.rand(norm_cdf(1.0))) - np.log(10) == pytest.approx(0.5)
-
-
-def norm_cdf(x):
-    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+    assert np.log(p.rand(norm.cdf(1.0))) - np.log(10) == pytest.approx(0.5)
 
 
 def test_lognormal_matches_brightway():
@@ -71,6 +68,19 @@ def test_lognormal_load_roundtrip():
     loadParams()
     loaded = _param_registry()["p"]
     assert (loaded.default, loaded.std) == (p.default, p.std)
+    assert loaded.rand(0.5) == pytest.approx(10)
+
+
+def test_lognormal_load_legacy():
+    """Params saved by older versions have loc = default instead of log(default)"""
+    ProjectParameter.create(
+        name="p",
+        amount=10,
+        data={"uncertainty type": LognormalUncertainty.id, "loc": 10, "scale": 0.5},
+    )
+    loadParams()
+    loaded = _param_registry()["p"]
+    assert (loaded.default, loaded.std) == (10, 0.5)
     assert loaded.rand(0.5) == pytest.approx(10)
 
 
