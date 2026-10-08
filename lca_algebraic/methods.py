@@ -24,8 +24,7 @@ def set_custom_impact_labels(impact_labels: Dict):
 
 def findMethods(search=None, mainCat=None):
     """
-    Find impact method. Search in all methods against a list of match strings.
-    Each parameter can be either an exact match, or case-insensitive search, if suffixed by '*'
+    Find impact methods whose name contains *search*, ignoring case.
 
     Parameters
     ----------
@@ -70,4 +69,4 @@ def method_name(method):
     if method in _impact_labels():
         return _impact_labels()[method]
     # Last two elements : (category, indicator) for both 3 and 4 element tuples
-    return " - ".join(str(part) for part in method[-2:])
+    return " - ".join(method[-2:])
