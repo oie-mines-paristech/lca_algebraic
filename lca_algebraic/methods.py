@@ -69,4 +69,5 @@ def method_name(method):
     """Return name of method, taking into account custom label set via set_custom_impact_labels(...)"""
     if method in _impact_labels():
         return _impact_labels()[method]
-    return method[1] + " - " + method[2]
+    # Last two elements : (category, indicator) for both 3 and 4 element tuples
+    return " - ".join(str(part) for part in method[-2:])

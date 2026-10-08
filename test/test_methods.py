@@ -1,6 +1,6 @@
 import sys
 
-from lca_algebraic.methods import findMethods
+from lca_algebraic.methods import findMethods, method_name
 
 # The package re-exports bw 'methods', which hides the submodule attribute
 methods_module = sys.modules["lca_algebraic.methods"]
@@ -22,3 +22,9 @@ def test_find_methods_main_cat(monkeypatch):
     assert findMethods("climate", mainCat="ReCiPe 2016 v1.03, midpoint (H)") == [SHORT]
     assert findMethods("climate") == [CLASSIC, ECOINVENT_RELEASE, SHORT]
     assert findMethods(mainCat="EF v3.1") == [CLASSIC, ECOINVENT_RELEASE]
+
+
+def test_method_name():
+    assert method_name(CLASSIC) == "climate change - global warming potential (GWP100)"
+    assert method_name(ECOINVENT_RELEASE) == "climate change - global warming potential (GWP100)"
+    assert method_name(SHORT) == "ReCiPe 2016 v1.03, midpoint (H) - climate change"
