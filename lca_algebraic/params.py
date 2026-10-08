@@ -546,12 +546,13 @@ def _persistParam(param):
             bwParam["maximum"] = param.max
             bwParam["loc"] = param.default
 
-            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
+            if param.distrib == DistributionType.NORMAL:
                 bwParam["scale"] = param.std
 
-            if param.distrib == DistributionType.LOGNORMAL:
+            elif param.distrib == DistributionType.LOGNORMAL:
                 # Brightway expects loc = log(median)
                 bwParam["loc"] = math.log(param.default)
+                bwParam["scale"] = param.std
 
             elif param.distrib == DistributionType.BETA:
                 bwParam["scale"] = param.std
