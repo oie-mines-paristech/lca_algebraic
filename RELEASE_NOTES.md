@@ -6,6 +6,8 @@
 * Added setting ot idsable automatic flush and handle it manually at the end of the script
 * Don't run "_force_reduce" when axis not used
 * Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
+* Fix findMethods(mainCat=...) for methods imported with bw2io.import_ecoinvent_release, where the ecoinvent version comes first (#80, #84)
+* Fix method_name() for methods with 2 or 4 elements, such as ReCiPe 2016 (#35)
 
 # 1.4.1
 
