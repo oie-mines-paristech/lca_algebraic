@@ -71,7 +71,8 @@ class DistributionType:
     Either bound can be left out (None) to leave that side open."""
 
     LOGNORMAL = "lognormal"
-    """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
+    """ Lognormal distribution, not truncated. *default* is the median and *std* is the standard deviation of log(x).
+    This matches Brightway (stats_arrays): the param is saved with loc = log(default) and scale = std."""
 
     BETA = "beta"  # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
     """ Beta distribution with extra params *a* and *b*,
@@ -299,7 +300,7 @@ class ParamDef(Symbol):
                         self._distrib = norm(loc=self.default, scale=self.std)
 
                 elif self.distrib == DistributionType.LOGNORMAL:
-                    self._distrib = lognorm(self.default, self.std)
+                    self._distrib = lognorm(self.std, scale=self.default)
 
                 elif self.distrib == DistributionType.BETA:
                     self._distrib = beta(self.a, self.b, loc=self.default, scale=self.std)
@@ -545,6 +546,10 @@ def _persistParam(param):
             if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
                 bwParam["scale"] = param.std
 
+            if param.distrib == DistributionType.LOGNORMAL:
+                # Brightway expects loc = log(median)
+                bwParam["loc"] = math.log(param.default)
+
             elif param.distrib == DistributionType.BETA:
                 bwParam["scale"] = param.std
                 bwParam["loc"] = param.a
@@ -664,8 +669,12 @@ def loadParams(global_variable=True, dbname=None):
             if type == _UncertaintyType.TRIANGLE:
                 args["default"] = data["loc"]
 
-            elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+            elif type == _UncertaintyType.NORMAL:
                 args["default"] = data["loc"]
+                args["std"] = data["scale"]
+
+            elif type == _UncertaintyType.LOGNORMAL:
+                # Keep 'amount' as default : loc is log(median)
                 args["std"] = data["scale"]
 
             elif type == _UncertaintyType.BETA:
