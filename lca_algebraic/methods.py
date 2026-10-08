@@ -30,9 +30,11 @@ def findMethods(search=None, mainCat=None):
     Parameters
     ----------
     search :
-        String to search
+        String to search (optional)
     mainCat :
-        If specified, limits the research for method[0] == mainCat.
+        If specified, limits the research to methods of this family, e.g. "EF v3.1".
+        It is matched against the first or second element of the method tuple, as
+        bw2io.import_ecoinvent_release puts the ecoinvent version first.
 
 
     Returns
@@ -42,12 +44,12 @@ def findMethods(search=None, mainCat=None):
 
     """
     res = []
-    search = search.lower()
+    search = (search or "").lower()
     for method in methods:
         text = str(method).lower()
         match = search in text
         if mainCat:
-            match = match and (mainCat == method[0])
+            match = match and mainCat in method[:2]
         if match:
             res.append(method)
     return res
