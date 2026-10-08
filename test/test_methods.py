@@ -23,6 +23,11 @@ def test_find_methods_main_cat(monkeypatch):
     assert findMethods("climate") == [CLASSIC, ECOINVENT_RELEASE, SHORT]
     assert findMethods(mainCat="EF v3.1") == [CLASSIC, ECOINVENT_RELEASE]
 
+    # The category of a classic method is not a family
+    assert findMethods(mainCat="climate change") == []
+    # The ecoinvent version still matches, as before
+    assert findMethods(mainCat="ecoinvent-3.11") == [ECOINVENT_RELEASE]
+
 
 def test_method_name():
     assert method_name(CLASSIC) == "climate change - global warming potential (GWP100)"
