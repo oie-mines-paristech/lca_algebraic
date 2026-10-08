@@ -6,6 +6,8 @@
 * Added setting ot idsable automatic flush and handle it manually at the end of the script
 * Don't run "_force_reduce" when axis not used
 * Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
+* Fix lognormal params (#25) : *default* is now the median and *std* the standard deviation of log(x), as in Brightway. Sampling results change for existing lognormal params.
+* Fix truncated normal params (#71) : truncate when min=0, respect max, and truncate one side when only min or max is set.
 
 # 1.4.1
 
