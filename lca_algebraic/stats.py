@@ -445,7 +445,7 @@ def _sobols(methods, problem, Y) -> SobolResults:
             st_conf[:, imethod] = res["ST_conf"]
 
         except Exception as e:
-            warn("Sobol failed on %s" % imethod[2], e)
+            warn("Sobol failed on %s" % method_name(methods[imethod]), e)
 
     return SobolResults(s1, s2, st, s1_conf, s2_conf, st_conf)
 

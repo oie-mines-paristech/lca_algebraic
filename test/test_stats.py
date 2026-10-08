@@ -84,3 +84,16 @@ def test_simplify_min_max():
     assert e0max == e0
     assert e1min == e1
     assert e1max == c
+
+
+def test_sobols_failure_is_reported(monkeypatch):
+    """A failed Sobol analysis is reported with the method name, not hidden by an error in the handler"""
+    import lca_algebraic.stats as stats
+
+    warnings = []
+    monkeypatch.setattr(stats, "_parallel_map", lambda f, items: [(0, {})])
+    monkeypatch.setattr(stats, "warn", lambda *args: warnings.append(args))
+
+    stats._sobols([("EF v3.1", "climate change", "GWP100")], {"names": ["a"]}, None)
+
+    assert warnings[0][0] == "Sobol failed on climate change - GWP100"

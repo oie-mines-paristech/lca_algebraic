@@ -8,6 +8,8 @@
 * Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
 * Fix lognormal params (#25) : *default* is now the median and *std* the standard deviation of log(x), as in Brightway. Sampling results change for existing lognormal params.
 * Fix truncated normal params (#71) : truncate when min=0, respect max, and truncate one side when only min or max is set.
+* Fix findMethods(mainCat=...) for methods imported with bw2io.import_ecoinvent_release, where the ecoinvent version comes first (#80, #84)
+* Fix method_name() for methods with 2 or 4 elements, such as ReCiPe 2016 (#35)
 
 # 1.4.1
 

@@ -24,15 +24,16 @@ def set_custom_impact_labels(impact_labels: Dict):
 
 def findMethods(search=None, mainCat=None):
     """
-    Find impact method. Search in all methods against a list of match strings.
-    Each parameter can be either an exact match, or case-insensitive search, if suffixed by '*'
+    Find impact methods whose name contains *search*, ignoring case.
 
     Parameters
     ----------
     search :
-        String to search
+        String to search (optional)
     mainCat :
-        If specified, limits the research for method[0] == mainCat.
+        If specified, limits the research to methods of this family, e.g. "EF v3.1".
+        It is matched against the first element of the method tuple, or the second one for
+        tuples of 4 or more elements, as bw2io.import_ecoinvent_release puts the ecoinvent version first.
 
 
     Returns
@@ -42,12 +43,12 @@ def findMethods(search=None, mainCat=None):
 
     """
     res = []
-    search = search.lower()
+    search = (search or "").lower()
     for method in methods:
         text = str(method).lower()
         match = search in text
         if mainCat:
-            match = match and (mainCat == method[0])
+            match = match and (mainCat == method[0] or (len(method) > 3 and mainCat == method[1]))
         if match:
             res.append(method)
     return res
@@ -67,4 +68,5 @@ def method_name(method):
     """Return name of method, taking into account custom label set via set_custom_impact_labels(...)"""
     if method in _impact_labels():
         return _impact_labels()[method]
-    return method[1] + " - " + method[2]
+    # Last two elements : (category, indicator) for both 3 and 4 element tuples
+    return " - ".join(method[-2:])
