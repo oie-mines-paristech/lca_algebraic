@@ -6,10 +6,9 @@
 * Added setting ot idsable automatic flush and handle it manually at the end of the script
 * Don't run "_force_reduce" when axis not used
 * Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
-* Fix lognormal params (#25) : *default* is now the median and *std* the standard deviation of log(x), as in Brightway. Sampling results change for existing lognormal params.
-* Fix truncated normal params (#71) : truncate when min=0, respect max, and truncate one side when only min or max is set.
-* Fix findMethods(mainCat=...) for methods imported with bw2io.import_ecoinvent_release, where the ecoinvent version comes first (#80, #84)
-* Fix method_name() for methods with 2 or 4 elements, such as ReCiPe 2016 (#35)
+* Fix truncated normal and lognormal param sampling (#71, #25, PR #106) : lognormal *default* is the median and *std* the sigma of log(x), as in Brightway (sampling changes for existing lognormal params) ; truncated normal honours min/max and works with a single bound — Simon van Lierde (@simonvanlierde)
+* Fix findMethods(mainCat=...) and method_name() for 4-element method keys from bw2io.import_ecoinvent_release (#80, #84, #35, PR #107) : Sobol failures now report the method name — Simon van Lierde (@simonvanlierde)
+* Speed up Monte Carlo and compute_impacts by skipping per-sample expandParams in _expand_params (PR #108) — Simon van Lierde (@simonvanlierde)
 
 # 1.4.1
 
