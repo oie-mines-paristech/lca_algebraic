@@ -67,10 +67,12 @@ class DistributionType:
     """ Uniform distribution between *min* and *max*"""
 
     NORMAL = "normal"
-    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*"""
+    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*.
+    Either bound can be left out (None) to leave that side open."""
 
     LOGNORMAL = "lognormal"
-    """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
+    """ Lognormal distribution, not truncated. *default* is the median and *std* is the standard deviation of log(x).
+    This matches Brightway (stats_arrays): the param is saved with loc = log(default) and scale = std."""
 
     BETA = "beta"  # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
     """ Beta distribution with extra params *a* and *b*,
@@ -222,6 +224,9 @@ class ParamDef(Symbol):
                     self.name,
                 )
 
+            if distrib == DistributionType.LOGNORMAL and (self.default <= 0 or self.std <= 0):
+                raise ValueError(f"LogNormal parameter '{self.name}' requires default > 0 and std > 0")
+
         elif distrib == DistributionType.BETA:
             if "a" not in kwargs or "b" not in kwargs or "std" not in kwargs:
                 raise Exception("Beta distribution requires params 'a' 'b' and 'std' (used as scale)")
@@ -284,11 +289,12 @@ class ParamDef(Symbol):
                     self._distrib = triang(c, loc=self.min, scale=scale)
 
                 elif self.distrib == DistributionType.NORMAL:
-                    if self.min:
-                        # Truncated normal
+                    if self.min is not None or self.max is not None:
+                        # Truncated normal. A missing bound leaves that side open.
+                        # truncnorm takes its bounds in std units, relative to loc.
                         self._distrib = truncnorm(
-                            (self.min - self.default) / self.std,
-                            (self.max - self.min) / self.std,
+                            -np.inf if self.min is None else (self.min - self.default) / self.std,
+                            np.inf if self.max is None else (self.max - self.default) / self.std,
                             loc=self.default,
                             scale=self.std,
                         )
@@ -297,7 +303,7 @@ class ParamDef(Symbol):
                         self._distrib = norm(loc=self.default, scale=self.std)
 
                 elif self.distrib == DistributionType.LOGNORMAL:
-                    self._distrib = lognorm(self.default, self.std)
+                    self._distrib = lognorm(self.std, scale=self.default)
 
                 elif self.distrib == DistributionType.BETA:
                     self._distrib = beta(self.a, self.b, loc=self.default, scale=self.std)
@@ -549,7 +555,12 @@ def _persistParam(param):
             bwParam["maximum"] = param.max
             bwParam["loc"] = param.default
 
-            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
+            if param.distrib == DistributionType.NORMAL:
+                bwParam["scale"] = param.std
+
+            elif param.distrib == DistributionType.LOGNORMAL:
+                # Brightway expects loc = log(median)
+                bwParam["loc"] = math.log(param.default)
                 bwParam["scale"] = param.std
 
             elif param.distrib == DistributionType.BETA:
@@ -671,8 +682,12 @@ def loadParams(global_variable=True, dbname=None):
             if type == _UncertaintyType.TRIANGLE:
                 args["default"] = data["loc"]
 
-            elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+            elif type == _UncertaintyType.NORMAL:
                 args["default"] = data["loc"]
+                args["std"] = data["scale"]
+
+            elif type == _UncertaintyType.LOGNORMAL:
+                # Keep 'amount' as default : loc is log(median)
                 args["std"] = data["scale"]
 
             elif type == _UncertaintyType.BETA:
