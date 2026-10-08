@@ -339,9 +339,10 @@ def _stochastics(
     var_params=None,
     sample_method=StochasticMethod.SALTELLI,
     functional_unit=1,
+    second_order=True,
     **extra_fixed_params,
 ):
-    params, problem = _generate_random_params(n, sample_method, var_params)
+    params, problem = _generate_random_params(n, sample_method, var_params, second_order=second_order)
 
     # Fix other params
     if extra_fixed_params:
@@ -363,7 +364,7 @@ def _compute_stochastics(modelOrLambdas, methods, functional_unit=1, params=None
     return Y
 
 
-def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None):
+def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_params=None, seed=None, second_order=True):
     """Compute stochastic impacts for later analysis of incertitude"""
     if var_params is None:
         var_params = _variable_params().values()
@@ -382,7 +383,7 @@ def _generate_random_params(n, sample_method=StochasticMethod.SALTELLI, var_para
     }
     print("Generating samples ...")
     if sample_method == StochasticMethod.SALTELLI:
-        X = sobol.sample(problem, n, calc_second_order=True)
+        X = sobol.sample(problem, n, calc_second_order=second_order)
     elif sample_method == StochasticMethod.RAND:
         X = np.random.rand(n, len(var_param_names))
     elif sample_method == StochasticMethod.SOBOL:
@@ -416,12 +417,14 @@ class SobolResults:
         self.st_conf = st_conf
 
 
-def _sobols(methods, problem, Y) -> SobolResults:
-    """Computes sobols indices"""
+def _sobols(methods, problem, Y, second_order=True) -> SobolResults:
+    """Computes sobols indices. s2 and s2_conf are None without second_order"""
     s1 = np.zeros((len(problem["names"]), len(methods)))
     s1_conf = np.zeros((len(problem["names"]), len(methods)))
-    s2 = np.zeros((len(problem["names"]), len(problem["names"]), len(methods)))
-    s2_conf = np.zeros((len(problem["names"]), len(problem["names"]), len(methods)))
+    s2 = s2_conf = None
+    if second_order:
+        s2 = np.zeros((len(problem["names"]), len(problem["names"]), len(methods)))
+        s2_conf = np.zeros((len(problem["names"]), len(problem["names"]), len(methods)))
     st = np.zeros((len(problem["names"]), len(methods)))
     st_conf = np.zeros((len(problem["names"]), len(methods)))
 
@@ -430,17 +433,18 @@ def _sobols(methods, problem, Y) -> SobolResults:
 
         print("Processing sobol for " + str(method))
         y = Y[Y.columns[imethod]]
-        res = analyse_sobol.analyze(problem, y.to_numpy(), calc_second_order=True)
+        res = analyse_sobol.analyze(problem, y.to_numpy(), calc_second_order=second_order)
         return imethod, res
 
     for imethod, res in _parallel_map(process, enumerate(methods)):
         try:
             s1[:, imethod] = res["S1"]
             s1_conf[:, imethod] = res["S1_conf"]
-            s2_ = np.nan_to_num(res["S2"])
-            s2_conf_ = np.nan_to_num(res["S2_conf"])
-            s2[:, :, imethod] = s2_ + np.transpose(s2_)
-            s2_conf[:, :, imethod] = s2_conf_ + np.transpose(s2_conf_)
+            if second_order:
+                s2_ = np.nan_to_num(res["S2"])
+                s2_conf_ = np.nan_to_num(res["S2_conf"])
+                s2[:, :, imethod] = s2_ + np.transpose(s2_)
+                s2_conf[:, :, imethod] = s2_conf_ + np.transpose(s2_conf_)
             st[:, imethod] = res["ST"]
             st_conf[:, imethod] = res["ST_conf"]
 
@@ -492,7 +496,7 @@ def _incer_stochastic_matrix(methods, param_names, Y, sob, name_type=NameType.LA
 
 
 @with_db_context(arg="model")
-def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name_type=NameType.LABEL):
+def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name_type=NameType.LABEL, second_order=True):
     """
     Method computing matrix of parameter importance
 
@@ -500,15 +504,18 @@ def incer_stochastic_matrix(model, methods, functional_unit=1, n=DEFAULT_N, name
     ----------
     var_params: Optional list of parameters to vary.
     By default use all the parameters with distribution not FIXED
+
+    second_order: If False, skip second-order Sobol indices (the returned s2 is None).
+    That needs fewer model evaluations and makes the analysis much faster. True by default.
     """
 
     lambdas = _preMultiLCAAlgebric(model, methods, alpha=1 / functional_unit)
     var_params = _extract_var_params(lambdas)
 
-    problem, _, Y = _stochastics(lambdas, methods, n, var_params)
+    problem, _, Y = _stochastics(lambdas, methods, n, var_params, second_order=second_order)
 
     print("Processing Sobol indices ...")
-    sob = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y, second_order=second_order)
 
     _incer_stochastic_matrix(methods, problem["names"], Y, sob, name_type=name_type)
 
@@ -651,7 +658,13 @@ def _incer_stochastic_data(methods, param_names, Y, sob1, sobt):
 
 @with_db_context(arg="model")
 def incer_stochastic_dashboard(
-    model: Activity, methods, n=DEFAULT_N, var_params=None, functional_unit: ValueOrExpression = 1, **kwparams
+    model: Activity,
+    methods,
+    n=DEFAULT_N,
+    var_params=None,
+    functional_unit: ValueOrExpression = 1,
+    second_order=True,
+    **kwparams,
 ):
     """
     This function runs a monte carlo & Sobol analysis (GSA) on a parametric model and displays a dashboard with results.
@@ -670,6 +683,10 @@ def incer_stochastic_dashboard(
 
     functional_unit:
         Float value or Sympy expression by which to divide the impacts
+
+    second_order:
+        If False, skip second-order Sobol indices, which the dashboard does not show.
+        That needs fewer model evaluations and makes the analysis much faster. True by default.
 
     figsize:
         Size of figure for violin plots : (15, 15) by default
@@ -692,12 +709,14 @@ def incer_stochastic_dashboard(
 
     """
 
-    problem, _, Y = _stochastics(model, methods, n, var_params=var_params, functional_unit=functional_unit)
+    problem, _, Y = _stochastics(
+        model, methods, n, var_params=var_params, functional_unit=functional_unit, second_order=second_order
+    )
 
     param_names = problem["names"]
 
     print("Processing Sobol indices ...")
-    sob = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y, second_order=second_order)
 
     def violin():
         _incer_stochastic_violin(methods, Y, **kwparams)
@@ -857,6 +876,7 @@ def sobol_simplify_model(
     simple_sums=True,
     simple_products=True,
     simple_min_max=True,
+    second_order=True,
 ) -> List[LambdaExpr]:
     """
     Computes Sobol indices and selects main parameters for explaining sensibility of at least 'min_ratio',
@@ -900,6 +920,10 @@ def sobol_simplify_model(
     num_digits:
         Number of decimal places to round decimal number to (default 3)
 
+    second_order:
+        If False, skip second-order Sobol indices, which only feed the printed S2 sum.
+        That needs fewer model evaluations and makes the analysis much faster. True by default.
+
     Returns
     -------
     List of *LambdaWithParamNames*, one per impact.
@@ -926,9 +950,11 @@ def sobol_simplify_model(
 
     var_param_names = list([param.name for param in var_params])
 
-    problem, params, Y = _stochastics(model, methods, n, var_params=var_params, functional_unit=functional_unit)
+    problem, params, Y = _stochastics(
+        model, methods, n, var_params=var_params, functional_unit=functional_unit, second_order=second_order
+    )
 
-    sob = _sobols(methods, problem, Y)
+    sob = _sobols(methods, problem, Y, second_order=second_order)
 
     s1, s2 = sob.s1, sob.s2
 
@@ -941,9 +967,9 @@ def sobol_simplify_model(
         print("> Method : ", method_name(method))
 
         s1_sum = np.sum(s1[:, imethod])
-        s2_sum = np.sum(s2[:, :, imethod]) / 2
         print("S1: ", s1_sum)
-        print("S2: ", s2_sum)
+        if s2 is not None:
+            print("S2: ", np.sum(s2[:, :, imethod]) / 2)
         print("ST: ", np.sum(sob.st[:, imethod]))
 
         sum = 0
