@@ -403,6 +403,15 @@ class EnumParam(ParamDef):
             res[var_name] = 1.0 if enum_val == currValue else 0.0
         return res
 
+    def _expandArray(self, currValues):
+        """Like expandParams on each value, but returns one array per choice. Takes single choices, not weight dicts."""
+        arr = np.asarray(currValues, dtype=object)
+        values = self.values + [None]
+        for currValue in set(arr.tolist()):
+            if currValue not in values:
+                raise Exception("Invalid value %s for param %s. Should be in %s" % (currValue, self.name, str(self.values)))
+        return {"%s_%s" % (self.name, v if v is not None else "default"): (arr == v).astype(float) for v in values}
+
     def symbol(self, choice):
         """Returns the invididual Sympy symbol for a given choice : <paramName>_<choice>"""
         if choice is None:
@@ -1034,6 +1043,13 @@ def _compute_param_length(params):
     return param_length
 
 
+def _no_none(values):
+    """True when no sample is None. Only expandParams turns None into the param's default."""
+    if isinstance(values, np.ndarray) and values.dtype != object:
+        return True
+    return all(v is not None for v in values)
+
+
 def _expand_params(param_values: Dict[str, ParamValues]):
     res = dict()
 
@@ -1041,7 +1057,13 @@ def _expand_params(param_values: Dict[str, ParamValues]):
     for key, val in list(param_values.items()):
         param = _param_registry()[key]
 
-        if isinstance(val, (list, np.ndarray)):
+        if isinstance(val, (list, np.ndarray)) and type(param).expandParams is ParamDef.expandParams and _no_none(val):
+            # Float and bool params expand to {name: value}, so pass the array through.
+            # Calling expandParams for every sample took most of a Monte Carlo run.
+            res[param.name] = val
+        elif isinstance(val, (list, np.ndarray)) and isinstance(param, EnumParam) and not any(isinstance(v, dict) for v in val):
+            res.update(param._expandArray(val))
+        elif isinstance(val, (list, np.ndarray)):
             newvals = [param.expandParams(val) for val in val]
             res.update(_listOfDictToDictOflist(newvals))
         else:
