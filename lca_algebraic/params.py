@@ -224,6 +224,9 @@ class ParamDef(Symbol):
                     self.name,
                 )
 
+            if distrib == DistributionType.LOGNORMAL and (self.default <= 0 or self.std <= 0):
+                raise ValueError(f"LogNormal parameter '{self.name}' requires default > 0 and std > 0")
+
         elif distrib == DistributionType.BETA:
             if "a" not in kwargs or "b" not in kwargs or "std" not in kwargs:
                 raise Exception("Beta distribution requires params 'a' 'b' and 'std' (used as scale)")

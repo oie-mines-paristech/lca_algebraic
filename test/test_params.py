@@ -72,3 +72,9 @@ def test_lognormal_load_roundtrip():
     loaded = _param_registry()["p"]
     assert (loaded.default, loaded.std) == (p.default, p.std)
     assert loaded.rand(0.5) == pytest.approx(10)
+
+
+@pytest.mark.parametrize("default, std", [(0, 0.5), (-1, 0.5), (10, 0), (10, -1)])
+def test_lognormal_requires_positive_values(default, std):
+    with pytest.raises(ValueError, match="'p'"):
+        newFloatParam("p", default, std=std, distrib=DistributionType.LOGNORMAL, save=False)
