@@ -67,7 +67,8 @@ class DistributionType:
     """ Uniform distribution between *min* and *max*"""
 
     NORMAL = "normal"
-    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*"""
+    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*.
+    Either bound can be left out (None) to leave that side open."""
 
     LOGNORMAL = "lognormal"
     """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
@@ -284,11 +285,12 @@ class ParamDef(Symbol):
                     self._distrib = triang(c, loc=self.min, scale=scale)
 
                 elif self.distrib == DistributionType.NORMAL:
-                    if self.min:
-                        # Truncated normal
+                    if self.min is not None or self.max is not None:
+                        # Truncated normal. A missing bound leaves that side open.
+                        # truncnorm takes its bounds in std units, relative to loc.
                         self._distrib = truncnorm(
-                            (self.min - self.default) / self.std,
-                            (self.max - self.min) / self.std,
+                            -np.inf if self.min is None else (self.min - self.default) / self.std,
+                            np.inf if self.max is None else (self.max - self.default) / self.std,
                             loc=self.default,
                             scale=self.std,
                         )
