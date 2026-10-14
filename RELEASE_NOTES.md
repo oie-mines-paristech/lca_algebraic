@@ -5,6 +5,7 @@
 * Activate CSE (common subexpression pattersn) in labmdify by default
 * Added setting ot idsable automatic flush and handle it manually at the end of the script
 * Don't run "_force_reduce" when axis not used
+* Add axis tagging on individual exchanges : `compute_impacts(..., axis=...)` can now ventilate impacts per exchange (tagged via a dict of attributes in `newActivity`/`updateExchanges`), in addition to per activity.
 * Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
 * Fix truncated normal and lognormal param sampling (#71, #25, PR #106) : lognormal *default* is the median and *std* the sigma of log(x), as in Brightway (sampling changes for existing lognormal params) ; truncated normal honours min/max and works with a single bound — Simon van Lierde (@simonvanlierde)
 * Fix findMethods(mainCat=...) and method_name() for 4-element method keys from bw2io.import_ecoinvent_release (#80, #84, #35, PR #107) : Sobol failures now report the method name — Simon van Lierde (@simonvanlierde)
