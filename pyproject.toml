@@ -9,7 +9,7 @@ version = "1.4.1.dev4"
 description = "This library provides a layer above Brightway for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"
 license = { text = "BSD" }
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10,<3.15"
 
 authors = [
   { name = "OIE - Mines ParisTech", email = "raphael.jolivet@mines-paristech.fr" }
@@ -22,7 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13"
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14"
 ]
 
 dependencies = [
@@ -92,6 +93,8 @@ env_list = [
     "py311-bw25",
     "py313-bw2",
     "py313-bw25",
+    "py314-bw2",
+    "py314-bw25",
 ]
 
 [tool.tox.env_run_base]
@@ -163,6 +166,24 @@ deps = [
 
 [tool.tox.env."py313-bw25"]
 base_python = "3.13"
+deps = [
+    "pytest>=7",
+    "nbmake",
+    "brightway25",
+    "pypardiso; platform_machine == 'x86_64'",
+]
+
+[tool.tox.env."py314-bw2"]
+base_python = "3.14"
+deps = [
+    "pytest>=7",
+    "nbmake",
+    "brightway2",
+    "pypardiso; platform_machine == 'x86_64'",
+]
+
+[tool.tox.env."py314-bw25"]
+base_python = "3.14"
 deps = [
     "pytest>=7",
     "nbmake",
