@@ -591,11 +591,16 @@ def compute_impacts_xarray(models, methods, params=None, axis=None):
         model. Values can be single value or list of samples, all of the same
         size
     axis: str
-        Designates the name of a custom attribute of foreground activities.
-        You may set this attribute using the method
-        `myActivity.updateMeta(your_custom_attr="some_value")`. The impacts
-        will be ventilated by this attribute. This is useful to get impact by
-        phase or sub-modules.
+        Optional name of a custom attribute used to ventilate impacts by category
+        (e.g. by life cycle phase, sub-module, ...).
+
+        The attribute may be set either on an **activity** (all its outgoing
+        exchanges are attributed to the category, see ``myActivity.updateMeta``)
+        or on a single **exchange** (only this exchange is attributed, the other
+        exchanges of the activity stay unaffected, see ``updateExchanges``).
+        Both levels can be combined on the same axis. Untagged activities and
+        exchanges fall into the ``*other*`` axis. See ``compute_impacts`` for
+        detailed examples.
     Return
     ------
     lca : xarray
@@ -839,11 +844,36 @@ def compute_impacts(
         Single method or list of methods / impacts to consider
 
     axis:
-        Designates the name of a custom attribute of foreground activities.
-        You may set this attribute using the method `myActivity.updateMeta(your_custom_attr="some_value")`
+        Optional name of a custom attribute used to ventilate impacts by category
+        (e.g. by life cycle phase, sub-module, ...).
 
-        The impacts will be ventilated by this attribute.
-        This is useful to get impact by phase or sub-modules.
+        The attribute may be set at two levels, which can be freely combined on the
+        same axis :
+
+        * On an **activity** : every outgoing exchange of that activity is attributed
+          to the category. Set it with ``myActivity.updateMeta(phase="manufacturing")``
+          or by passing the attribute to ``newActivity`` / ``copyActivity`` ::
+
+              newActivity(USER_DB, "act", "unit", {...}, phase="manufacturing")
+
+        * On a single **exchange** : only this exchange is attributed to the category,
+          the other exchanges of the same activity stay unaffected. Set it by passing a
+          dict of attributes (instead of a bare amount) when adding or updating an
+          exchange ::
+
+              model = newActivity(USER_DB, "model", "unit", {
+                  act_a: dict(amount=1, phase="manufacturing"),
+                  act_b: dict(amount=2, phase="transport"),
+                  act_c: 1,  # not tagged
+              })
+
+          or, on an existing exchange ::
+
+              model.updateExchanges({act_a: dict(amount=1, phase="manufacturing")})
+
+        Activities and exchanges without the attribute fall into the ``*other*``
+        category. The result has one line per category, plus ``*all*`` (total) and
+        ``*other*`` (unattributed part).
 
     params:
         Any other argument passed to this function is considered as a value of a parameter of the model :
@@ -1134,7 +1164,11 @@ def replace_fixed_params(expr: Expr):
 
 
 def _walk_and_build_matrices(db_name, axis_attr=None):
-    """Walk activity tree and build fg/bg ActMatrix plus axis activity groups."""
+    """Walk activity tree and build fg/bg ActMatrix plus axis groups.
+
+    If axis_attr is provided, activities tagged with this attribute are collected in
+    axis_acts[tag], and single exchanges tagged with it are collected in axis_edges[tag]
+    as (input_act, output_act) pairs, so impacts can be ventilated per exchange."""
 
     if not _isForeground(db_name):
         raise ValueError(f"Can only compute expression on foreground activities. {db_name} is background")
@@ -1142,10 +1176,11 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
     fg_matrix = defaultdict(lambda: 0.0)
     bg_matrix = defaultdict(lambda: 0.0)
     axis_acts = defaultdict(list)
+    axis_edges = defaultdict(list)
     visited = set()
 
     def walk_activities(act: Activity):
-        nonlocal fg_matrix, bg_matrix, axis_acts, visited
+        nonlocal fg_matrix, bg_matrix, axis_acts, axis_edges, visited
 
         if act in visited:
             return
@@ -1169,6 +1204,11 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
 
             input_db, input_code = exch["input"]
             sub_act = _getDb(input_db).get(input_code)
+
+            if axis_attr is not None:
+                ex_axis_val = _get_axis(exch, axis_attr)
+                if ex_axis_val is not None:
+                    axis_edges[ex_axis_val].append((act, sub_act))
 
             if _isForeground(input_db):
                 if not _isOutputExch(exch):
@@ -1203,11 +1243,18 @@ def _walk_and_build_matrices(db_name, axis_attr=None):
     fg_matrix = ActMatrix(rows=fg_acts, cols=fg_acts, data=fg_matrix)
     bg_matrix = ActMatrix(rows=fg_acts, cols=bg_acts, data=bg_matrix)
 
-    return fg_matrix, bg_matrix, axis_acts
+    return fg_matrix, bg_matrix, axis_acts, axis_edges
 
 
-def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[Activity]):
-    """Build complementary process matrices for one axis tag."""
+def _zero_out_axis_acts(
+    fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[Activity], edges: List[Tuple[Activity, Activity]] = []
+):
+    """Build complementary process matrices for one axis tag.
+
+    * ``acts`` are activities tagged with the axis : all their outgoing exchanges are zeroed.
+    * ``edges`` are individual (input_act, output_act) exchanges tagged with the axis : only these
+      cells of the matrices are zeroed, leaving the other exchanges of the activity untouched.
+    """
     xfg = copy(fg_matrix)
     xbg = copy(bg_matrix)
 
@@ -1217,6 +1264,12 @@ def _zero_out_axis_acts(fg_matrix: ActMatrix, bg_matrix: ActMatrix, acts: List[A
         for o in xbg.cols:
             xbg[a, o] = 0.0
         xfg[a, a] = 1.0
+
+    for edge in edges:
+        if edge in xfg:
+            xfg.unsafe_set(edge, 0.0)
+        if edge in xbg:
+            xbg.unsafe_set(edge, 0.0)
 
     return xfg, xbg
 
@@ -1283,12 +1336,12 @@ class AxisMatricesSet:
 
 
 def _computeAxisMatricesSet(db_name, axis_attr) -> AxisMatricesSet:
-    fg_matrix, bg_matrix, axis_acts = _walk_and_build_matrices(db_name, axis_attr=axis_attr)
+    fg_matrix, bg_matrix, axis_acts, axis_edges = _walk_and_build_matrices(db_name, axis_attr=axis_attr)
 
     variants = {"_all_": _matrices_from_actmatrices(fg_matrix, bg_matrix)}
 
-    for axis_tag, acts in axis_acts.items():
-        xfg, xbg = _zero_out_axis_acts(fg_matrix, bg_matrix, acts)
+    for axis_tag in set(axis_acts) | set(axis_edges):
+        xfg, xbg = _zero_out_axis_acts(fg_matrix, bg_matrix, axis_acts[axis_tag], axis_edges[axis_tag])
         variants[axis_tag] = _matrices_from_actmatrices(xfg, xbg)
 
     res = AxisMatricesSet(variants=variants)
@@ -1315,7 +1368,7 @@ def _combine_axis_variants_for_model(matrices_set: AxisMatricesSet, model: Activ
 
 def _computeMatrices(db_name) -> MatricesResult:
     """Compute standard matrices for a DB without axis ventilation."""
-    fg_matrix, bg_matrix, _ = _walk_and_build_matrices(db_name, axis_attr=None)
+    fg_matrix, bg_matrix, _, _ = _walk_and_build_matrices(db_name, axis_attr=None)
     return _matrices_from_actmatrices(fg_matrix, bg_matrix)
 
 

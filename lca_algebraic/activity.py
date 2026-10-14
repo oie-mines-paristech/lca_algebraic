@@ -168,6 +168,11 @@ class ActivityExtended(Activity):
                 or activity for updating only input,
             or dict of attributes, for updating both at once, or any other attribute.
             The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
+
+            Passing a dict of attributes is also the way to tag a single exchange with an axis \
+            (see ``compute_impacts``) : only that exchange will be ventilated under the category::
+
+                myActivity.updateExchanges({some_act: dict(amount=2, phase="transport")})
         """
         if not _isForeground(self["database"]) and not Settings.internals:
             msg = f"You are updating a background activity in {self['database']}. Use copyActivity() in a foreground db instead."
@@ -336,7 +341,7 @@ class ActivityExtended(Activity):
             res[STORE_FORMULA_KEY] = str(amount)
             res[STORE_FORMULA_TAG] = True
             res["amount"] = 0
-        elif isinstance(amount, float|int):
+        elif isinstance(amount, float | int):
             res["amount"] = amount
         else:
             raise Exception(
@@ -401,7 +406,14 @@ class ActivityExtended(Activity):
                 yield exch
 
     def updateMeta(self, **kwargs):
-        """Update any property. Useful to update axes"""
+        """Update any custom property of the activity.
+
+        This is typically used to tag an activity with an axis : all its outgoing
+        exchanges will then be ventilated under that category by ``compute_impacts``::
+
+            myActivity.updateMeta(phase="manufacturing")
+            compute_impacts(model, methods, axis="phase")
+        """
         for key, val in kwargs.items():
             self._data[key] = val
         self.save()
@@ -638,7 +650,9 @@ def newActivity(
 
 
 @atomic
-def copyActivity(db_name, activity: ActivityExtended, code=None, withExchanges=True, stripFormula=True, input_mapping=None, **kwargs) -> ActivityExtended:
+def copyActivity(
+    db_name, activity: ActivityExtended, code=None, withExchanges=True, stripFormula=True, input_mapping=None, **kwargs
+) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
 
