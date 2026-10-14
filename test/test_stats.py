@@ -97,3 +97,24 @@ def test_sobols_failure_is_reported(monkeypatch):
     stats._sobols([("EF v3.1", "climate change", "GWP100")], {"names": ["a"]}, None)
 
     assert warnings[0][0] == "Sobol failed on climate change - GWP100"
+
+
+def test_sobol_without_second_order(data):
+    """second_order=False skips the second-order samples, leaves s2 empty and still simplifies the model"""
+    import lca_algebraic.stats as stats
+    from lca_algebraic import newActivity, sobol_simplify_model
+    from test.conftest import USER_DB
+
+    p1 = newFloatParam("p1", 1, min=1, max=2)
+    p2 = newFloatParam("p2", 1, min=0.001, max=0.001)
+    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: p1 * (p1 + 0.001 * p1 + p2)})
+
+    problem, params, Y = stats._stochastics(m1, [data.ibio1], 64, var_params=[p1, p2], second_order=False)
+    assert len(params["p1"]) == 64 * (2 + 2)
+
+    sob = stats._sobols([data.ibio1], problem, Y, second_order=False)
+    assert sob.s2 is None and sob.s2_conf is None
+    assert sob.s1.shape == (2, 1)
+
+    res = sobol_simplify_model(m1, [data.ibio1], n=64, simple_products=False, second_order=False)[0]
+    assert res.expr.__repr__() == "1.0*p1**2"
