@@ -495,6 +495,11 @@ def findActivity(
             search = search.lower()
             search = search.replace(",", " ")
 
+            # bw2data >= 4 backs `search` with FTS5, which rejects blank queries
+            # while bw2data 3 silently returned nothing.
+            if not search.strip():
+                return []
+
             # Find candidates via index
             # candidates = _find_candidates(db_name, name_key)
             candidates = _getDb(db_name).search(search, limit=limit)
@@ -502,7 +507,8 @@ def findActivity(
             if len(candidates) == 0:
                 # Try again removing strange caracters
                 search = re.sub(r"\w*[^a-zA-Z ]+\w*", " ", search)
-                candidates = _getDb(db_name).search(search, limit=limit)
+                if search.strip():
+                    candidates = _getDb(db_name).search(search, limit=limit)
 
             # Exact match
             return list(filter(act_filter, candidates))

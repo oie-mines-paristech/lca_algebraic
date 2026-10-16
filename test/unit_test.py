@@ -181,6 +181,16 @@ def test_find_activities():
     assert findActivity("activity*", category="cat1", db_name=USER_DB) == act1
 
 
+def test_find_activities_blank_fallback():
+    """A name stripped down to blanks by the 'strange characters' fallback must not
+    reach Database.search() : bw2data >= 4 backs it with FTS5, which rejects blank
+    queries, while bw2data 3 returned nothing."""
+    newActivity(USER_DB, "Activity 2", "unit")
+
+    assert findActivity("a-b", db_name=USER_DB, single=False) == []
+    assert findActivity("__", db_name=USER_DB, single=False) == []
+
+
 def test_enum_values_are_enforced(data):
     # Enum param
     p1 = newEnumParam("p1", values=["v1", "v2", "v3"], default="v1")
