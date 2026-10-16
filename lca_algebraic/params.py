@@ -1,4 +1,5 @@
 import builtins
+import math
 from collections import defaultdict
 from enum import Enum
 from typing import Any, Dict, List, Union
@@ -15,6 +16,7 @@ from IPython.core.display import HTML
 from pint import Quantity
 from scipy.stats import beta, lognorm, norm, triang, truncnorm
 from sympy import Basic, Expr, Symbol, parse_expr
+from sympy.core.assumptions import _assume_defined
 from tabulate import tabulate
 
 from lca_algebraic.axis_dict import AxisDict
@@ -40,6 +42,7 @@ from lca_algebraic.units import unit_registry as u
 DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 STORE_FORMULA_KEY = "formula"
+STORE_FORMULA_TAG = "has_lca_algebraic_formula"
 
 
 class ParamType:
@@ -65,10 +68,12 @@ class DistributionType:
     """ Uniform distribution between *min* and *max*"""
 
     NORMAL = "normal"
-    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*"""
+    """ Normal distribution, centered on *default* value (mean), with deviation of *std* and truncated between *min* and *max*.
+    Either bound can be left out (None) to leave that side open."""
 
     LOGNORMAL = "lognormal"
-    """ Lognormal distribution, centered on *default* value (mean), with deviation of *std*, not truncated """
+    """ Lognormal distribution, not truncated. *default* is the median and *std* is the standard deviation of log(x).
+    This matches Brightway (stats_arrays): the param is saved with loc = log(default) and scale = std."""
 
     BETA = "beta"  # requires a, b 'default' is used as the mean. 'std' is used as 'scale' factor
     """ Beta distribution with extra params *a* and *b*,
@@ -133,13 +138,37 @@ class ParamDef(Symbol):
     Don't instantiate it directly. Use the function **newXXXParam() instead.
     """
 
-    def __new__(cls, name, *karg, **kargs):
-        # We use dbname as an "assumption" so that two symbols with same name are not equal if from separate DBs
-        assumptions = dict()
-        assumptions["real"] = True
+    def __new__(cls, name, *args, **kwargs):
+        # filter args keeping only valid assumptions
+        user_assumptions = {k: v for k, v in kwargs.items() if k in _assume_defined}
 
-        if "dbname" in kargs and kargs["dbname"]:
-            assumptions[kargs["dbname"]] = True
+        # Select user assumptions if provided
+        if len(user_assumptions) != 0:
+            assumptions = user_assumptions
+        else:
+            vmin = kwargs.get("min", None)
+            if vmin is None:
+                vmin = -math.inf
+
+            vmax = kwargs.get("max", None)
+            if vmax is None:
+                vmax = +math.inf
+
+            assumptions = {"real": True}
+
+            if vmin > 0.0:
+                assumptions = {"positive": True}
+            elif vmin >= 0.0:
+                assumptions = {"nonnegative": True}
+
+            if vmax < 0.0:
+                assumptions = {"negative": True}
+            elif vmax <= 0.0:
+                assumptions = {"nonpositive": True}
+
+        # To avoid name collision we add a dbname assumption
+        if (dbname := kwargs.get("dbname", None)) is not None:
+            assumptions[dbname] = True
 
         return Symbol.__new__(cls, name, **assumptions)
 
@@ -195,6 +224,9 @@ class ParamDef(Symbol):
                     "Warning : LogNormal does not support min/max boundaries for parameter : ",
                     self.name,
                 )
+
+            if distrib == DistributionType.LOGNORMAL and (self.default <= 0 or self.std <= 0):
+                raise ValueError(f"LogNormal parameter '{self.name}' requires default > 0 and std > 0")
 
         elif distrib == DistributionType.BETA:
             if "a" not in kwargs or "b" not in kwargs or "std" not in kwargs:
@@ -258,11 +290,12 @@ class ParamDef(Symbol):
                     self._distrib = triang(c, loc=self.min, scale=scale)
 
                 elif self.distrib == DistributionType.NORMAL:
-                    if self.min:
-                        # Truncated normal
+                    if self.min is not None or self.max is not None:
+                        # Truncated normal. A missing bound leaves that side open.
+                        # truncnorm takes its bounds in std units, relative to loc.
                         self._distrib = truncnorm(
-                            (self.min - self.default) / self.std,
-                            (self.max - self.min) / self.std,
+                            -np.inf if self.min is None else (self.min - self.default) / self.std,
+                            np.inf if self.max is None else (self.max - self.default) / self.std,
                             loc=self.default,
                             scale=self.std,
                         )
@@ -271,7 +304,7 @@ class ParamDef(Symbol):
                         self._distrib = norm(loc=self.default, scale=self.std)
 
                 elif self.distrib == DistributionType.LOGNORMAL:
-                    self._distrib = lognorm(self.default, self.std)
+                    self._distrib = lognorm(self.std, scale=self.default)
 
                 elif self.distrib == DistributionType.BETA:
                     self._distrib = beta(self.a, self.b, loc=self.default, scale=self.std)
@@ -376,6 +409,15 @@ class EnumParam(ParamDef):
             )
             res[var_name] = 1.0 if enum_val == currValue else 0.0
         return res
+
+    def _expandArray(self, currValues):
+        """Like expandParams on each value, but returns one array per choice. Takes single choices, not weight dicts."""
+        arr = np.asarray(currValues, dtype=object)
+        values = self.values + [None]
+        for currValue in set(arr.tolist()):
+            if currValue not in values:
+                raise Exception("Invalid value %s for param %s. Should be in %s" % (currValue, self.name, str(self.values)))
+        return {"%s_%s" % (self.name, v if v is not None else "default"): (arr == v).astype(float) for v in values}
 
     def symbol(self, choice):
         """Returns the invididual Sympy symbol for a given choice : <paramName>_<choice>"""
@@ -514,7 +556,12 @@ def _persistParam(param):
             bwParam["maximum"] = param.max
             bwParam["loc"] = param.default
 
-            if param.distrib in [DistributionType.NORMAL, DistributionType.LOGNORMAL]:
+            if param.distrib == DistributionType.NORMAL:
+                bwParam["scale"] = param.std
+
+            elif param.distrib == DistributionType.LOGNORMAL:
+                # Brightway expects loc = log(median)
+                bwParam["loc"] = math.log(param.default)
                 bwParam["scale"] = param.std
 
             elif param.distrib == DistributionType.BETA:
@@ -636,8 +683,12 @@ def loadParams(global_variable=True, dbname=None):
             if type == _UncertaintyType.TRIANGLE:
                 args["default"] = data["loc"]
 
-            elif type in [_UncertaintyType.NORMAL, _UncertaintyType.LOGNORMAL]:
+            elif type == _UncertaintyType.NORMAL:
                 args["default"] = data["loc"]
+                args["std"] = data["scale"]
+
+            elif type == _UncertaintyType.LOGNORMAL:
+                # Keep 'amount' as default : loc is log(median)
                 args["std"] = data["scale"]
 
             elif type == _UncertaintyType.BETA:
@@ -656,6 +707,8 @@ def loadParams(global_variable=True, dbname=None):
         first_enum_param = list(param_values.values())[0]
         args = _loadArgs(first_enum_param)
         del args["default"]
+        del args["min"]
+        del args["max"]
 
         # Dictionary of enum values with scale as weight
         args["values"] = {key: data["scale"] for key, data in param_values.items()}
@@ -1006,6 +1059,13 @@ def _compute_param_length(params):
     return param_length
 
 
+def _no_none(values):
+    """True when no sample is None. Only expandParams turns None into the param's default."""
+    if isinstance(values, np.ndarray) and values.dtype != object:
+        return True
+    return all(v is not None for v in values)
+
+
 def _expand_params(param_values: Dict[str, ParamValues]):
     res = dict()
 
@@ -1013,7 +1073,13 @@ def _expand_params(param_values: Dict[str, ParamValues]):
     for key, val in list(param_values.items()):
         param = _param_registry()[key]
 
-        if isinstance(val, (list, np.ndarray)):
+        if isinstance(val, (list, np.ndarray)) and type(param).expandParams is ParamDef.expandParams and _no_none(val):
+            # Float and bool params expand to {name: value}, so pass the array through.
+            # Calling expandParams for every sample took most of a Monte Carlo run.
+            res[param.name] = val
+        elif isinstance(val, (list, np.ndarray)) and isinstance(param, EnumParam) and not any(isinstance(v, dict) for v in val):
+            res.update(param._expandArray(val))
+        elif isinstance(val, (list, np.ndarray)):
             newvals = [param.expandParams(val) for val in val]
             res.update(_listOfDictToDictOflist(newvals))
         else:
@@ -1267,7 +1333,7 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
-    if STORE_FORMULA_KEY in ex:
+    if STORE_FORMULA_KEY in ex and STORE_FORMULA_TAG in ex:
         try:
             # We don't want support for units there
             return _parse_formula(ex[STORE_FORMULA_KEY])

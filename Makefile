@@ -1,7 +1,11 @@
 TST_NOTEBOOK:=example-notebook.Rmd
 TST_IPYNB:=example-notebook.ipynb
+DIST:=dist
 
-.PHONY: doc test package tst-upload 
+# `twine check` in `package` needs twine>=6.1: isolated builds pull a recent
+# setuptools (>=77, PEP 639) that emits Metadata-Version 2.4, which older twine
+# rejects with the misleading "Metadata is missing required fields: Name, Version".
+.PHONY: doc test package check clean tst-upload upload upload-tst
 
 zip:
 	zip lca-algebraic.zip algebraic_model.ipynb lca_algebraic.py doc/*
@@ -10,16 +14,23 @@ doc:
 	cd doc && $(MAKE) html
 
 clean:
-	rm -r dist
+	rm -rf $(DIST)
 
-package:
+package: clean
 	python -m build
+	$(MAKE) check
 
-tst-upload:
-	twine upload --repository-url https://test.pypi.org/legacy/ dist/lca_algebraic*
+check:
+	twine check --strict $(DIST)/*
 
-upload:
-	twine upload dist/lca_algebraic*
+tst-upload: check
+	twine upload --repository-url https://test.pypi.org/legacy/ $(DIST)/*
+
+upload: check
+	twine upload --repository-url https://upload.pypi.org/legacy/ $(DIST)/*
+
+upload-tst: check
+	twine upload --repository testpypi $(DIST)/*
 
 pytest:
 	pytest test

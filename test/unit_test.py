@@ -284,10 +284,50 @@ def test_simplify_model(data):
     assert res.expr.__repr__() == "3.0*p5 + 6.01"
 
 
-def test_db_params_lca(data):
-    """Test multiLCAAlgebraic with parameters with similar names from similar DBs"""
-    USER_DB2 = "fg2"
-    resetDb(USER_DB2)
+def test_params_user_assumptions(subtests):
+    from sympy.core.assumptions import _assume_defined
+    from lca_algebraic import newFloatParam
+
+    def test(a):
+        p1 = newFloatParam(f"{a}_true", default=1.0, **{a: True})
+        p2 = newFloatParam(f"{a}_false", default=1.0, **{a: False})
+        assert p1.assumptions0[a] is True
+        assert p2.assumptions0[a] is False
+
+    for a in _assume_defined:
+        with subtests.test(f"test_assumption_{a}"):
+            test(a)
+
+
+def test_params_infer_assumptions():
+    from lca_algebraic import newFloatParam
+
+    p1 = newFloatParam("p1", default=1.0, min=1.0, max=2.0)
+    p2 = newFloatParam("p2", default=-1.0, min=-2.0, max=-1.0)
+    p3 = newFloatParam("p3", default=1.0, min=0.0, max=2.0)
+    p4 = newFloatParam("p4", default=-1.0, min=-2.0, max=0.0)
+    p5 = newFloatParam("p5", default=1.0, min=-2.0, max=2.0)
+
+    assert p1.is_positive is True
+    assert p1.is_zero is False
+    assert p2.is_negative is True
+    assert p2.is_zero is False
+    assert p3.is_nonnegative is True
+    assert p3.is_negative is False
+    assert p4.is_nonpositive is True
+    assert p4.is_positive is False
+    assert p5.is_real is True
+    assert p5.is_positive is None
+    assert p5.is_negative is None
+    assert p5.is_zero is None
+
+
+@pytest.mark.parametrize("dbname", ["simple", "windows?", "linux/"])
+def test_db_params_lca(dbname, data):
+    """Test multiLCAAlgebraic with parameters with same names from different DBs"""
+
+    resetDb(dbname + "1")
+    resetDb(dbname + "2")
 
     # Define 3 variables with same name, attached to project or db (user or bg)
     p1_project = newFloatParam(
@@ -296,12 +336,12 @@ def test_db_params_lca(data):
         min=0,
         max=2,
     )
-    p1_user = newFloatParam("p1", 1, min=0, max=2, dbname=USER_DB)
-    p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=USER_DB2)
+    p1_user1 = newFloatParam("p1", 1, min=0, max=2, dbname=dbname + "1")
+    p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=dbname + "2")
 
     # Create 2 models : one for each user db, using different params with same name
-    m1 = newActivity(USER_DB, "m1", "kg", {data.bio1: 2.0 * p1_user})
-    m2 = newActivity(USER_DB2, "m2", "kg", {data.bio1: 2.0 * p1_user2})
+    m1 = newActivity(dbname + "1", "m1", "kg", {data.bio1: 2.0 * p1_user1})
+    m2 = newActivity(dbname + "2", "m2", "kg", {data.bio1: 2.0 * p1_user2})
 
     # p1 as default value of 1 for user db 1
     res = compute_impacts(m1, [data.ibio1])
@@ -520,6 +560,122 @@ def test_axis(data):
 
     res = compute_impacts(model, [data.ibio1], functional_unit=p1, p1=0.5)
     assert res.values[0] == 12.0
+
+    res = compute_impacts_xarray([model], [data.ibio1], axis="phase", params=dict(p1=0.5))
+    res = {key: val for key, val in zip(res.coords["axis"].to_numpy(), iter(res[0, 0, :, 0].to_numpy()))}
+    assert res == {
+        "phase_a": 1.0,
+        "phase_b": 2.0,
+        "*other*": 3.0,
+        "*all*": 6.0,
+    }
+
+
+def test_axis_on_exchanges(data):
+    """The axis can also be set on individual exchanges, to ventilate a single activity."""
+    p1 = newFloatParam("p1", 2, min=1, max=3)
+
+    act_a = newActivity(USER_DB, "act_a", "unit", {data.bio1: 1.0})
+    act_b = newActivity(USER_DB, "act_b", "unit", {data.bio1: 2.0})
+    act_c = newActivity(USER_DB, "act_c", "unit", {data.bio1: 3.0})
+
+    # Only two of the three exchanges are tagged with a phase, the third is "other"
+    model = newActivity(
+        USER_DB,
+        "model",
+        "unit",
+        {
+            act_a: dict(amount=1.0, phase="phase a"),
+            act_b: dict(amount=1.0, phase="phase b"),
+            act_c: 1.0,
+        },
+    )
+
+    expected = {
+        "phase_a": 2.0,
+        "phase_b": 4.0,
+        "*other*": 6.0,
+        "*all*": 12.0,
+    }
+
+    res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)
+    # Compute twice to warm the cache (same reason as test_axis)
+    res = compute_impacts(model, [data.ibio1], functional_unit=p1, axis="phase", p1=0.5)
+    res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
+    assert res == expected
+
+    res = compute_impacts(model, [data.ibio1], functional_unit=p1, p1=0.5)
+    assert res.values[0] == 12.0
+
+    res = compute_impacts_xarray([model], [data.ibio1], axis="phase", params=dict(p1=0.5))
+    res = {key: val for key, val in zip(res.coords["axis"].to_numpy(), iter(res[0, 0, :, 0].to_numpy()))}
+    assert res == {
+        "phase_a": 1.0,
+        "phase_b": 2.0,
+        "*other*": 3.0,
+        "*all*": 6.0,
+    }
+
+
+def test_axis_on_exchanges_and_activities(data):
+    """Activity-level and exchange-level tags can be combined on the same axis."""
+    act_internal0 = newActivity(USER_DB, "act_internal0", "unit", {data.bio1: 1.0})
+
+    act1 = newActivity(USER_DB, "act1", "unit", {act_internal0: 1.0}, phase="activity_phase")
+    act2 = newActivity(USER_DB, "act2", "unit", {act_internal0: 2.0})
+
+    model = newActivity(
+        USER_DB,
+        "model",
+        "unit",
+        {
+            act1: 1,
+            act2: dict(amount=1, phase="exchange_phase"),
+        },
+    )
+
+    expected = {
+        "activity_phase": 1.0,
+        "exchange_phase": 2.0,
+        "*other*": 0.0,
+        "*all*": 3.0,
+    }
+
+    res = compute_impacts(model, [data.ibio1], axis="phase")
+    res = compute_impacts(model, [data.ibio1], axis="phase")
+    res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
+    assert res == expected
+
+    res = compute_impacts(model, [data.ibio1])
+    assert res.values[0] == 3.0
+
+
+def test_axis_on_bg_exchanges(data):
+    """Exchanges pointing directly to a background activity can be tagged too."""
+    model = newActivity(
+        USER_DB,
+        "model",
+        "unit",
+        {
+            data.bg_act1: dict(amount=2.0, phase="phase a"),
+            data.bg_act2: dict(amount=1.0, phase="phase b"),
+        },
+    )
+
+    expected = {
+        "phase_a": 2.0,
+        "phase_b": 2.0,
+        "*other*": 0.0,
+        "*all*": 4.0,
+    }
+
+    res = compute_impacts(model, [data.imulti], axis="phase")
+    res = compute_impacts(model, [data.imulti], axis="phase")
+    res = {key: val for key, val in zip(res.index.values, res[res.columns[0]].values)}
+    assert res == expected
+
+    res = compute_impacts(model, [data.imulti])
+    assert res.values[0] == 4.0
 
 
 def test_compute_impacts_with_parametrized_fu(data):

@@ -29,6 +29,7 @@ from lca_algebraic.database import (
 )
 from lca_algebraic.params import (
     STORE_FORMULA_KEY,
+    STORE_FORMULA_TAG,
     DbContext,
     ParamDef,
     _complete_and_expand_params,
@@ -167,6 +168,11 @@ class ActivityExtended(Activity):
                 or activity for updating only input,
             or dict of attributes, for updating both at once, or any other attribute.
             The amount can reference the symbol 'old_amount' that will be replaced with the current amount of the exchange.
+
+            Passing a dict of attributes is also the way to tag a single exchange with an axis \
+            (see ``compute_impacts``) : only that exchange will be ventilated under the category::
+
+                myActivity.updateExchanges({some_act: dict(amount=2, phase="transport")})
         """
         if not _isForeground(self["database"]) and not Settings.internals:
             msg = f"You are updating a background activity in {self['database']}. Use copyActivity() in a foreground db instead."
@@ -318,6 +324,9 @@ class ActivityExtended(Activity):
     def _amount_to_formula(self, amount: ValueOrExpression, exchange: ExchangeDataset):
         res = dict()
         if isinstance(amount, Basic):
+            if amount.is_number:
+                return {"amount": float(amount.evalf())}
+
             current_amount = exchange.get("amount", None)
             if current_amount is not None:
                 amount = amount.subs(old_amount, current_amount)
@@ -329,8 +338,9 @@ class ActivityExtended(Activity):
                     raise Exception("Symbol '%s' not found in params : %s" % (symbol, all_symbols))
 
             res[STORE_FORMULA_KEY] = str(amount)
+            res[STORE_FORMULA_TAG] = True
             res["amount"] = 0
-        elif isinstance(amount, float) or isinstance(amount, int):
+        elif isinstance(amount, float | int):
             res["amount"] = amount
         else:
             raise Exception(
@@ -348,6 +358,9 @@ class ActivityExtended(Activity):
         if amount is not None:
             # Update units
             amount = self._transform_unit(amount, exchange["unit"])
+
+            updates.pop(STORE_FORMULA_TAG, None)
+            exchange.pop(STORE_FORMULA_TAG, None)
 
             # Extract formula if two separate field "amount" and "formula"
             # Update the list of updates
@@ -392,7 +405,14 @@ class ActivityExtended(Activity):
                 yield exch
 
     def updateMeta(self, **kwargs):
-        """Update any property. Useful to update axes"""
+        """Update any custom property of the activity.
+
+        This is typically used to tag an activity with an axis : all its outgoing
+        exchanges will then be ventilated under that category by ``compute_impacts``::
+
+            myActivity.updateMeta(phase="manufacturing")
+            compute_impacts(model, methods, axis="phase")
+        """
         for key, val in kwargs.items():
             self._data[key] = val
         self.save()
@@ -630,7 +650,7 @@ def newActivity(
 
 @atomic
 def copyActivity(
-    db_name, activity: ActivityExtended, code=None, withExchanges=True, input_mapping=None, **kwargs
+    db_name, activity: ActivityExtended, code=None, withExchanges=True, stripFormula=True, input_mapping=None, **kwargs
 ) -> ActivityExtended:
     """Copy an activity and its exchanges into another database. You usually want to copy activities from your background to
     your foreground DB to update them, keeping your background DB clean.
@@ -643,7 +663,10 @@ def copyActivity(
         Source activity
     code:
         Code of the target activity. Also used as its name
-
+    withExchange:
+        Copy exchanges is True (default), otherwise do not copy them
+    stripFormula:
+        keep exchanges formula if True, default is False
 
     Returns
     -------
@@ -680,7 +703,7 @@ def copyActivity(
 
         # Chemical formulas might be in ecoinvent technosphere
         # We don't want them
-        if "formula" in data:
+        if stripFormula and ("formula" in data) and (STORE_FORMULA_TAG not in data):
             del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 

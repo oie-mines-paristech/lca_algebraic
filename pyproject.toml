@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lca_algebraic"
-version = "1.4.1.dev3"
+version = "1.4.1.dev5"
 
 description = "This library provides a layer above Brightway for defining parametric models and running super fast LCA for monte carlo analysis."
 readme = "README.md"
@@ -54,7 +54,8 @@ dev = [
   "pre-commit",
   "pytest",
   "nbmake",
-  "build"
+  "build",
+  "twine>=6.1"
 ]
 
 [project.urls]
