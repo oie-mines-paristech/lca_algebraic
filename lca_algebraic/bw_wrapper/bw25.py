@@ -108,6 +108,16 @@ class BW25Backend:
     def copy_activity_skip_keys(self) -> set:
         return {"database", "code", "id"}
 
+    def purge_activity_content(self, act) -> None:
+        """Remove an activity's outgoing exchanges and non-identity attributes.
+
+        The activity row, its code and the incoming links (exchanges of other
+        activities pointing to it) are preserved.
+        """
+        act.exchanges().delete(allow_in_sourced_project=True)
+        for key in [k for k in act._data if k not in {"database", "code", "id"}]:
+            del act._data[key]
+
     def bw2setup(self) -> None:
         raise NotImplementedError("bw2setup is only supported with brightway2")
 

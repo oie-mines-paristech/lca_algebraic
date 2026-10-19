@@ -778,6 +778,10 @@ def compute_inventory(
     if not isinstance(scenario, list):
         scenario = [scenario]
 
+    # Name the output columns after the scenario, or after the sample index when
+    # several values are provided for the parameters (no explicit scenario).
+    labels = scenario if scenario != [None] else [str(i + 1) for i in range(_compute_param_length(params))]
+
     if impact_method is None:
         impact_method = UNITY_METHOD
 
@@ -823,7 +827,7 @@ def compute_inventory(
                 item["value"] = values[0]
             else:
                 for i in range(0, len(values)):
-                    item[scenario[i]] = values[i]
+                    item[labels[i]] = values[i]
             items.append(item)
 
     return DataFrame(items)

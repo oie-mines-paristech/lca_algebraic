@@ -49,8 +49,16 @@ def flush_caches():
         cache.sync()
 
 
-def get_dependant_dbs(db_name, skip_proxy=True):
-    """Recursively get list of dependant db names, including the current one"""
+def get_dependant_dbs(db_name, skip_proxy=None):
+    """Recursively get list of dependant db names, including the current one
+
+    Proxy databases are skipped unless background factorization is enabled : with
+    ``factorize_static_bg`` the developed expressions / LCIA of a database refer to
+    the acts of its ``<db>-proxy`` databases, so a change of those proxies must be
+    visible (see the staleness check in ``_CacheDict``).
+    """
+    if skip_proxy is None:
+        skip_proxy = not Settings.factorize_static_bg
 
     # Only work if database is up to date (processed)
     if databases[db_name].get("dirty"):

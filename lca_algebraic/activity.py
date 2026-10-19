@@ -13,12 +13,14 @@ from lca_algebraic.bw_wrapper import (
     Activity,
     Exchange,
     ExchangeDataset,
+    activity_not_found,
     copy_activity_skip_keys,
     dict_as_exchangedataset,
     exchange_type_for_sub_act,
     get_activity,
     process_node_default,
     production_edge_default,
+    purge_activity_content,
 )
 from lca_algebraic.database import (
     _find_biosphere_db,
@@ -572,13 +574,19 @@ def _newAct(db_name, code):
         warn(msg)
 
     db = _getDb(db_name)
-    # Already present : delete it ?
-    for act in db:
-        if act["code"] == code:
-            warn("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
-            act.delete()
 
-    return db.new_activity(code)
+    try:
+        act = getActByCode(db_name, code)
+    except activity_not_found():
+        return db.new_activity(code)
+
+    # Already present : overwrite it in place.
+    # We must not delete+recreate the activity : on brightway 2.5, deleting an
+    # activity also removes the incoming links (exchanges from other activities
+    # consuming it), which would silently break previously built models.
+    warn("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
+    purge_activity_content(act)
+    return act
 
 
 def newActivity(

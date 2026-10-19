@@ -78,13 +78,16 @@ def data() -> DataFixture:
 def reset_db():
     """Before each test"""
 
+    # Clear caches first : proxy databases are dropped below, they would not be
+    # reachable anymore (and their cache files would leak to the next test)
+    clear_caches()
+
     for db_name in list(databases):
         if db_name != BG_DB and not db_name.startswith("bio"):
             del databases[db_name]
 
     resetDb(USER_DB, foreground=True)
     resetParams()
-    clear_caches()
 
 
 def assert_impacts(res: pd.DataFrame, value: float):

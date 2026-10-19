@@ -91,6 +91,16 @@ class BW2Backend:
     def copy_activity_skip_keys(self) -> set:
         return {"database", "code"}
 
+    def purge_activity_content(self, act) -> None:
+        """Remove an activity's outgoing exchanges and non-identity attributes.
+
+        The activity row, its code and the incoming links (exchanges of other
+        activities pointing to it) are preserved.
+        """
+        act.exchanges().delete()
+        for key in [k for k in act._data if k not in {"database", "code"}]:
+            del act._data[key]
+
     def bw2setup(self):
         bw.bw2setup()
 

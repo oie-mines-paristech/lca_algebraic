@@ -74,6 +74,9 @@ class BrightwayBackend(Protocol):
     def copy_activity_skip_keys(self) -> set:
         ...
 
+    def purge_activity_content(self, act) -> None:
+        ...
+
     def bw2setup(self) -> None:
         ...
 
