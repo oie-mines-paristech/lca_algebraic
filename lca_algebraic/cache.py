@@ -81,6 +81,14 @@ def get_last_update(db_name):
     return res.timestamp()
 
 
+def get_db_versions(db_name):
+    """The 'modified' strings of the dependant dbs.
+
+    bw2data writes them in naive local time, so they are compared for equality, never as times:
+    a project used in another timezone would otherwise look newer or older than it is."""
+    return {db: databases[db].get("modified") for db in get_dependant_dbs(db_name)}
+
+
 class SyncDict(MutableMapping):
     """
     A dict tat loads its values from a file, track the latest updates, and sync its content to a file
@@ -91,6 +99,8 @@ class SyncDict(MutableMapping):
         self.name = name
         self.db_name = db_name
         self.last_update = 0.0
+        # Versions of the dbs the data was computed from (see get_db_versions)
+        self.db_versions = None
         self.load()
 
     def _filename(self):
@@ -141,7 +151,10 @@ class SyncDict(MutableMapping):
 
         with open(self._filename(), "rb") as f:
             try:
-                self._data = load(f)
+                content = load(f)
+                # Older files hold the bare dict, without db versions: drop them so they get rebuilt
+                if isinstance(content, tuple):
+                    self.db_versions, self._data = content
             except Exception as e:
                 logger.error(f"Error while loading cache {self._filename()}: {e}. Ignoring and overriding it")
 
@@ -167,7 +180,7 @@ class SyncDict(MutableMapping):
         tmp = self._filename() + ".tmp"
         with open(tmp, "wb") as f:
             pickler = MyPickler(f)
-            pickler.dump(self._data)
+            pickler.dump((self.db_versions, self._data))
 
         os.replace(tmp, self._filename())
         return True
@@ -196,10 +209,13 @@ class _CacheDict:
         # Data points to cache
         self.data = _Caches.caches[key]
 
-        # Db more recent ? clean it
-        if os.path.exists(self.data._filename()) and (get_last_update(db_name) > self.data.last_update):
-            logger.info(f"Db changed recently, clearing cache {self.name}")
-            self.data.clear(disk=True)
+        # Db changed ? clean it
+        db_versions = get_db_versions(db_name)
+        if self.data.db_versions != db_versions:
+            if os.path.exists(self.data._filename()) or len(self.data) > 0:
+                logger.info(f"Db changed, clearing cache {self.name}")
+                self.data.clear(disk=True)
+            self.data.db_versions = db_versions
 
     def __enter__(self):
         return self
