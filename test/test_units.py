@@ -4,7 +4,17 @@ from numpy.ma.testutils import assert_array_equal
 from lca_algebraic.params import _getAmountOrFormula, STORE_FORMULA_TAG
 from lca_algebraic.units import unit_registry as u
 from lca_algebraic.units import *
-from lca_algebraic import Settings, Min, Max, newFloatParam, newActivity, copyActivity, compute_impacts, interpolate_activities
+from lca_algebraic import (
+    Settings,
+    Min,
+    Max,
+    newFloatParam,
+    newActivity,
+    copyActivity,
+    compute_impacts,
+    interpolate_activities,
+    temp_settings,
+)
 from test.conftest import USER_DB
 from sympy import Float
 import sympy
@@ -142,6 +152,40 @@ def test_update_activities_with_units(data):
     ex = act1.getExchange(name="bg_act1")
     assert STORE_FORMULA_TAG not in ex
     assert _getAmountOrFormula(ex) == 10.0
+
+
+def test_legacy_formula_detection(data):
+    """Legacy detection (Settings.use_lca_formula_tag=False) : an untagged formula
+    on a FOREGROUND exchange is an lca_algebraic expression.
+
+    Regression : the "has_lca_algebraic_formula" tag is not backward compatible.
+    Databases written before it store a foreground "formula" without the tag,
+    which used to fall back to "amount" (0) and produced a zero impact."""
+    p = newFloatParam("p_legacy", default=2, min=0, max=10, unit="kg")
+
+    act = newActivity(USER_DB, "act_legacy", "kg", exchanges={data.bg_act1: p})
+    ex = act.getExchange(name="bg_act1")
+    assert STORE_FORMULA_TAG in ex
+
+    # Simulate an edge written before the tag existed
+    ex.pop(STORE_FORMULA_TAG)
+    ex.save()
+
+    # Default (tag) behaviour : the untagged formula is ignored -> amount (0)
+    assert _getAmountOrFormula(ex) == 0.0
+
+    # Legacy behaviour : the formula is recognized as an lca_algebraic expression
+    with temp_settings(use_lca_formula_tag=False):
+        legacy = _getAmountOrFormula(ex)
+        assert legacy != 0.0
+        assert "p_legacy" in str(legacy)
+
+    # Even in legacy mode, a BACKGROUND formula (ecoinvent chemical) is ignored
+    bg_ex = data.bg_act1.getExchange(name="bio1")
+    bg_ex["formula"] = "CH4"
+    bg_ex.save()
+    with temp_settings(use_lca_formula_tag=False):
+        assert _getAmountOrFormula(bg_ex) == bg_ex["amount"]
 
 
 def test_interpolation_with_units(data):

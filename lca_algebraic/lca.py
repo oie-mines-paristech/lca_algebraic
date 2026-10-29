@@ -38,14 +38,15 @@ from lca_algebraic.lambda_expression import LambdaExpr
 from lca_algebraic.settings import UNITY_METHOD, Settings
 
 from . import atomic, copyActivity, getActByCode, resetDb
-from .cache import (
-    ExprCache,
-    LCIACache,
-    MappingCache,
-    get_dependant_dbs,
-    get_last_update,
+from .cache import ExprCache, LCIACache, MappingCache, get_dependant_dbs
+from .database import (
+    BIOSPHERE_PREFIX,
+    DbContext,
+    _getMeta,
+    _isForeground,
+    _setMeta,
+    setBackground,
 )
-from .database import BIOSPHERE_PREFIX, DbContext, _isForeground, _setMeta
 from .log import info, progress, warn
 from .matrix import ActMatrix, invert
 from .methods import method_name, method_unit
@@ -176,8 +177,11 @@ def _multiLCAWithCache(all_acts, methods, scenario: str = None) -> Dict[Tuple[Ac
     # Split activities by db_name
     for db_name, acts in _group_acts_by_db(all_acts).items():
         with LCIACache(db_name) as cache:
-            # List activities with at least one missing value
-            remaining_acts = list(act for act in all_acts if any(method for method in methods if (act, method) not in cache.data))
+            # List activities with at least one missing value.
+            # The cache is per-database : only this db's acts may be computed (and
+            # stored) here. Scanning all_acts would recompute every other db's acts
+            # on each iteration (and, with several dbs, report a constant count).
+            remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in cache.data))
 
             # Handle custom "unity" method separately
             if UNITY_METHOD in methods:
@@ -187,8 +191,11 @@ def _multiLCAWithCache(all_acts, methods, scenario: str = None) -> Dict[Tuple[Ac
                             cache.data[(act, method)] = 1.0
 
             # list methods with at least one missing value
+            # UNITY is synthetic and pre-filled above : never hand it to brightway.
             remaining_methods = list(
-                method for method in methods if any(act for act in all_acts if (act, method) not in cache.data)
+                method
+                for method in methods
+                if method != UNITY_METHOD and any(act for act in acts if (act, method) not in cache.data)
             )
 
             if len(remaining_acts) > 0 and len(remaining_methods) > 0:
@@ -369,12 +376,60 @@ def _key_to_key_mapping(source_db, dest_db):
     }
 
 
+# Metadata key : on a duplicated (scenario) database, remembers the source db and
+# a cheap signature of that source at duplication time.
+DUPLICATED_FROM_KEY = "duplicated_from"
+
+
+def _db_signature(db_name):
+    """Cheap fingerprint of a database : [number of activities, metadata 'modified'].
+
+    The activity count is a single COUNT query and 'modified' is plain metadata, so
+    this stays cheap even on large databases. Together they detect a duplicate that
+    is out of sync with its source (added/removed activities, or later edits).
+    """
+    return [len(Database(db_name)), databases[db_name].get("modified")]
+
+
+def _stamp_duplicate(target_db, source_db):
+    """Remember, on the duplicated db, which source it came from and that source's
+    signature (see ``_is_duplicate_outdated``)."""
+    _setMeta(target_db, DUPLICATED_FROM_KEY, {"source": source_db, "signature": _db_signature(source_db)})
+
+
+def _is_duplicate_outdated(source_db, target_db):
+    """True if the duplicated db ``target_db`` is out of sync with its source.
+
+    Cheap (one COUNT query + metadata reads) replacement for the previous
+    timestamp comparison, which missed a source that changed without a later
+    'modified' time (e.g. an incomplete/older content with a newer timestamp).
+    """
+    if source_db == target_db:
+        return False
+
+    stamp = _getMeta(target_db, DUPLICATED_FROM_KEY)
+    if not stamp or stamp.get("source") != source_db:
+        # No stamp (built before this check existed) : assume stale, rebuild once
+        return True
+
+    return stamp.get("signature") != _db_signature(source_db)
+
+
 @atomic
 def _duplicate_db_for_scenario(origin_db, target_db):
-    """Duplicate a proxy database and targets another scenario"""
+    """Duplicate a proxy database and targets another scenario.
 
-    # Empty the target
-    resetDb(target_db, foreground=False)
+    The target is updated IN PLACE (overwrite existing activities + drop the ones
+    no longer in the source) instead of being reset. resetDb (delete metadata +
+    empty write + process) conflicts with the surrounding transaction on big
+    projects and raises "database is locked" ; copyActivity already overwrites an
+    existing activity, so a reset is only needed when the target is missing.
+    """
+
+    if target_db not in databases:
+        resetDb(target_db, foreground=False)
+    else:
+        setBackground(target_db)
 
     with temp_settings(internals=True):
         target_scenario = target_db.split(Settings.scenario_separator)[1]
@@ -391,9 +446,19 @@ def _duplicate_db_for_scenario(origin_db, target_db):
             dep_target_db = dep_db_prefix + Settings.scenario_separator + target_scenario
             all_mappings.update(_key_to_key_mapping(dependant_db, dep_target_db))
 
-        # Loop on activities
+        # Overwrite / create every source activity in the target
+        source_keys = set()
         for act in Database(origin_db):
+            source_keys.add(_build_mapping_key(act))
             copyActivity(db_name=target_db, activity=act, code=act["name"], input_mapping=all_mappings)
+
+        # Drop target activities that no longer exist in the source (exact duplicate)
+        for act in list(Database(target_db)):
+            if _build_mapping_key(act) not in source_keys:
+                act.delete()
+
+        # Remember the source + its signature, to detect a stale duplicate next time
+        _stamp_duplicate(target_db, origin_db)
 
 
 def _map_activities(acts: list[Activity], source_db: str, target_db: str):
@@ -409,9 +474,10 @@ def _map_activities(acts: list[Activity], source_db: str, target_db: str):
         _duplicate_db_for_scenario(source_db, target_db)
 
     # Exiisting db This is a proxy db
-    # Check it did not change
-    elif dependant_scenario is not None and get_last_update(source_db) > get_last_update(target_db):
-        info(f"Proxy database {source_db} changed. Updating {target_db}")
+    # Check it did not change : cheap signature (activity count + last update) stored
+    # at duplication time, compared to the source's current signature.
+    elif dependant_scenario is not None and _is_duplicate_outdated(source_db, target_db):
+        info(f"Proxy database {target_db} is out of date with {source_db}. Updating")
         _duplicate_db_for_scenario(source_db, target_db)
 
     code_by_key = _code_by_key(target_db)

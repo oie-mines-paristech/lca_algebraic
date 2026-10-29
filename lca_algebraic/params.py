@@ -33,7 +33,7 @@ from lca_algebraic.bw_wrapper import (
     new_database_parameters,
     new_project_parameters,
 )
-from lca_algebraic.database import DbContext
+from lca_algebraic.database import DbContext, _isForeground
 from lca_algebraic.log import logger, warn
 from lca_algebraic.settings import Settings
 from lca_algebraic.sympy_utils import find_symbols
@@ -1333,12 +1333,22 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
-    if STORE_FORMULA_KEY in ex and STORE_FORMULA_TAG in ex:
-        try:
-            # We don't want support for units there
-            return _parse_formula(ex[STORE_FORMULA_KEY])
-        except Exception as e:
-            warn(f"Error '{e}' while parsing formula {ex[STORE_FORMULA_KEY]} : backing to amount")
+    if STORE_FORMULA_KEY in ex:
+        # The "formula" field is shared : lca_algebraic writes symbolic amounts
+        # there on FOREGROUND exchanges, ecoinvent writes chemical formulas on
+        # background ones. Two ways to tell them apart (see Settings.use_lca_formula_tag).
+        if Settings.use_lca_formula_tag:
+            is_lca_formula = STORE_FORMULA_TAG in ex
+        else:
+            # Legacy detection : a formula on a foreground exchange is ours.
+            is_lca_formula = _isForeground(ex["output"][0])
+
+        if is_lca_formula:
+            try:
+                # We don't want support for units there
+                return _parse_formula(ex[STORE_FORMULA_KEY])
+            except Exception as e:
+                warn(f"Error '{e}' while parsing formula {ex[STORE_FORMULA_KEY]} : backing to amount")
 
     return ex["amount"]
 

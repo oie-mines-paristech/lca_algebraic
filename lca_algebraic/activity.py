@@ -715,9 +715,10 @@ def copyActivity(
             # Input mapping, used to migrate proxy db linked to premise scenarios
             data["input"] = input_mapping[data["input"]]
 
-        # Chemical formulas might be in ecoinvent technosphere
-        # We don't want them
-        if stripFormula and ("formula" in data) and (STORE_FORMULA_TAG not in data):
+        # Do not carry "formula" over from a background activity : ecoinvent puts
+        # chemical formulas in that field and we only want lca_algebraic ones.
+        # (A formula on a foreground exchange is an lca_algebraic amount.)
+        if stripFormula and ("formula" in data) and not _isForeground(activity.key[0]):
             del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 

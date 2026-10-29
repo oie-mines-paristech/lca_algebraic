@@ -1,4 +1,7 @@
+import atexit
 import os
+import signal
+import sys
 import time
 from base64 import b32encode
 from collections.abc import MutableMapping
@@ -47,6 +50,62 @@ def disable_cache():
 def flush_caches():
     for cache in _Caches.caches.values():
         cache.sync()
+
+
+def flush_caches_on_exit():
+    """Best-effort flush of the caches, safe to call several times.
+
+    Does nothing when ``Settings.auto_flush_on_exit`` is disabled. Errors are
+    swallowed (there is nothing useful to do while the interpreter is exiting).
+    """
+    if not Settings.auto_flush_on_exit:
+        return
+    try:
+        flush_caches()
+    except Exception as e:
+        logger.warning(f"Could not flush caches on exit : {e}")
+
+
+_exit_hooks_installed = False
+
+
+def install_exit_hooks():
+    """Flush the caches when the interpreter stops : normal exit, uncaught
+    exception, or SIGINT / SIGTERM (see ``Settings.auto_flush_on_exit``).
+
+    Idempotent. Useful when ``Settings.auto_flush`` is off, so that a run (or a
+    crash, or a Ctrl-C) does not lose the LCIA/expression caches computed so far.
+    SIGKILL cannot be caught.
+    """
+    global _exit_hooks_installed
+    if _exit_hooks_installed:
+        return
+    _exit_hooks_installed = True
+
+    # Normal exit
+    atexit.register(flush_caches_on_exit)
+
+    # Uncaught exception : flush, then keep the default reporting
+    _previous_excepthook = sys.excepthook
+
+    def _excepthook(exc_type, exc, tb):
+        flush_caches_on_exit()
+        _previous_excepthook(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    # Termination signals : flush, then die with the default disposition
+    def _signal_handler(signum, _frame):
+        flush_caches_on_exit()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for _sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(_sig, _signal_handler)
+        except (ValueError, OSError):
+            # Not in the main thread (some notebook kernels) : signals are skipped
+            pass
 
 
 def get_dependant_dbs(db_name, skip_proxy=None):

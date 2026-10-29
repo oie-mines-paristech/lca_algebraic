@@ -756,6 +756,104 @@ def test_compute_inventory_with_method_and_several_param_values(data):
     )
 
 
+def test_compute_inventory_multi_db_background(data):
+    """Regression: default UNITY method with a background spanning several DBs.
+
+    The conftest fixture puts every background activity in BG_DB, so the buggy
+    single-database assumption was never exercised. With a second background DB,
+    the synthetic UNITY method used to be handed to brightway and raised
+    ``AssertionError: Can't find method object ('UNITY','UNITY','UNITY')``.
+    """
+    # A second background database, referenced alongside a BG_DB activity
+    resetDb("bg2", foreground=False)
+    bg2_act = newActivity("bg2", name="bg2_act", unit="kg", location="GLO")
+
+    root_act = newActivity(USER_DB, name="root_act", unit="kg", exchanges={data.bg_act1: 1, bg2_act: 1})
+
+    # impact_method defaults to None -> the internal UNITY pseudo-method
+    df = compute_inventory(root_act)
+
+    # Both background databases must show up, no exception
+    assert set(df["database"]) == {BG_DB, "bg2"}
+
+
+def test_compute_impacts_multi_db_background(data, monkeypatch):
+    """compute_impacts with background acts spread over several databases.
+
+    Regression for _multiLCAWithCache : it used to scan all_acts (every db) on each
+    db iteration, so every act was handed to brightway once per database (and the
+    reported act count was constant). Here we check the result is correct and that
+    no activity is computed twice."""
+    import lca_algebraic.lca as L
+
+    resetDb("bg2", foreground=False)
+    bg2_act = newActivity("bg2", name="bg2_act", unit="kg", location="GLO", exchanges={data.bio1: 3})
+
+    root = newActivity(USER_DB, "root_multi_db", "kg", exchanges={data.bg_act1: 1, bg2_act: 1})
+
+    calls = []
+    original = L._multiLCAWithProxies
+
+    def spy(acts, methods):
+        calls.append([act.key for act in acts])
+        return original(acts, methods)
+
+    monkeypatch.setattr(L, "_multiLCAWithProxies", spy)
+
+    # bg_act1 emits bio1 (1) ; bg2_act emits bio1 (3)  => ibio1 = 1 + 3 = 4
+    res = compute_impacts(models=root, methods=[data.ibio1])
+    assert_impacts(res, 4.0)
+
+    # No activity must be computed twice (cross-db recomputation)
+    computed = [key for call in calls for key in call]
+    assert len(computed) == len(set(computed)), f"activities computed more than once: {computed}"
+
+
+def test_duplicate_signature_detects_staleness(data):
+    """_is_duplicate_outdated : cheap signature (nb activities + modified) of the source."""
+    from lca_algebraic.lca import _stamp_duplicate, _is_duplicate_outdated
+
+    resetDb("src", foreground=False)
+    newActivity("src", name="a1", unit="kg", location="GLO")
+
+    resetDb("dup", foreground=False)
+    newActivity("dup", name="a1", unit="kg", location="GLO")
+
+    # Freshly stamped : the duplicate is up to date
+    _stamp_duplicate("dup", "src")
+    assert not _is_duplicate_outdated("src", "dup")
+
+    # The source grew : the duplicate is now stale
+    newActivity("src", name="a2", unit="kg", location="GLO")
+    assert _is_duplicate_outdated("src", "dup")
+
+    # A db is never outdated with respect to itself
+    assert not _is_duplicate_outdated("src", "src")
+
+    # No stamp (built before this check existed) : assume stale, rebuild once
+    resetDb("dup2", foreground=False)
+    newActivity("dup2", name="a1", unit="kg", location="GLO")
+    assert _is_duplicate_outdated("src", "dup2")
+
+
+def test_duplicate_db_updates_target_in_place(data):
+    """_duplicate_db_for_scenario syncs an existing target IN PLACE (no resetDb)."""
+    from lca_algebraic.lca import _duplicate_db_for_scenario
+    from lca_algebraic.bw_wrapper import Database
+
+    resetDb("p#2020", foreground=False)
+    newActivity("p#2020", name="a1", unit="kg", location="GLO")
+    newActivity("p#2020", name="a2", unit="kg", location="GLO")
+
+    resetDb("p#2050", foreground=False)
+    newActivity("p#2050", name="a1", unit="kg", location="GLO")  # only 1 of the 2
+
+    _duplicate_db_for_scenario("p#2020", "p#2050")
+
+    # a1 overwritten, a2 created : the target now mirrors the source
+    assert sorted(a["name"] for a in Database("p#2050")) == ["a1", "a2"]
+
+
 def test_inventory_loops_should_work(data):
     main_act = newActivity(USER_DB, "main_act", "kg")
 
