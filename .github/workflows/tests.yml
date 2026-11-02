@@ -36,6 +36,10 @@ jobs:
             tox-env: py313-bw2
           - python-version: "3.13"
             tox-env: py313-bw25
+          - python-version: "3.14"
+            tox-env: py314-bw2
+          - python-version: "3.14"
+            tox-env: py314-bw25
 
     steps:
       - name: Checkout code
