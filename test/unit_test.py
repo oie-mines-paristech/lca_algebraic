@@ -31,11 +31,11 @@ def test_load_params():
     loadParams()
 
     # Get params from in memory DB
-    loaded_params = {(param.name, param.dbname): param for param in _param_registry().all()}
+    loaded_params = {param.name: param for param in _param_registry().all()}
 
-    assert _p1.__dict__ == loaded_params[("p1", None)].__dict__
-    assert _p2.__dict__ == loaded_params[("p2", None)].__dict__
-    assert _p3.__dict__ == loaded_params[("p3", None)].__dict__
+    assert _p1.__dict__ == loaded_params["p1"].__dict__
+    assert _p2.__dict__ == loaded_params["p2"].__dict__
+    assert _p3.__dict__ == loaded_params["p3"].__dict__
 
 
 def test_export(data):
@@ -320,44 +320,6 @@ def test_params_infer_assumptions():
     assert p5.is_positive is None
     assert p5.is_negative is None
     assert p5.is_zero is None
-
-
-@pytest.mark.parametrize("dbname", ["simple", "windows?", "linux/"])
-def test_db_params_lca(dbname, data):
-    """Test multiLCAAlgebraic with parameters with same names from different DBs"""
-
-    resetDb(dbname + "1")
-    resetDb(dbname + "2")
-
-    # Define 3 variables with same name, attached to project or db (user or bg)
-    p1_project = newFloatParam(
-        "p1",
-        0,
-        min=0,
-        max=2,
-    )
-    p1_user1 = newFloatParam("p1", 1, min=0, max=2, dbname=dbname + "1")
-    p1_user2 = newFloatParam("p1", 2, min=0, max=2, dbname=dbname + "2")
-
-    # Create 2 models : one for each user db, using different params with same name
-    m1 = newActivity(dbname + "1", "m1", "kg", {data.bio1: 2.0 * p1_user1})
-    m2 = newActivity(dbname + "2", "m2", "kg", {data.bio1: 2.0 * p1_user2})
-
-    # p1 as default value of 1 for user db 1
-    res = compute_impacts(m1, [data.ibio1])
-    assert res.values[0] == 2.0
-
-    # p1 as default value of 2 for user db 2
-    res = compute_impacts(m2, [data.ibio1])
-    assert res.values[0] == 4.0
-
-    # Overriding p1 for m1
-    res = compute_impacts(m1, [data.ibio1], p1=3)
-    assert res.values[0] == 6.0
-
-    # Overriding p1 for m2
-    res = compute_impacts(m2, [data.ibio1], p1=4)
-    assert res.values[0] == 8.0
 
 
 def test_params_with_formulas(data):

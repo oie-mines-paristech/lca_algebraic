@@ -7,9 +7,6 @@ from typing import Any, Dict, List, Union
 import numpy as np
 import pandas as pd
 from bw2data.parameters import (
-    ActivityParameter,
-    DatabaseParameter,
-    Group,
     ProjectParameter,
 )
 from IPython.core.display import HTML
@@ -30,7 +27,6 @@ from lca_algebraic.base_utils import (
 from lca_algebraic.bw_wrapper import (
     Database,
     ExchangeDataset,
-    new_database_parameters,
     new_project_parameters,
 )
 from lca_algebraic.database import DbContext
@@ -165,10 +161,6 @@ class ParamDef(Symbol):
             elif vmax <= 0.0:
                 assumptions = {"nonpositive": True}
 
-        # To avoid name collision we add a dbname assumption
-        if (dbname := kwargs.get("dbname", None)) is not None:
-            assumptions[dbname] = True
-
         return Symbol.__new__(cls, name, **assumptions)
 
     def __init__(
@@ -197,11 +189,7 @@ class ParamDef(Symbol):
         self.label = label
         self.group = group
         self.distrib = distrib
-        self.dbname = dbname
         self.formula = formula
-
-        # if (self.dbname == None) :
-        #    error("Warning : param '%s' linked to root project instead of a specific DB" % self.name)
 
         # Cleanup distribution in case of overriding already existing param (reused because of inheritance of Symbol)
         if hasattr(self, "_distrib"):
@@ -318,7 +306,7 @@ class ParamDef(Symbol):
 
     def __eq__(self, other):
         if isinstance(other, ParamDef):
-            return self.name == other.name and getattr(self, "dbname", None) == getattr(other, "dbname", None)
+            return self.name == other.name
         else:
             return Symbol.__eq__(self, other)
 
@@ -472,16 +460,16 @@ def newParamDef(name, type, dbname=None, save=True, **kwargs):
     save :
         Boolean, persist this into Brightway2 project (True by default)
     dbname :
-        Optional name of db. If None, the parameter is a project parameter
+        Deprecated, ignored
     other arguments :
         Refer to the documentation of BooleanDef ParamDef and EnumParam
     """
     if type == ParamType.ENUM:
-        param = EnumParam(name, dbname=dbname, **kwargs)
+        param = EnumParam(name, **kwargs)
     elif type == ParamType.BOOL:
-        param = BooleanDef(name, dbname=dbname, **kwargs)
+        param = BooleanDef(name, **kwargs)
     else:
-        param = ParamDef(name, dbname=dbname, type=type, **kwargs)
+        param = ParamDef(name, type=type, **kwargs)
 
     _param_registry()[name] = param
 
@@ -537,9 +525,6 @@ def _bwParamData(param) -> List[dict]:
         formula=str(param.formula) if param.formula else None,
         description=param.description,
     )
-
-    if param.dbname:
-        bwParam["database"] = param.dbname
 
     if param.type == ParamType.ENUM:
         # Enum are not real params but a set of parameters
@@ -625,10 +610,7 @@ def _persistParam(param):
     if all(_persisted_param_signatures.get(key) == sig for key, sig in zip(keys, signatures)):
         return
 
-    if param.dbname:
-        new_database_parameters(out, param.dbname)
-    else:
-        new_project_parameters(out)
+    new_project_parameters(out)
 
     for key, sig in zip(keys, signatures):
         _persisted_param_signatures[key] = sig
@@ -638,7 +620,6 @@ def _loadArgs(data):
     """Load persisted data attributes into ParamDef attributes"""
     return {
         "group": data.get("group"),
-        "dbname": data.get("database"),
         "default": data.get("amount"),
         "label": data.get("label"),
         "description": data.get("description"),
@@ -662,12 +643,15 @@ def loadParams(global_variable=True, dbname=None):
     global_variable:
         If true, loaded parameters are made available as global variable.
     dbname:
-        If provided, load only database parameters for the given db
+        Deprecated, ignored
 
     Returns
     -------
     A dictionary of parameters
     """
+
+    if dbname is not None:
+        warn("loadParams: deprecated dbname argument is ignored")
 
     enumParams = defaultdict(lambda: dict())
 
@@ -690,13 +674,7 @@ def loadParams(global_variable=True, dbname=None):
             else:
                 builtins.__dict__[param.name] = param
 
-    select = DatabaseParameter.select()
-    if dbname:
-        select = select.where(DatabaseParameter.database == dbname)
-
-    params = list(select)
-    if not dbname:
-        params += list(ProjectParameter.select())
+    params = list(ProjectParameter.select())
 
     for bwParam in params:
         data = bwParam.data
@@ -787,9 +765,8 @@ def loadParams(global_variable=True, dbname=None):
 
     # Parse formulas
     for param in _param_registry().all():
-        with DbContext(param.dbname):
-            if isinstance(param.formula, str):
-                param.formula = _parse_formula(param.formula)
+        if isinstance(param.formula, str):
+            param.formula = _parse_formula(param.formula)
 
     return _param_registry()
 
@@ -1007,53 +984,24 @@ class ParamRegistry:
 
     def __init__(self):
         # We store a dict of dict
-        # Param Name -> { dbname ->  param}
-        self.params: Dict[Dict[ParamDef]] = defaultdict(dict)
+        # Param Name -> param
+        self.params: Dict[ParamDef] = dict()
 
     def __len__(self):
         return len(self.params)
 
     def __getitem__(self, key):
-        try:
-            params_per_db = self.params.get(key, None)
-
-            if params_per_db is None:
-                # Param not found
-                raise KeyError("Parameter %s not found" % key)
-
-            if len(params_per_db) == 1:
-                return list(params_per_db.values())[0]
-
-            if DbContext.current_db() is None:
-                dbs = [key or "<project>" for key in params_per_db.keys()]
-                raise DuplicateParamsAndNoContextException(
-                    """
-                    Found several params with name '%s', linked to databases (%s) . Yet no context is provided.
-                    Please embed you code in a DbContext :
-                        with DbContext(currentdb) :
-                            <code>
-                    """
-                    % (key, ", ".join(dbs))
-                )
-            if DbContext.current_db() in params_per_db:
-                return params_per_db[DbContext.current_db()]
-            else:
-                return params_per_db[None]
-
-        except KeyError:
-            raise Exception(f"Parameter {key} not found :. Valid parameters : {self.keys()}")
+        if key not in self.params:
+            loadParams()
+        return self.params.__getitem__(key)
 
     def as_dict(self):
         return dict(self.items())
 
     def __setitem__(self, key, param: ParamDef):
-        if param.dbname in self.params[key]:
-            message = "[ParamRegistry] Param %s was already defined in '%s' " % (param.name, param.dbname or "<project>")
-
-            if not Settings.param_overriding_enabled:
-                raise Exception(message + "overriding disabled in Settings")
-
-        self.params[key][param.dbname] = param
+        if key in self.params:
+            print(f"WARNING: Override the existing parameter '{key}'")
+        self.params[key] = param
 
     def __contains__(self, key):
         return key in self.params
@@ -1068,16 +1016,13 @@ class ParamRegistry:
         return [(key, self.__getitem__(key)) for key in self.params.keys()]
 
     def clear(self, db_name=None):
-        if db_name is None:
-            self.params.clear()
-        else:
-            for param_name, db_params in self.params.items():
-                if db_name in db_params:
-                    del db_params[db_name]
+        if db_name is not None:
+            warn("ParamRegistry.clear: db_name argument is deprecated and ignored")
+        self.params.clear()
 
     def all(self):
         """Return list of all parameters, including params with same names and different DB"""
-        return list(param for params in self.params.values() for param in params.values())
+        return list(self.params.values())
 
 
 # Possible param values : either floator string (enum value)
@@ -1207,18 +1152,15 @@ def resetParams(db_name=None):
     / in memory.
 
     """
-    _param_registry().clear(db_name)
+    _param_registry().clear()
     _persisted_param_signatures.clear()
 
-    if db_name is None:
-        ProjectParameter.delete().execute()
-        ActivityParameter.delete().execute()
-        DatabaseParameter.delete().execute()
-    else:
-        ActivityParameter.delete().where(ActivityParameter.database == db_name).execute()
-        DatabaseParameter.delete().where(DatabaseParameter.database == db_name).execute()
-        Group.delete().execute()
+    if db_name is not None:
+        warn("resetParams: db_name parameter is deprecated and ignored")
 
+    _param_registry().clear(None)
+
+    ProjectParameter.delete().execute()
 
 class NameType(Enum):
     NAME = "name"
@@ -1254,7 +1196,6 @@ def list_parameters(name_type=NameType.NAME, as_dataframe=False):
             std=getattr(param, "std", None),
             distrib=param.distrib,
             unit=param.unit,
-            db=param.dbname or "[project]",
         )
         for param in _param_registry().all()
     ]
