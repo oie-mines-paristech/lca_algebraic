@@ -1,4 +1,20 @@
+> ## ⚠️ Deprecated package
+>
+> `lca-algebraic-bw25` is the **Brightway 2.5 only** line of lca-algebraic. It is
+> superseded by the unified [`lca-algebraic`](https://pypi.org/project/lca-algebraic/)
+> package (>= 1.5.0), which supports **both** Brightway 2.4 and Brightway 2.5 from a
+> single code base:
+>
+> ```bash
+> pip install "lca-algebraic[bw25]"   # Brightway 2.5
+> pip install "lca-algebraic[bw2]"    # Brightway 2.4
+> ```
+>
+> No new version will be published on this line. Please migrate to `lca-algebraic` —
+> see the [documentation](https://lca-algebraic.readthedocs.io/) and the
+> [release notes](https://github.com/oie-mines-paristech/lca_algebraic/blob/main/RELEASE_NOTES.md).
 
+---
 
 <img src="./doc/source/_static/img/logo_lca_algebraic.png" alt="logo" width="200" style="margin:auto;display:block"/>
 

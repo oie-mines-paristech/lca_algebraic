@@ -1,3 +1,13 @@
+# 1.4.3
+
+* **Deprecation notice.** `lca-algebraic-bw25` is now superseded by the unified
+  `lca-algebraic` package (>= 1.5.0), which supports both Brightway 2.4 and
+  Brightway 2.5 from a single code base. Install it as
+  `pip install "lca-algebraic[bw25]"` (or `pip install "lca-algebraic[bw2]"`).
+  This Brightway 2.5 only line will not receive further releases.
+* Package metadata marked as `Development Status :: 7 - Inactive`.
+* Note: version 1.4.2 was tagged on this branch but never published to PyPI.
+
 # 1.4.1
 
 * Fix Axis computation : See https://github.com/oie-mines-paristech/lca_algebraic/pull/91
