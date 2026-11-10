@@ -22,7 +22,7 @@ from lca_algebraic.bw_wrapper import (
 
 from .base_utils import getActByCode, invalidate_db
 from .log import logger
-from .settings import PROXY_DB_FLAG
+from .settings import FORMULA_TAG_FLAG, PROXY_DB_FLAG
 
 BIOSPHERE_PREFIX = "biosphere"
 FOREGROUND_KEY = "fg"
@@ -68,6 +68,7 @@ class DbContext:
 
 def deleteDb(db_name):
     """Delete a database"""
+    _metaCache.pop(db_name, None)
     del dbmeta[db_name]
 
 
@@ -88,6 +89,10 @@ def resetDb(db_name, foreground=True):
         logger.warning("Db %s was here. Reseting it" % db_name)
         del dbmeta[db_name]
 
+    # Drop memoized metadata : the db is recreated from scratch below, and a stale
+    # FOREGROUND_KEY / FORMULA_TAG_FLAG would otherwise survive the reset
+    _metaCache.pop(db_name, None)
+
     # Drop the pooled Database instance : it may hold a stale view (e.g. bw25 node ids)
     # of a previously deleted/recreated database with the same name
     invalidate_db(db_name)
@@ -101,6 +106,8 @@ def resetDb(db_name, foreground=True):
     db.write(dict())
     if foreground:
         setForeground(db_name)
+        # This db is created by a version that tags its formulas (see FORMULA_TAG_FLAG)
+        _setMeta(db_name, FORMULA_TAG_FLAG, True)
     else:
         setBackground(db_name)
 
@@ -156,6 +163,19 @@ def _getMeta(db_name, key):
 def _isForeground(db_name):
     """Check is db is marked as foreground DB : which means activities may be parametrized / should be developped."""
     return _getMeta(db_name, FOREGROUND_KEY)
+
+
+def uses_formula_tag(db_name):
+    """True if `db_name` was created by a version tagging its formulas.
+
+    False means a database written before the tag existed : its untagged
+    "formula" fields must still be read as lca_algebraic expressions.
+    """
+    try:
+        return bool(_getMeta(db_name, FORMULA_TAG_FLAG))
+    except KeyError:
+        # Unknown / deleted database : assume legacy
+        return False
 
 
 def setForeground(db_name):

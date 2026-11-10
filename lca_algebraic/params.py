@@ -33,7 +33,7 @@ from lca_algebraic.bw_wrapper import (
     new_database_parameters,
     new_project_parameters,
 )
-from lca_algebraic.database import DbContext, _isForeground
+from lca_algebraic.database import DbContext, _isForeground, uses_formula_tag
 from lca_algebraic.log import logger, warn
 from lca_algebraic.settings import Settings
 from lca_algebraic.sympy_utils import find_symbols
@@ -1397,10 +1397,10 @@ def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     if STORE_FORMULA_KEY in ex:
         # The "formula" field is shared : lca_algebraic writes symbolic amounts
         # there on FOREGROUND exchanges, ecoinvent writes chemical formulas on
-        # background ones. Two ways to tell them apart (see Settings.use_lca_formula_tag).
-        if Settings.use_lca_formula_tag:
-            is_lca_formula = STORE_FORMULA_TAG in ex
-        else:
+        # background ones. The tag is authoritative ; databases created before the
+        # tag existed (no FORMULA_TAG_FLAG) fall back to legacy detection.
+        is_lca_formula = STORE_FORMULA_TAG in ex
+        if not is_lca_formula and not uses_formula_tag(ex["output"][0]):
             # Legacy detection : a formula on a foreground exchange is ours.
             is_lca_formula = _isForeground(ex["output"][0])
 

@@ -734,35 +734,11 @@ def test_compute_inventory(data):
     assert_frame_equal(df_expected, df, rtol=1e-03)
 
 
-def test_compute_inventory_with_method_and_several_param_values(data):
-    p1 = newFloatParam("p1", 1, min=1, max=3)
-
-    # Two nested activities
-    fg_act1 = newActivity(USER_DB, name="act1", unit="kg", exchanges={data.bg_act1: p1})
-
-    root_act = newActivity(USER_DB, name="root_act", unit="kg", exchanges={fg_act1: 1, data.bg_act1: 1, data.bio1: 1})
-
-    df = compute_inventory(root_act, impact_method=data.ibio1, p1=[1.0, 2.0])
-
-    assert_frame_equal(
-        rtol=1e-03,
-        left=df,
-        right=DataFrame(
-            [
-                {"database": "bg", "name": "bg_act1", "location": "GLO", "unit": "kg", "1": 2.0, "2": 3.0},
-                {"database": "bg", "name": "bio1", "location": "GLO", "unit": "kg", "1": 1.0, "2": 1.0},
-            ]
-        ),
-    )
-
-
 def test_compute_inventory_multi_db_background(data):
-    """Regression: default UNITY method with a background spanning several DBs.
+    """Inventory of a background spanning several DBs.
 
-    The conftest fixture puts every background activity in BG_DB, so the buggy
-    single-database assumption was never exercised. With a second background DB,
-    the synthetic UNITY method used to be handed to brightway and raised
-    ``AssertionError: Can't find method object ('UNITY','UNITY','UNITY')``.
+    The conftest fixture puts every background activity in BG_DB, so a
+    single-database assumption would never be exercised.
     """
     # A second background database, referenced alongside a BG_DB activity
     resetDb("bg2", foreground=False)
@@ -770,7 +746,6 @@ def test_compute_inventory_multi_db_background(data):
 
     root_act = newActivity(USER_DB, name="root_act", unit="kg", exchanges={data.bg_act1: 1, bg2_act: 1})
 
-    # impact_method defaults to None -> the internal UNITY pseudo-method
     df = compute_inventory(root_act)
 
     # Both background databases must show up, no exception

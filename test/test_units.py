@@ -13,8 +13,10 @@ from lca_algebraic import (
     copyActivity,
     compute_impacts,
     interpolate_activities,
-    temp_settings,
 )
+from lca_algebraic.bw_wrapper import databases
+from lca_algebraic.database import _metaCache
+from lca_algebraic.settings import FORMULA_TAG_FLAG
 from test.conftest import USER_DB
 from sympy import Float
 import sympy
@@ -154,13 +156,22 @@ def test_update_activities_with_units(data):
     assert _getAmountOrFormula(ex) == 10.0
 
 
-def test_legacy_formula_detection(data):
-    """Legacy detection (Settings.use_lca_formula_tag=False) : an untagged formula
-    on a FOREGROUND exchange is an lca_algebraic expression.
+def _drop_db_flag(db_name):
+    """Simulate a database written before FORMULA_TAG_FLAG existed."""
+    data = databases[db_name]
+    data.pop(FORMULA_TAG_FLAG, None)
+    databases[db_name] = data
+    databases.flush()
+    _metaCache[db_name].pop(FORMULA_TAG_FLAG, None)
 
-    Regression : the "has_lca_algebraic_formula" tag is not backward compatible.
-    Databases written before it store a foreground "formula" without the tag,
-    which used to fall back to "amount" (0) and produced a zero impact."""
+
+def test_legacy_formula_detection(data):
+    """Backward compatibility of the "has_lca_algebraic_formula" tag.
+
+    The flag lives on the FOREGROUND DATABASE : when it is absent, the db was
+    written before the tag existed and an untagged formula on a foreground
+    exchange is still an lca_algebraic expression (falling back to "amount" = 0
+    produced a zero impact)."""
     p = newFloatParam("p_legacy", default=2, min=0, max=10, unit="kg")
 
     act = newActivity(USER_DB, "act_legacy", "kg", exchanges={data.bg_act1: p})
@@ -171,53 +182,24 @@ def test_legacy_formula_detection(data):
     ex.pop(STORE_FORMULA_TAG)
     ex.save()
 
-    # Default (tag) behaviour : the untagged formula is ignored -> amount (0)
+    # New-version db (flag present) : the untagged formula is ignored -> amount (0)
     assert _getAmountOrFormula(ex) == 0.0
 
-    # Legacy behaviour : the formula is recognized as an lca_algebraic expression
-    with temp_settings(use_lca_formula_tag=False):
-        legacy = _getAmountOrFormula(ex)
-        assert legacy != 0.0
-        assert "p_legacy" in str(legacy)
+    # Legacy db (flag absent) : the formula is recognized as lca_algebraic expression
+    _drop_db_flag(USER_DB)
+    legacy = _getAmountOrFormula(ex)
+    assert legacy != 0.0
+    assert "p_legacy" in str(legacy)
 
-    # Even in legacy mode, a BACKGROUND formula (ecoinvent chemical) is ignored
+    # A tagged formula is read even without the db flag
+    act.updateExchanges({data.bg_act1: p})
+    assert STORE_FORMULA_TAG in act.getExchange(name="bg_act1")
+
+    # In legacy mode too, a BACKGROUND formula (ecoinvent chemical) is ignored
     bg_ex = data.bg_act1.getExchange(name="bio1")
     bg_ex["formula"] = "CH4"
     bg_ex.save()
-    with temp_settings(use_lca_formula_tag=False):
-        assert _getAmountOrFormula(bg_ex) == bg_ex["amount"]
-
-
-def test_interpolation_with_units(data):
-    # Common helper to check results
-    def check_impacts(model, p_values, expected_results):
-        # Compute impacts for several values of p
-        methods = list(expected_results)
-
-        impacts = compute_impacts(model, methods, p=p_values)
-        print(impacts)
-        for i, k in enumerate(methods):
-            values = impacts.iloc[:, i]
-            assert_array_equal(values, expected_results[k])
-
-    # The param is in meter
-    p = newFloatParam("p", 1.0, min=1, max=3, unit="m")
-
-    # Create act1 act2  having respectively 1.0, 2.0 kg of bio1, output unit : kg too
-    act1 = newActivity(USER_DB, "act1", "kg", {data.bio1: 1.0 | u.kg})
-    act2 = newActivity(USER_DB, "act2", "kg", {data.bio2: 1.0 | u.kg})
-
-    # Interpolate including zero
-    interp_with_zero = interpolate_activities(USER_DB, "interp_with_zero", p, {1.0 | u.m: act1, 3.0 | u.m: act2}, add_zero=True)
-
-    check_impacts(
-        interp_with_zero,
-        p_values=[0.0, 1.0, 2.0, 3.0, 4.0],
-        expected_results={
-            data.ibio1: [0.0, 1.0, 0.5, 0.0, 0.0],
-            data.ibio2: [0.0, 0.0, 0.5, 1.0, 1.0],
-        },
-    )
+    assert _getAmountOrFormula(bg_ex) == bg_ex["amount"]
 
 
 def test_interpolation_with_units(data):

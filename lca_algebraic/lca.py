@@ -35,7 +35,7 @@ from lca_algebraic.bw_wrapper import (
     multi_lca,
 )
 from lca_algebraic.lambda_expression import LambdaExpr
-from lca_algebraic.settings import UNITY_METHOD, Settings
+from lca_algebraic.settings import Settings
 
 from . import atomic, copyActivity, getActByCode, resetDb
 from .cache import ExprCache, LCIACache, MappingCache, get_dependant_dbs
@@ -183,20 +183,8 @@ def _multiLCAWithCache(all_acts, methods, scenario: str = None) -> Dict[Tuple[Ac
             # on each iteration (and, with several dbs, report a constant count).
             remaining_acts = list(act for act in acts if any(method for method in methods if (act, method) not in cache.data))
 
-            # Handle custom "unity" method separately
-            if UNITY_METHOD in methods:
-                for act in acts:
-                    for method in methods:
-                        if not (act, method) in cache.data:
-                            cache.data[(act, method)] = 1.0
-
             # list methods with at least one missing value
-            # UNITY is synthetic and pre-filled above : never hand it to brightway.
-            remaining_methods = list(
-                method
-                for method in methods
-                if method != UNITY_METHOD and any(act for act in acts if (act, method) not in cache.data)
-            )
+            remaining_methods = list(method for method in methods if any(act for act in acts if (act, method) not in cache.data))
 
             if len(remaining_acts) > 0 and len(remaining_methods) > 0:
                 progress(
@@ -807,13 +795,12 @@ def compute_inventory(
     as_dict=False,
     impact_method=None,
     fields=["database", "name", "location", "unit"],
-    scenario: Union[str, list[str], None] = None,
     filter_zeros=True,
     **params,
 ):
     """
 
-    This method computes the inventory of background activities for a given scenario / values of parameters.
+    This method computes the inventory of background activities for a given values of parameters.
 
     Parameters
     ----------
@@ -832,6 +819,9 @@ def compute_inventory(
     impact_method:
         If provided, return the impact for each activity, rather that its quantity
 
+    filter_zeros:
+        If true (default), activities with a zero quantity are left out of the dataframe
+
     params:
         All other attributes are treated as values of lca_algebraic parameters.
         If not specified, each parameters takes its default value.
@@ -841,45 +831,35 @@ def compute_inventory(
     Dataframe or Dict of act => value
 
     """
-    if not isinstance(scenario, list):
-        scenario = [scenario]
-
-    # Name the output columns after the scenario, or after the sample index when
-    # several values are provided for the parameters (no explicit scenario).
-    labels = scenario if scenario != [None] else [str(i + 1) for i in range(_compute_param_length(params))]
-
-    if impact_method is None:
-        impact_method = UNITY_METHOD
-
-    zeros = np.full(len(scenario), 0.0)
 
     with temp_settings(factorize_static_bg=False):
-        # Compute once the generic lambda expression
-        lambda_exprs = _preMultiLCAAlgebric(model=model, methods=[impact_method], alpha=1 / functional_unit, scenarios=scenario)
-
-        lambda_expr = lambda_exprs[0]
+        lambda_expr = _actToLambdaExpr(model, alpha=1 / functional_unit)
 
         # Transform to dict of act => value
-        val_by_act: Dict[Activity, DataFrame] = dict()
+        val_by_act = dict()
         for bg_act in lambda_expr.background_activities:
-            impacts = lambda_expr.impacts_dict()
+            # Dummy impact set to 1 only for current bg act, zero for others
+            impacts = {act: 1.0 if act == bg_act else 0.0 for act in lambda_expr.background_activities}
 
-            # Build temp lambda with only a single act activated, the other impacts being set to Zero
-            filtered_impacts = {act: impacts[act] if act == bg_act else zeros for act in lambda_expr.background_activities}
+            bg_expr = lambda_expr.with_impacts(impacts)
+            val = bg_expr.compute(**params).value
+            if isinstance(val, dict):
+                val = val["_all_"]
+            val_by_act[bg_act] = val
 
-            single_bg_expr = lambda_expr.with_impacts(filtered_impacts)
+        if impact_method is not None:
+            # Compute LCA of background activities
+            impact_by_act = _multiLCAWithCache(val_by_act.keys(), [impact_method])
 
-            res = _postMultiLCAAlgebric(methods=[impact_method], lambdas=[single_bg_expr], **params)
-
-            val_by_act[bg_act] = res.values.flatten()
+            val_by_act = {act: value * impact_by_act[(act, impact_method)] for act, value in val_by_act.items()}
 
         if as_dict:
             return val_by_act
 
         # Transform to dataframe
         items = []
-        for act, values in val_by_act.items():
-            if filter_zeros and np.all(values == 0.0):
+        for act, value in val_by_act.items():
+            if filter_zeros and np.all(value == 0.0):
                 continue
 
             item = dict()
@@ -888,12 +868,7 @@ def compute_inventory(
                 if field in act:
                     item[field] = act[field]
 
-            # Flatten multiple values
-            if len(values) == 1:
-                item["value"] = values[0]
-            else:
-                for i in range(0, len(values)):
-                    item[labels[i]] = values[i]
+            item["value"] = value
             items.append(item)
 
     return DataFrame(items)

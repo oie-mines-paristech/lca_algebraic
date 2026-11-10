@@ -11,10 +11,6 @@ except ImportError:
         pass
 
 
-# Custom method that returns "1.0" used for inventories
-UNITY_METHOD = ("UNITY", "UNITY", "UNITY")
-
-
 class CSE(StrEnum):
     NONE = "none"
     DEFAULT = "default"  # Default sympy one
@@ -25,19 +21,6 @@ class Settings:
     cache_enabled: bool = True
     units_enabled: bool = False
     param_overriding_enabled: bool = True
-
-    # How to recognize an lca_algebraic symbolic amount in an exchange.
-    # The "formula" field is shared : lca_algebraic stores its expressions there
-    # on FOREGROUND exchanges, while ecoinvent stores chemical formulas in it on
-    # background exchanges.
-    #   True  (default) : a "formula" is ours only when tagged with
-    #                     "has_lca_algebraic_formula" (introduced in v1.4.1.devX).
-    #   False           : legacy detection -- on a FOREGROUND exchange, any present
-    #                     "formula" is an lca_algebraic expression; background
-    #                     formulas stay ignored. Required to read databases written
-    #                     before the tag existed (untagged formulas otherwise fall
-    #                     back to "amount", which is 0 for foreground).
-    use_lca_formula_tag: bool = True
 
     # If true, upon computation, static background activities would be
     factorize_static_bg: bool = False
@@ -68,6 +51,13 @@ class Settings:
 
 # Flag used on Db to set it as proxy
 PROXY_DB_FLAG = "isProxy"
+
+# Flag set on FOREGROUND databases created by this version. Its presence means the
+# db writes lca_algebraic formulas tagged with STORE_FORMULA_TAG, so untagged
+# "formula" fields must be ignored. Its absence means a database written before
+# the tag existed : fall back to the legacy detection (any "formula" on a
+# foreground exchange is an lca_algebraic expression).
+FORMULA_TAG_FLAG = "uses_lca_algebraic_formula_tag"
 
 
 @contextmanager
