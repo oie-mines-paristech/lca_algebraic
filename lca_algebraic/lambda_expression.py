@@ -158,6 +158,10 @@ class LambdaExpr:
 
         return res
 
+    def impacts_dict(self):
+        """Returns list of impacts as dict"""
+        return {bg_act: val for bg_act, val in zip(self.background_activities, self.impacts)}
+
 
 def _filter_param_values(params, expanded_param_names):
     return {key: val for key, val in params.items() if key in expanded_param_names}

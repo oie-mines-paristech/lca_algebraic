@@ -11,6 +11,10 @@ except ImportError:
         pass
 
 
+# Custom method that returns "1.0" used for inventories
+UNITY_METHOD = ("UNITY", "UNITY", "UNITY")
+
+
 class CSE(StrEnum):
     NONE = "none"
     DEFAULT = "default"  # Default sympy one

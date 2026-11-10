@@ -829,6 +829,28 @@ def test_duplicate_db_updates_target_in_place(data):
     assert sorted(a["name"] for a in Database("p#2050")) == ["a1", "a2"]
 
 
+def test_compute_inventory_with_method_and_several_param_values(data):
+    p1 = newFloatParam("p1", 1, min=1, max=3)
+
+    # Two nested activities
+    fg_act1 = newActivity(USER_DB, name="act1", unit="kg", exchanges={data.bg_act1: p1})
+
+    root_act = newActivity(USER_DB, name="root_act", unit="kg", exchanges={fg_act1: 1, data.bg_act1: 1, data.bio1: 1})
+
+    df = compute_inventory(root_act, impact_method=data.ibio1, p1=[1.0, 2.0])
+
+    assert_frame_equal(
+        rtol=1e-03,
+        left=df,
+        right=DataFrame(
+            [
+                {"database": "bg", "name": "bg_act1", "location": "GLO", "unit": "kg", "1": 2.0, "2": 3.0},
+                {"database": "bg", "name": "bio1", "location": "GLO", "unit": "kg", "1": 1.0, "2": 1.0},
+            ]
+        ),
+    )
+
+
 def test_inventory_loops_should_work(data):
     main_act = newActivity(USER_DB, "main_act", "kg")
 
