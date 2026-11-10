@@ -25,6 +25,13 @@ sphinx:
 # Optionally declare the Python requirements required to build your docs
 python:
    install:
+   # Docs toolchain
    - requirements: doc/requirements.txt
+   # Install lca_algebraic itself (with a Brightway backend) so that autodoc
+   # can import the package and render the API reference.
+   - method: pip
+     path: .
+     extra_requirements:
+       - bw25
 
 
