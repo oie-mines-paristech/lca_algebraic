@@ -7,7 +7,7 @@ __all__ = [
     "prettify",
     "sobol_simplify_model",
     "distrib",
-    "compare_simplified"
+    "compare_simplified",
 ]
 
 import concurrent

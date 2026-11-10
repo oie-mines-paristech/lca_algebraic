@@ -11,6 +11,10 @@ except ImportError:
         pass
 
 
+# Custom method that returns "1.0" used for inventories
+UNITY_METHOD = ("UNITY", "UNITY", "UNITY")
+
+
 class CSE(StrEnum):
     NONE = "none"
     DEFAULT = "default"  # Default sympy one
@@ -21,6 +25,19 @@ class Settings:
     cache_enabled: bool = True
     units_enabled: bool = False
     param_overriding_enabled: bool = True
+
+    # How to recognize an lca_algebraic symbolic amount in an exchange.
+    # The "formula" field is shared : lca_algebraic stores its expressions there
+    # on FOREGROUND exchanges, while ecoinvent stores chemical formulas in it on
+    # background exchanges.
+    #   True  (default) : a "formula" is ours only when tagged with
+    #                     "has_lca_algebraic_formula" (introduced in v1.4.1.devX).
+    #   False           : legacy detection -- on a FOREGROUND exchange, any present
+    #                     "formula" is an lca_algebraic expression; background
+    #                     formulas stay ignored. Required to read databases written
+    #                     before the tag existed (untagged formulas otherwise fall
+    #                     back to "amount", which is 0 for foreground).
+    use_lca_formula_tag: bool = True
 
     # If true, upon computation, static background activities would be
     factorize_static_bg: bool = False
@@ -37,6 +54,12 @@ class Settings:
     # If true, caches are flushed automatically but more frequently
     # If set to flase, you shoudl ensure flushing caches yourself
     auto_flush = True
+
+    # If true (default), install hooks that flush the caches on interpreter exit,
+    # on uncaught exception, and on SIGINT/SIGTERM. Safety net so a run leaves no
+    # lost work when auto_flush is off (caches are otherwise only written on an
+    # explicit flush_caches()).
+    auto_flush_on_exit = True
 
     # Separator considered in database name for scenarios
     # You may chose another one with several safer catacters like "__" or "-scenario-"

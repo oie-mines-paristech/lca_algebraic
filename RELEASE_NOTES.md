@@ -7,9 +7,18 @@
 * Don't run "_force_reduce" when axis not used
 * Add axis tagging on individual exchanges : `compute_impacts(..., axis=...)` can now ventilate impacts per exchange (tagged via a dict of attributes in `newActivity`/`updateExchanges`), in addition to per activity.
 * Merge bw2 and bw25 branches into a unified branch with optional pip dependencies
+* Added support for several premise scenarios in compute_impacts()
+* Added support for scenarios in compute_inventories
 * Fix truncated normal and lognormal param sampling (#71, #25, PR #106) : lognormal *default* is the median and *std* the sigma of log(x), as in Brightway (sampling changes for existing lognormal params) ; truncated normal honours min/max and works with a single bound — Simon van Lierde (@simonvanlierde)
 * Fix findMethods(mainCat=...) and method_name() for 4-element method keys from bw2io.import_ecoinvent_release (#80, #84, #35, PR #107) : Sobol failures now report the method name — Simon van Lierde (@simonvanlierde)
 * Speed up Monte Carlo and compute_impacts by skipping per-sample expandParams in _expand_params (PR #108) — Simon van Lierde (@simonvanlierde)
+* Fix findActivity crashing on Brightway 2.5 (bw2data >= 4) when a name lookup falls back to a blank FTS5 query : the "retry without strange characters" regex can strip a name down to spaces, which FTS5 rejects while bw2data 3 silently returned nothing.
+* Fix activity overwrite : overwriting an activity (same name) now updates it in place instead of creating a duplicate.
+* Make the expression-cache dependencies proxy-aware, so a change in the foreground invalidates the caches that depend on it.
+* Label the `compute_impacts()` output columns with the impact method name.
+* Added progress logs during the algebric multi-LCA computation.
+* Added a `filter_zeros` option to `compute_inventory()` (default `True`) : background activities with a zero impact are dropped from the result.
+* Fix premise-scenario activity mapping : activities missing from the destination scenario database are now skipped instead of raising a `KeyError`.
 
 # 1.4.1
 

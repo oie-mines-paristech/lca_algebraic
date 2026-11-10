@@ -5,6 +5,7 @@ import numpy as np
 
 from .activity import *
 from .base_utils import *
+from .cache import install_exit_hooks
 from .database import *
 from .interpolation import *
 from .io import *
@@ -44,3 +45,8 @@ pd.options.display.float_format = "{:,g}".format
 
 # Fix np.NaN for numpy2
 np.NaN = np.nan
+
+
+# Flush the caches on exit / uncaught exception / SIGINT-SIGTERM
+# (gated by Settings.auto_flush_on_exit, see lca_algebraic.cache)
+install_exit_hooks()

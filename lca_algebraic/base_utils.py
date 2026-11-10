@@ -52,6 +52,7 @@ def _getDb(dbname):
 
 def _MinMax(op, arg0, *args):
     from lca_algebraic.units import unit_registry as u
+
     if not Settings.units_enabled:
         return op(arg0, *args)
     same_unit = all(x.units == arg0.units for x in args)

@@ -13,12 +13,14 @@ from lca_algebraic.bw_wrapper import (
     Activity,
     Exchange,
     ExchangeDataset,
+    activity_not_found,
     copy_activity_skip_keys,
     dict_as_exchangedataset,
     exchange_type_for_sub_act,
     get_activity,
     process_node_default,
     production_edge_default,
+    purge_activity_content,
 )
 from lca_algebraic.database import (
     _find_biosphere_db,
@@ -324,7 +326,6 @@ class ActivityExtended(Activity):
     def _amount_to_formula(self, amount: ValueOrExpression, exchange: ExchangeDataset):
         res = dict()
         if isinstance(amount, Basic):
-
             if amount.is_number:
                 return {"amount": float(amount.evalf())}
 
@@ -496,6 +497,11 @@ def findActivity(
             search = search.lower()
             search = search.replace(",", " ")
 
+            # bw2data >= 4 backs `search` with FTS5, which rejects blank queries
+            # while bw2data 3 silently returned nothing.
+            if not search.strip():
+                return []
+
             # Find candidates via index
             # candidates = _find_candidates(db_name, name_key)
             candidates = _getDb(db_name).search(search, limit=limit)
@@ -503,7 +509,8 @@ def findActivity(
             if len(candidates) == 0:
                 # Try again removing strange caracters
                 search = re.sub(r"\w*[^a-zA-Z ]+\w*", " ", search)
-                candidates = _getDb(db_name).search(search, limit=limit)
+                if search.strip():
+                    candidates = _getDb(db_name).search(search, limit=limit)
 
             # Exact match
             return list(filter(act_filter, candidates))
@@ -567,13 +574,19 @@ def _newAct(db_name, code):
         warn(msg)
 
     db = _getDb(db_name)
-    # Already present : delete it ?
-    for act in db:
-        if act["code"] == code:
-            warn("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
-            act.delete()
 
-    return db.new_activity(code)
+    try:
+        act = getActByCode(db_name, code)
+    except activity_not_found():
+        return db.new_activity(code)
+
+    # Already present : overwrite it in place.
+    # We must not delete+recreate the activity : on brightway 2.5, deleting an
+    # activity also removes the incoming links (exchanges from other activities
+    # consuming it), which would silently break previously built models.
+    warn("Activity '%s' was already in '%s'. Overwriting it" % (code, db_name))
+    purge_activity_content(act)
+    return act
 
 
 def newActivity(
@@ -702,9 +715,10 @@ def copyActivity(
             # Input mapping, used to migrate proxy db linked to premise scenarios
             data["input"] = input_mapping[data["input"]]
 
-        # Chemical formulas might be in ecoinvent technosphere
-        # We don't want them
-        if stripFormula and ("formula" in data) and (STORE_FORMULA_TAG not in data):
+        # Do not carry "formula" over from a background activity : ecoinvent puts
+        # chemical formulas in that field and we only want lca_algebraic ones.
+        # (A formula on a foreground exchange is an lca_algebraic amount.)
+        if stripFormula and ("formula" in data) and not _isForeground(activity.key[0]):
             del data["formula"]
         ExchangeDataset.create(**dict_as_exchangedataset(data))
 

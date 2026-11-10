@@ -33,7 +33,7 @@ from lca_algebraic.bw_wrapper import (
     new_database_parameters,
     new_project_parameters,
 )
-from lca_algebraic.database import DbContext
+from lca_algebraic.database import DbContext, _isForeground
 from lca_algebraic.log import logger, warn
 from lca_algebraic.settings import Settings
 from lca_algebraic.sympy_utils import find_symbols
@@ -43,6 +43,7 @@ DEFAULT_PARAM_GROUP = "acv"
 UNCERTAINTY_TYPE = "uncertainty type"
 STORE_FORMULA_KEY = "formula"
 STORE_FORMULA_TAG = "has_lca_algebraic_formula"
+
 
 class ParamType:
     """Type of parameters"""
@@ -514,8 +515,18 @@ def persistParams():
         _persistParam(param)
 
 
-def _persistParam(param):
-    """Persist parameter into Brightway project"""
+# Signatures of the parameters currently persisted in Brightway, keyed by
+# (database, name). Populated by `loadParams()` and refreshed after each
+# successful `_persistParam()`. Lets `new*Param` skip rewriting a parameter
+# that is already persisted with the exact same definition.
+_persisted_param_signatures: Dict[tuple, tuple] = {}
+
+
+def _bwParamData(param) -> List[dict]:
+    """Build the list of Brightway parameter dicts describing `param`.
+
+    One entry for a float / bool parameter, one entry per choice for an enum.
+    """
     out = []
 
     # Common attributes for all types of params
@@ -573,10 +584,55 @@ def _persistParam(param):
 
         out.append(bwParam)
 
+    return out
+
+
+def _sigKey(bwParam: dict) -> tuple:
+    """Key identifying a Brightway parameter: (database, name)."""
+    return (bwParam.get("database"), bwParam["name"])
+
+
+def _paramSignature(bwParam: dict) -> tuple:
+    """Canonical, hashable signature of a Brightway parameter dict.
+
+    Numbers are normalised (int 0 == float 0.0) so that a freshly-built dict
+    compares equal to the one stored in Brightway.
+    """
+
+    def norm(value):
+        if isinstance(value, bool) or value is None:
+            return value
+        if isinstance(value, (int, float)):
+            return round(float(value), 12)
+        return value
+
+    return tuple(sorted((key, norm(value)) for key, value in bwParam.items()))
+
+
+def _persistParam(param):
+    """Persist parameter into Brightway project, unless an identical parameter
+    is already persisted (in which case this is a no-op).
+
+    Brightway's `new_*_parameters` recomputes the whole parameter graph on every
+    call, so skipping an unchanged write is what makes repeated `new*Param`
+    calls (e.g. rebuilding descriptors on each run) cheap.
+    """
+    out = _bwParamData(param)
+
+    # Brightway's new_*_parameters consumes the dicts (it pops some keys), so
+    # read the keys/signatures *before* the call.
+    keys = [_sigKey(bwParam) for bwParam in out]
+    signatures = [_paramSignature(bwParam) for bwParam in out]
+    if all(_persisted_param_signatures.get(key) == sig for key, sig in zip(keys, signatures)):
+        return
+
     if param.dbname:
         new_database_parameters(out, param.dbname)
     else:
         new_project_parameters(out)
+
+    for key, sig in zip(keys, signatures):
+        _persisted_param_signatures[key] = sig
 
 
 def _loadArgs(data):
@@ -618,6 +674,11 @@ def loadParams(global_variable=True, dbname=None):
 
     def register(param: ParamDef):
         _param_registry()[param.name] = param
+
+        # Remember the persisted definition, so re-creating an identical
+        # parameter later is a no-op (see _persistParam).
+        for bwParam in _bwParamData(param):
+            _persisted_param_signatures[_sigKey(bwParam)] = _paramSignature(bwParam)
 
         # Make it available as global var
         if global_variable:
@@ -1148,6 +1209,7 @@ def resetParams(db_name=None):
 
     """
     _param_registry().clear(db_name)
+    _persisted_param_signatures.clear()
 
     if db_name is None:
         ProjectParameter.delete().execute()
@@ -1332,12 +1394,22 @@ def _parse_formula(formula):
 
 def _getAmountOrFormula(ex: ExchangeDataset) -> Union[Basic, float]:
     """Return either a fixed float value or an expression for the amount of this exchange"""
-    if STORE_FORMULA_KEY in ex and STORE_FORMULA_TAG in ex:
-        try:
-            # We don't want support for units there
-            return _parse_formula(ex[STORE_FORMULA_KEY])
-        except Exception as e:
-            warn(f"Error '{e}' while parsing formula {ex[STORE_FORMULA_KEY]} : backing to amount")
+    if STORE_FORMULA_KEY in ex:
+        # The "formula" field is shared : lca_algebraic writes symbolic amounts
+        # there on FOREGROUND exchanges, ecoinvent writes chemical formulas on
+        # background ones. Two ways to tell them apart (see Settings.use_lca_formula_tag).
+        if Settings.use_lca_formula_tag:
+            is_lca_formula = STORE_FORMULA_TAG in ex
+        else:
+            # Legacy detection : a formula on a foreground exchange is ours.
+            is_lca_formula = _isForeground(ex["output"][0])
+
+        if is_lca_formula:
+            try:
+                # We don't want support for units there
+                return _parse_formula(ex[STORE_FORMULA_KEY])
+            except Exception as e:
+                warn(f"Error '{e}' while parsing formula {ex[STORE_FORMULA_KEY]} : backing to amount")
 
     return ex["amount"]
 

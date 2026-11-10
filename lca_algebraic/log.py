@@ -1,6 +1,10 @@
 import logging
 import os
 
+PROGRESS = 25
+
+logging.addLevelName(PROGRESS, "PROGRESS")
+
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 # logging.basicConfig(level=LOGLEVEL, format="[%(levelname)s] %(message)s")
 
@@ -27,3 +31,7 @@ def warn(*args):
 def info(*args):
     msg = " ".join(str(item) for item in args)
     logger.info(msg)
+
+
+def progress(msg, *args):
+    logger._log(PROGRESS, msg, args)

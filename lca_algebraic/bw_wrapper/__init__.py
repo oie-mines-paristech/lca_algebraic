@@ -111,6 +111,10 @@ def copy_activity_skip_keys() -> set:
     return _backend.copy_activity_skip_keys()
 
 
+def purge_activity_content(act) -> None:
+    _backend.purge_activity_content(act)
+
+
 def bw2setup() -> None:
     _backend.bw2setup()
 
@@ -146,5 +150,6 @@ __all__ = [
     "process_node_default",
     "production_edge_default",
     "projects",
+    "purge_activity_content",
     "sqlite3_lci_db",
 ]
