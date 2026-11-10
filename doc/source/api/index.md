@@ -13,4 +13,6 @@ methods
 lca
 sensitivity
 units
+settings
+cache
 ```

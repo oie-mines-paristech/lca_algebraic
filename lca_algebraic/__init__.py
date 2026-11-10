@@ -5,7 +5,7 @@ import numpy as np
 
 from .activity import *
 from .base_utils import *
-from .cache import install_exit_hooks
+from .cache import clear_caches, disable_cache, flush_caches, install_exit_hooks
 from .database import *
 from .interpolation import *
 from .io import *
@@ -13,7 +13,7 @@ from .lca import *
 from .log import *
 from .methods import *
 from .params import *
-from .settings import Settings
+from .settings import Settings, temp_settings
 from .stats import *
 from .units import *
 

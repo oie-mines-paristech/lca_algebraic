@@ -44,10 +44,16 @@ def last_db_update():
 
 
 def disable_cache():
+    """Disable the caches globally (sets ``Settings.cache_enabled`` to ``False``)."""
     Settings.cache_enabled = False
 
 
 def flush_caches():
+    """Write all in-memory caches to disk.
+
+    Caches are flushed automatically at the end of a computation when
+    ``Settings.auto_flush`` is on (the default). Call this explicitly when it is off.
+    """
     for cache in _Caches.caches.values():
         cache.sync()
 
@@ -309,6 +315,10 @@ class MappingCache(_CacheDict):
 
 
 def clear_caches(local=True, disk=True):
+    """Clear the LCIA and expression caches, both in memory (``local``) and on disk (``disk``).
+
+    Useful when a cache is suspected to be stale after manual database changes.
+    """
     for cache_name in [LCIA_CACHE, EXPR_CACHE]:
         for db_name in databases:
             cache = SyncDict(cache_name, db_name)

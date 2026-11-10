@@ -3,12 +3,14 @@
 ![Python 3.10](https://img.shields.io/badge/python-3.10-blue) 
 ![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
+![Python 3.14](https://img.shields.io/badge/python-3.14-blue)
 
 [![Brightway 2.4](https://img.shields.io/badge/brightway-2.4-blue)](https://docs.brightway.dev/en/legacy/index.html)
 [![Brightway 2.5](https://img.shields.io/badge/brightway-2.5-blue)](https://docs.brightway.dev/en/latest/)
 
 
-This library is a layer above [**brightway2**](https://brightway.dev/) designed for the definition of **parametric inventories** 
+This library is a layer above [**Brightway**](https://brightway.dev/) designed for the definition of **parametric inventories** 
 with fast computation of LCA impacts, suitable for **monte-carlo** / global sensitivity analysis 
 
 It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order to write parametric formulas as regular Python expressions.
@@ -26,38 +28,48 @@ It integrates the magic of [Sympy](https://www.sympy.org/en/index.html) in order
 
 # ⚙ Installation
 
-We support both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/index.html)
-and [Brightway 2.5](https://docs.brightway.dev/en/latest/) via two separate branches / libraries :
-
-* [lca_algebraic](https://pypi.org/project/lca-algebraic/) (for Brightway 2.4)
-* [lca_algebraic_bw25](https://pypi.org/project/lca-algebraic-bw25/) (for  Brightway 2.5)
+*lca_algebraic* supports both [Brightway 2.4 (legacy)](https://docs.brightway.dev/en/legacy/index.html)
+and [Brightway 2.5](https://docs.brightway.dev/en/latest/) through optional pip extras, from a single package.
 
 ## 1) Setup separate environment
 
-First create a python environment, with **Python** [>=3.10, <3.13] :
+First create a python environment, with **Python** [>=3.10, <3.15] :
 
 **With Conda (or [mamba](https://mamba.readthedocs.io/en/latest/index.html))**
 
 ```bash
-conda create -n lca python==3.10
+conda create -n lca python==3.12
 conda activate lca
 ```
 
 **With virtual env**
 
 ```bash
-python3.10 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
 ## 2) Install lca_algebraic
 
-> pip install lca_algebraic 
+Install for *Brightway 2.4* :
 
-Or, for brightway 25 :
+```bash
+pip install lca_algebraic[bw2]
+```
 
-> pip install lca_algebraic_bw25
+Or for *Brightway 2.5* :
 
+```bash
+pip install lca_algebraic[bw25]
+```
+
+For development (tests, pre-commit, etc.) :
+
+```bash
+pip install lca_algebraic[bw2,dev]
+# or
+pip install lca_algebraic[bw25,dev]
+```
 
 ## 3) [Optional] Install Jupyter & Activity Browser 
 
@@ -67,7 +79,7 @@ environment.
 **Jupyter** :
 > pip  install jupyter
 
-**Activity Browser** can only be installed via conda/mamba. Note that it can also be installed on environment and will 
+**Activity Browser** can only be installed via conda/mamba. Note that it can also be installed on a separate Python env and will 
 still be able to access and browse the projects created programmatically with *lca_algebraic* / *Brightway*.  
 > conda install activity-browser
 
@@ -89,6 +101,8 @@ Please register to this dedicated mailing list to discuss the evolutions of this
 # Source code
 
 The source code is available of our {gitref}`github </>`
+
+The list of changes for each release is available in the {gitref}`release notes </RELEASE_NOTES.md>`.
 
 
 # Licence & Copyright

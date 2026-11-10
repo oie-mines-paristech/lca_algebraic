@@ -57,10 +57,26 @@ line, and `*all*` always holds the total impact.
 .. autofunction:: lca_algebraic.compute_impacts
 ```
 
+## Compute impacts as an xarray
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.compute_impacts_xarray
+```
+
 ## Compute inventory
 
 ```{eval-rst} 
 .. autofunction:: lca_algebraic.compute_inventory
+```
+
+## Compute a value
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.compute_value
+```
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.compute_expr_value
 ```
 
 

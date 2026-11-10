@@ -32,6 +32,12 @@ brightway.
 .. autofunction:: lca_algebraic.findTechAct
 ```
 
+## getActByCode()
+
+```{eval-rst} 
+.. autofunction:: lca_algebraic.getActByCode
+```
+
 
 ## newActivity()
 

@@ -9,7 +9,7 @@ import sys
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "lca_algebraic"
-copyright = "2022, Centre O.I.E - Raphaël Jolivet"
+copyright = "2022-2026, Centre O.I.E - Raphaël Jolivet"
 author = "Centre O.I.E - Raphaël Jolivet"
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "_deps"))
